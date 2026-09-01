@@ -60,6 +60,7 @@ model Account {
   orders          Order[]
   aiConversations AiConversation[]
   invites         AccountInvite[]
+  rentalBookings  RentalBooking[]
 
   @@map("accounts")
 }
@@ -778,23 +779,56 @@ model Supplier {
 }
 
 model Product {
-  id            String   @id @default(uuid())
-  supplierId    String
-  name          String
-  category      String // e.g. "cement", "tiles", "electrical", "tools" — freeform, matched by the boq_to_order AI skill
-  unit          String // e.g. "bag", "piece", "sqm", "roll"
-  unitPrice     Decimal  @db.Decimal(14, 2)
-  currency      String
-  stockQuantity Int      @default(0)
-  description   String?
-  status        String   @default("active") // active | out_of_stock | discontinued
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                String   @id @default(uuid())
+  supplierId        String
+  name              String
+  category          String // e.g. "cement", "tiles", "electrical", "tools" — freeform, matched by the boq_to_order AI skill
+  unit              String // e.g. "bag", "piece", "sqm", "roll"
+  unitPrice         Decimal  @db.Decimal(14, 2)
+  currency          String
+  stockQuantity     Int      @default(0)
+  description       String?
+  status            String   @default("active") // active | out_of_stock | discontinued
+  // Module 10's rental calendar — a product is either sold (the existing
+  // Order path) or rentable by the day, never both at once in this
+  // scaffold's model. isRentable false leaves rentalPricePerDay
+  // meaningless, same "flag plus a field that's only meaningful when the
+  // flag is set" shape EscrowAccount/Payment pairs already use elsewhere.
+  isRentable        Boolean  @default(false)
+  rentalPricePerDay Decimal? @db.Decimal(14, 2)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  supplier   Supplier    @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  orderItems OrderItem[]
+  supplier       Supplier        @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  orderItems     OrderItem[]
+  rentalBookings RentalBooking[]
 
   @@map("products")
+}
+
+// Module 10's tool/equipment rental booking flow — a product's stock is
+// shared between however many units are out on rental at once; availability
+// is checked against confirmed/requested bookings whose date range overlaps
+// the new request, not against a separate rental-only stock count.
+model RentalBooking {
+  id         String    @id @default(uuid())
+  productId  String
+  accountId  String // the renting account
+  quantity   Int       @default(1)
+  startDate  DateTime
+  endDate    DateTime
+  status     String    @default("requested") // requested | confirmed | returned | cancelled
+  totalPrice Decimal   @db.Decimal(14, 2)
+  currency   String
+  notes      String?
+  returnedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("rental_bookings")
 }
 
 model Order {

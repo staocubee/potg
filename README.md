@@ -1459,6 +1459,71 @@ separate account with a role no vendor or supplier account ever holds.
   reviewer would need to review specific content, not just flip a status,
   which is a larger workflow than this pass's scope.
 
+## Tool/equipment rental booking (Module 10)
+
+Closes the other named gap in Module 10's "Not built yet" bullet: `src/
+materials` went straight from browsing to a line-item `Order`, with no
+rental calendar for tools/equipment at all. A rental is a different
+lifecycle from a purchase — requested → confirmed → returned, over a
+date range, against shared stock — not another `OrderItem`.
+
+- **`Product.isRentable`/`rentalPricePerDay`** (new columns) — a product
+  is either sold, rentable, or both; the flag and its price only mean
+  something together, same "flag plus a field that's only meaningful
+  when the flag is set" shape `EscrowAccount`/`Payment` pairs already
+  use elsewhere. `CreateProductDto`/`UpdateProductDto` both take them.
+- **`RentalBooking`** (new model: `requested → confirmed → returned`, or
+  `cancelled` from either open state) — shares a product's regular
+  `stockQuantity`, there's no separate rental-only count. Availability is
+  a standard interval-overlap check: the sum of `quantity` on
+  `requested`/`confirmed` bookings whose date range overlaps the new
+  request must leave enough stock for it.
+- **`POST /products/:productId/rental-bookings`** (`rental:write`) — 400s
+  if the product isn't rentable, if `endDate` isn't after `startDate`, or
+  if the overlap check leaves too little stock (the error names exactly
+  how many units *are* available for those dates). `totalPrice` is
+  computed server-side (`rentalPricePerDay × days × quantity`), never
+  trusted from the client. **`GET /rental-bookings/me`** (renter) and
+  **`GET /suppliers/me/rental-bookings`** (supplier) are the only list
+  routes — deliberately no `GET /products/:id/rental-bookings`, which
+  would leak other renters' booking details to anyone browsing the
+  catalog. **`.../confirm`**, **`.../return`**, **`.../cancel`**
+  (`rental:write`) — confirm/return are supplier-only (via the same
+  `requireOwnSupplier` check `createProduct` uses); cancel accepts either
+  the renter or the supplier, the same "either party" shape
+  `RentalBooking.status` needed since a supplier might need to back out
+  of a request too.
+- **New `rental:read`/`rental:write` permission pair** — its own pair,
+  same reasoning `inspection:read`/`write` and `lease:read`/`write` both
+  give (a distinct action, not folded into `order:*`). Granted to the
+  three owner-side roles and `vendor` (the renter side — a contractor
+  renting equipment for a job) and `supplier` (the fulfillment side);
+  `viewer` gets `rental:read` only.
+- **`summarize_rental_bookings`** (new AI skill, `supplier` context) —
+  counts awaiting confirmation and overdue-for-return (confirmed, past
+  `endDate`, never marked returned) bookings, same deterministic-compute-
+  plus-LLM-phrasing split every other skill this session uses.
+- **Web UI**: a "Rent this" toggle next to any rentable product's cart
+  quantity field (`pages/marketplace/materials/[id].tsx`) opens an inline
+  date-range request form; a new `pages/marketplace/materials/rentals.tsx`
+  ("My rentals", linked from the marketplace header) lists a renter's own
+  bookings with a cancel action; the supplier dashboard
+  (`pages/marketplace/materials/me.tsx`) gets a rental toggle on
+  create/edit product forms and a new "Rental bookings" card with
+  confirm/return/cancel actions.
+- Verified against the live dev API: a rentable product's booking
+  succeeds with the right computed price; a second overlapping booking
+  that would exceed stock is rejected naming the real remaining count; a
+  non-overlapping booking on the same product succeeds; booking a
+  non-rentable product and an inverted date range both 400; the renter
+  attempting to confirm their own booking fails (no supplier profile);
+  double-confirm, return-before-confirm, and double-cancel are all
+  rejected; the AI skill's overdue count matches a booking confirmed with
+  a past `endDate`. In the browser: requesting a rental from the catalog,
+  cancelling it from "My rentals", and confirming/marking-returned from
+  the supplier dashboard all worked end to end, with badges and card
+  contents matching the API state at every step.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -1529,9 +1594,9 @@ blueprint, or explicitly cut from it:
   holds the milestone/payment it's tied to. There's still no evidence
   request step, and "the other party" is just the project's owner account
   or its assigned vendor account, not an independent third party.
-- **A cart, and tool/equipment rental booking.** `src/materials` goes
-  straight from browsing to a line-item order; Module 10's rental calendar/
-  booking flow for tools and equipment isn't built.
+- **Purchases still go straight from browsing to a line-item order, no
+  server-side cart.** Rental booking (the other half of this gap) is now
+  built — see "Tool/equipment rental booking" above.
 - **Deeper AI (Priority 6)** — natural-language project summaries beyond
   what `summarize_property`/`draft_project_status_update` already do,
   financial modeling chat, listing/risk summaries, valuation/ROI

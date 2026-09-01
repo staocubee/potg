@@ -674,9 +674,28 @@ export type Product = {
   stockQuantity: number;
   description?: string | null;
   status: "active" | "out_of_stock" | "discontinued" | string;
+  isRentable: boolean;
+  rentalPricePerDay?: string | null;
   createdAt: string;
   updatedAt: string;
   supplier?: Supplier | { id: string; businessName: string; ratingAverage?: string | null };
+};
+
+export type RentalBooking = {
+  id: string;
+  productId: string;
+  accountId: string;
+  quantity: number;
+  startDate: string;
+  endDate: string;
+  status: "requested" | "confirmed" | "returned" | "cancelled" | string;
+  totalPrice: string;
+  currency: string;
+  notes?: string | null;
+  returnedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  product?: { id: string; name: string; supplierId?: string };
 };
 
 export type OrderItem = {
@@ -1293,10 +1312,30 @@ export class ApiClient {
   findOrdersForSupplier() {
     return request<MaterialOrder[]>("/suppliers/me/orders", { token: this.token, accountId: this.accountId });
   }
-  createProduct(input: { name: string; category: string; unit: string; unitPrice: number; currency?: string; stockQuantity?: number; description?: string }) {
+  createProduct(input: {
+    name: string;
+    category: string;
+    unit: string;
+    unitPrice: number;
+    currency?: string;
+    stockQuantity?: number;
+    description?: string;
+    isRentable?: boolean;
+    rentalPricePerDay?: number;
+  }) {
     return request<Product>("/suppliers/me/products", { method: "POST", body: input, token: this.token, accountId: this.accountId });
   }
-  updateProduct(productId: string, input: { unitPrice?: number; stockQuantity?: number; status?: string; description?: string }) {
+  updateProduct(
+    productId: string,
+    input: {
+      unitPrice?: number;
+      stockQuantity?: number;
+      status?: string;
+      description?: string;
+      isRentable?: boolean;
+      rentalPricePerDay?: number;
+    },
+  ) {
     return request<Product>(`/suppliers/me/products/${productId}`, {
       method: "PATCH",
       body: input,
@@ -1327,6 +1366,41 @@ export class ApiClient {
   }
   createOrder(input: { supplierId: string; projectId?: string; items: { productId: string; quantity: number }[]; deliveryAddress?: string }) {
     return request<MaterialOrder>("/orders", { method: "POST", body: input, token: this.token, accountId: this.accountId });
+  }
+  createRentalBooking(productId: string, input: { startDate: string; endDate: string; quantity?: number; notes?: string }) {
+    return request<RentalBooking>(`/products/${productId}/rental-bookings`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  myRentalBookings() {
+    return request<RentalBooking[]>("/rental-bookings/me", { token: this.token, accountId: this.accountId });
+  }
+  supplierRentalBookings() {
+    return request<RentalBooking[]>("/suppliers/me/rental-bookings", { token: this.token, accountId: this.accountId });
+  }
+  confirmRentalBooking(bookingId: string) {
+    return request<RentalBooking>(`/rental-bookings/${bookingId}/confirm`, {
+      method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  returnRentalBooking(bookingId: string) {
+    return request<RentalBooking>(`/rental-bookings/${bookingId}/return`, {
+      method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  cancelRentalBooking(bookingId: string) {
+    return request<RentalBooking>(`/rental-bookings/${bookingId}/cancel`, {
+      method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
   }
   findOrdersForBuyer() {
     return request<MaterialOrder[]>("/orders", { token: this.token, accountId: this.accountId });

@@ -1,4 +1,4 @@
-import { IsInt, IsNumber, IsOptional, IsPositive, IsString, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsPositive, IsString, Min } from 'class-validator';
 
 export class CreateProductDto {
   @IsString()
@@ -26,4 +26,15 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  // Module 10's rental flag — a product is either sold or rentable by the
+  // day, see Product.isRentable's own comment in schema.prisma.
+  @IsOptional()
+  @IsBoolean()
+  isRentable?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  rentalPricePerDay?: number;
 }

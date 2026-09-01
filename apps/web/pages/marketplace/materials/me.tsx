@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../../lib/auth";
-import { ApiError, MaterialOrder, Product, Supplier, SupplierReview } from "../../../lib/api";
+import { ApiError, MaterialOrder, Product, RentalBooking, Supplier, SupplierReview } from "../../../lib/api";
 import AppShell from "../../../components/AppShell";
 
 const SUPPLIER_CATEGORIES = ["materials", "tools", "equipment"];
@@ -18,6 +18,7 @@ export default function SupplierDashboardPage() {
   const auth = useAuth();
   const [supplier, setSupplier] = useState<Supplier | null | undefined>(undefined);
   const [orders, setOrders] = useState<MaterialOrder[] | null>(null);
+  const [rentalBookings, setRentalBookings] = useState<RentalBooking[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showProductForm, setShowProductForm] = useState(false);
 
@@ -28,7 +29,10 @@ export default function SupplierDashboardPage() {
       .mySupplierProfile()
       .then((s) => {
         setSupplier(s);
-        if (s) auth.api.findOrdersForSupplier().then(setOrders).catch(() => setOrders([]));
+        if (s) {
+          auth.api.findOrdersForSupplier().then(setOrders).catch(() => setOrders([]));
+          auth.api.supplierRentalBookings().then(setRentalBookings).catch(() => setRentalBookings([]));
+        }
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load your supplier profile."));
   }
@@ -135,6 +139,19 @@ export default function SupplierDashboardPage() {
               ))}
             </div>
           </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <h3 style={{ fontSize: 14, marginBottom: 10 }}>Rental bookings</h3>
+            {rentalBookings && rentalBookings.length === 0 && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>No rental bookings yet.</p>
+            )}
+            {!rentalBookings && <p className="potg-muted" style={{ fontSize: 12 }}>Loading bookings…</p>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {rentalBookings?.map((b) => (
+                <SupplierRentalBookingRow key={b.id} booking={b} onChanged={load} />
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </AppShell>
@@ -203,6 +220,8 @@ function AddProductForm({ onCreated }: { onCreated: (p: Product) => void }) {
   const [unit, setUnit] = useState("");
   const [unitPrice, setUnitPrice] = useState("");
   const [stockQuantity, setStockQuantity] = useState("");
+  const [isRentable, setIsRentable] = useState(false);
+  const [rentalPricePerDay, setRentalPricePerDay] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -217,6 +236,8 @@ function AddProductForm({ onCreated }: { onCreated: (p: Product) => void }) {
         unit,
         unitPrice: Number(unitPrice),
         stockQuantity: stockQuantity ? Number(stockQuantity) : undefined,
+        isRentable,
+        rentalPricePerDay: isRentable && rentalPricePerDay ? Number(rentalPricePerDay) : undefined,
       });
       onCreated(product);
       setName("");
@@ -224,6 +245,8 @@ function AddProductForm({ onCreated }: { onCreated: (p: Product) => void }) {
       setUnit("");
       setUnitPrice("");
       setStockQuantity("");
+      setIsRentable(false);
+      setRentalPricePerDay("");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't add that product.");
     } finally {
@@ -248,6 +271,20 @@ function AddProductForm({ onCreated }: { onCreated: (p: Product) => void }) {
           onChange={(e) => setStockQuantity(e.target.value)}
         />
       </div>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13 }}>
+        <input type="checkbox" checked={isRentable} onChange={(e) => setIsRentable(e.target.checked)} />
+        Available for daily rental (Module 10) — instead of / alongside outright sale
+      </label>
+      {isRentable && (
+        <input
+          className="potg-input"
+          type="number"
+          min={0}
+          placeholder="Rental price per day"
+          value={rentalPricePerDay}
+          onChange={(e) => setRentalPricePerDay(e.target.value)}
+        />
+      )}
       <div>
         <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
           {busy ? "Adding…" : "Add product"}
@@ -262,12 +299,19 @@ function ProductRow({ product, onUpdated }: { product: Product; onUpdated: (p: P
   const [editing, setEditing] = useState(false);
   const [unitPrice, setUnitPrice] = useState(product.unitPrice);
   const [stockQuantity, setStockQuantity] = useState(String(product.stockQuantity));
+  const [isRentable, setIsRentable] = useState(product.isRentable);
+  const [rentalPricePerDay, setRentalPricePerDay] = useState(product.rentalPricePerDay ?? "");
   const [busy, setBusy] = useState(false);
 
   async function onSave() {
     setBusy(true);
     try {
-      const updated = await auth.api.updateProduct(product.id, { unitPrice: Number(unitPrice), stockQuantity: Number(stockQuantity) });
+      const updated = await auth.api.updateProduct(product.id, {
+        unitPrice: Number(unitPrice),
+        stockQuantity: Number(stockQuantity),
+        isRentable,
+        rentalPricePerDay: isRentable && rentalPricePerDay ? Number(rentalPricePerDay) : undefined,
+      });
       onUpdated(updated);
       setEditing(false);
     } catch {
@@ -278,29 +322,126 @@ function ProductRow({ product, onUpdated }: { product: Product; onUpdated: (p: P
   }
 
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 13 }}>
-      <div>
-        <div style={{ fontWeight: 700 }}>{product.name}</div>
-        <div className="potg-muted" style={{ fontSize: 12 }}>
-          {product.category} · {product.unit} · <span className="potg-badge">{product.status.replace(/_/g, " ")}</span>
-        </div>
-      </div>
-      {editing ? (
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <input className="potg-input" style={{ width: 90 }} type="number" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} />
-          <input className="potg-input" style={{ width: 70 }} type="number" value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} />
-          <button className="potg-btn potg-btn-primary" onClick={onSave} disabled={busy}>
-            {busy ? "…" : "Save"}
-          </button>
-        </div>
-      ) : (
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontWeight: 700 }}>{formatMoney(product.unitPrice, product.currency)}</div>
-            <div className="potg-muted" style={{ fontSize: 11 }}>{product.stockQuantity} in stock</div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+        <div>
+          <div style={{ fontWeight: 700 }}>{product.name}</div>
+          <div className="potg-muted" style={{ fontSize: 12 }}>
+            {product.category} · {product.unit} · <span className="potg-badge">{product.status.replace(/_/g, " ")}</span>
+            {product.isRentable && <span className="potg-badge" style={{ marginLeft: 4 }}>rentable</span>}
           </div>
-          <button className="potg-btn potg-btn-secondary" onClick={() => setEditing(true)}>
-            Edit
+        </div>
+        {!editing && (
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={{ textAlign: "right" }}>
+              <div style={{ fontWeight: 700 }}>{formatMoney(product.unitPrice, product.currency)}</div>
+              <div className="potg-muted" style={{ fontSize: 11 }}>
+                {product.stockQuantity} in stock
+                {product.isRentable && product.rentalPricePerDay && ` · ${formatMoney(product.rentalPricePerDay, product.currency)}/day`}
+              </div>
+            </div>
+            <button className="potg-btn potg-btn-secondary" onClick={() => setEditing(true)}>
+              Edit
+            </button>
+          </div>
+        )}
+      </div>
+      {editing && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input className="potg-input" style={{ width: 90 }} type="number" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} />
+            <input className="potg-input" style={{ width: 70 }} type="number" value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} />
+            <button className="potg-btn potg-btn-primary" onClick={onSave} disabled={busy}>
+              {busy ? "…" : "Save"}
+            </button>
+            <button className="potg-btn potg-btn-secondary" onClick={() => setEditing(false)}>
+              Cancel
+            </button>
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+            <input type="checkbox" checked={isRentable} onChange={(e) => setIsRentable(e.target.checked)} />
+            Available for daily rental
+          </label>
+          {isRentable && (
+            <input
+              className="potg-input"
+              style={{ width: 150 }}
+              type="number"
+              min={0}
+              placeholder="Rental price per day"
+              value={rentalPricePerDay}
+              onChange={(e) => setRentalPricePerDay(e.target.value)}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SupplierRentalBookingRow({ booking, onChanged }: { booking: RentalBooking; onChanged: () => void }) {
+  const auth = useAuth();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"confirm" | "return" | "cancel" | null>(null);
+
+  async function onAction(action: "confirm" | "return" | "cancel") {
+    setBusy(action);
+    setError(null);
+    try {
+      if (action === "confirm") await auth.api.confirmRentalBooking(booking.id);
+      else if (action === "return") await auth.api.returnRentalBooking(booking.id);
+      else await auth.api.cancelRentalBooking(booking.id);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update that booking.");
+      setBusy(null);
+    }
+  }
+
+  const isActionable = booking.status === "requested" || booking.status === "confirmed";
+
+  return (
+    <div style={{ borderTop: "1px solid var(--potg-border)", paddingTop: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontWeight: 700 }}>{booking.product?.name ?? "Product"}</div>
+          <div className="potg-muted" style={{ fontSize: 11 }}>
+            {booking.quantity} unit(s) · {new Date(booking.startDate).toLocaleDateString()} –{" "}
+            {new Date(booking.endDate).toLocaleDateString()} · {formatMoney(booking.totalPrice, booking.currency)}
+          </div>
+        </div>
+        <span className="potg-badge">{booking.status}</span>
+      </div>
+      {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
+      {isActionable && (
+        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          {booking.status === "requested" && (
+            <button
+              className="potg-btn potg-btn-secondary"
+              style={{ padding: "3px 8px", fontSize: 11 }}
+              disabled={busy !== null}
+              onClick={() => onAction("confirm")}
+            >
+              {busy === "confirm" ? "…" : "Confirm"}
+            </button>
+          )}
+          {booking.status === "confirmed" && (
+            <button
+              className="potg-btn potg-btn-secondary"
+              style={{ padding: "3px 8px", fontSize: 11 }}
+              disabled={busy !== null}
+              onClick={() => onAction("return")}
+            >
+              {busy === "return" ? "…" : "Mark returned"}
+            </button>
+          )}
+          <button
+            className="potg-btn potg-btn-danger"
+            style={{ padding: "3px 8px", fontSize: 11 }}
+            disabled={busy !== null}
+            onClick={() => onAction("cancel")}
+          >
+            {busy === "cancel" ? "…" : "Cancel"}
           </button>
         </div>
       )}

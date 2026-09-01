@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../../lib/auth";
-import { ApiError, Project, Supplier } from "../../../lib/api";
+import { ApiError, Product, Project, Supplier } from "../../../lib/api";
 import AppShell from "../../../components/AppShell";
 import AskAiPanel from "../../../components/AskAiPanel";
 
@@ -140,26 +140,30 @@ export default function SupplierDetailPage() {
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {supplier.products?.map((p) => (
-                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 13 }}>
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{p.name}</div>
-                    <div className="potg-muted" style={{ fontSize: 12 }}>
-                      {formatMoney(p.unitPrice, p.currency)} / {p.unit} · {p.stockQuantity} in stock
+                <div key={p.id} style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{p.name}</div>
+                      <div className="potg-muted" style={{ fontSize: 12 }}>
+                        {formatMoney(p.unitPrice, p.currency)} / {p.unit} · {p.stockQuantity} in stock
+                        {p.isRentable && p.rentalPricePerDay && ` · ${formatMoney(p.rentalPricePerDay, p.currency)}/day to rent`}
+                      </div>
                     </div>
+                    {!isSupplierAccount && (
+                      <input
+                        className="potg-input"
+                        type="number"
+                        min={0}
+                        max={p.stockQuantity}
+                        placeholder="Qty"
+                        style={{ width: 80 }}
+                        value={cart[p.id] ?? ""}
+                        onChange={(e) => setCart((prev) => ({ ...prev, [p.id]: Number(e.target.value) }))}
+                        disabled={p.status !== "active" || p.stockQuantity === 0}
+                      />
+                    )}
                   </div>
-                  {!isSupplierAccount && (
-                    <input
-                      className="potg-input"
-                      type="number"
-                      min={0}
-                      max={p.stockQuantity}
-                      placeholder="Qty"
-                      style={{ width: 80 }}
-                      value={cart[p.id] ?? ""}
-                      onChange={(e) => setCart((prev) => ({ ...prev, [p.id]: Number(e.target.value) }))}
-                      disabled={p.status !== "active" || p.stockQuantity === 0}
-                    />
-                  )}
+                  {!isSupplierAccount && p.isRentable && p.stockQuantity > 0 && <RentProductWidget product={p} />}
                 </div>
               ))}
             </div>
@@ -267,6 +271,84 @@ function OrderWidget({
         </button>
       </div>
     </div>
+  );
+}
+
+// Module 10's rental calendar — a toggleable inline booking form next to
+// a rentable product, same "toggle open, submit, collapse" shape the
+// order cart already uses, just its own request rather than another
+// cart line (a rental is its own lifecycle — requested/confirmed/returned
+// — not a one-shot purchase).
+function RentProductWidget({ product }: { product: Product }) {
+  const auth = useAuth();
+  const [open, setOpen] = useState(false);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.createRentalBooking(product.id, {
+        startDate: new Date(startDate).toISOString(),
+        endDate: new Date(endDate).toISOString(),
+        quantity: Number(quantity),
+      });
+      setSuccess(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't request that rental.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (success) {
+    return (
+      <p style={{ fontSize: 12, color: "var(--potg-success)", margin: 0 }}>
+        Rental requested — check "My rentals" for the supplier's confirmation.
+      </p>
+    );
+  }
+
+  if (!open) {
+    return (
+      <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11, alignSelf: "flex-start" }} onClick={() => setOpen(true)}>
+        Rent this
+      </button>
+    );
+  }
+
+  return (
+    <form onSubmit={onSubmit} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      {error && <div className="potg-error" style={{ width: "100%" }}>{error}</div>}
+      <input className="potg-input" style={{ width: 130 }} type="date" required value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+      <input className="potg-input" style={{ width: 130 }} type="date" required value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+      <input
+        className="potg-input"
+        style={{ width: 70 }}
+        type="number"
+        min={1}
+        max={product.stockQuantity}
+        value={quantity}
+        onChange={(e) => setQuantity(e.target.value)}
+      />
+      <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
+        {busy ? "Requesting…" : "Request rental"}
+      </button>
+      <button
+        className="potg-btn potg-btn-secondary"
+        type="button"
+        onClick={() => setOpen(false)}
+        style={{ padding: "4px 9px", fontSize: 11 }}
+      >
+        Cancel
+      </button>
+    </form>
   );
 }
 

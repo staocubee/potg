@@ -10,6 +10,7 @@ import { CreateOrderReviewDto } from './dto/create-order-review.dto';
 import { UpdateOrderReviewDto } from './dto/update-order-review.dto';
 import { ReplyToReviewDto } from '../vendors/dto/reply-to-review.dto';
 import { SetSupplierVerificationDto } from './dto/set-supplier-verification.dto';
+import { CreateRentalBookingDto } from './dto/create-rental-booking.dto';
 import { getSupplierTrustScore } from './trust-score';
 
 @Injectable()
@@ -86,6 +87,8 @@ export class MaterialsService {
         currency: dto.currency ?? 'USD',
         stockQuantity: dto.stockQuantity ?? 0,
         description: dto.description,
+        isRentable: dto.isRentable ?? false,
+        rentalPricePerDay: dto.rentalPricePerDay,
       },
     });
   }
@@ -107,6 +110,121 @@ export class MaterialsService {
 
   findProduct(id: string) {
     return this.prisma.product.findUnique({ where: { id }, include: { supplier: true } });
+  }
+
+  // --- Rental bookings (Module 10) ---------------------------------------
+  //
+  // A booking's availability is checked against the sum of quantity on
+  // requested/confirmed bookings whose date range overlaps the new
+  // request (standard "startA < endB && endA > startB" interval overlap)
+  // — there's no separate rental-only stock count, a product's
+  // stockQuantity is shared between sale and rental.
+
+  async createRentalBooking(accountId: string, productId: string, dto: CreateRentalBookingDto) {
+    const product = await this.prisma.product.findUnique({ where: { id: productId } });
+    if (!product) throw new NotFoundException('Product not found');
+    if (!product.isRentable) throw new BadRequestException('This product is not available for rental');
+
+    const startDate = new Date(dto.startDate);
+    const endDate = new Date(dto.endDate);
+    if (endDate <= startDate) throw new BadRequestException('endDate must be after startDate');
+    const quantity = dto.quantity ?? 1;
+
+    const overlapping = await this.prisma.rentalBooking.aggregate({
+      where: {
+        productId,
+        status: { in: ['requested', 'confirmed'] },
+        startDate: { lt: endDate },
+        endDate: { gt: startDate },
+      },
+      _sum: { quantity: true },
+    });
+    const alreadyBooked = overlapping._sum.quantity ?? 0;
+    if (alreadyBooked + quantity > product.stockQuantity) {
+      throw new BadRequestException(
+        `Only ${Math.max(product.stockQuantity - alreadyBooked, 0)} unit(s) of this product are available for those dates`,
+      );
+    }
+
+    const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+    const totalPrice = Number(product.rentalPricePerDay ?? 0) * days * quantity;
+
+    return this.prisma.rentalBooking.create({
+      data: {
+        productId,
+        accountId,
+        quantity,
+        startDate,
+        endDate,
+        totalPrice,
+        currency: product.currency,
+        notes: dto.notes,
+      },
+    });
+  }
+
+  findMyRentalBookings(accountId: string) {
+    return this.prisma.rentalBooking.findMany({
+      where: { accountId },
+      include: { product: { select: { id: true, name: true, supplierId: true } } },
+      orderBy: { startDate: 'desc' },
+    });
+  }
+
+  async findSupplierRentalBookings(accountId: string) {
+    const supplier = await this.requireOwnSupplier(accountId);
+    return this.prisma.rentalBooking.findMany({
+      where: { product: { supplierId: supplier.id } },
+      include: { product: { select: { id: true, name: true } } },
+      orderBy: { startDate: 'desc' },
+    });
+  }
+
+  // Supplier-only: confirming is the supplier accepting the request, same
+  // "the other party approves" shape VendorQuote's accept step uses.
+  async confirmRentalBooking(accountId: string, bookingId: string) {
+    const supplier = await this.requireOwnSupplier(accountId);
+    const booking = await this.prisma.rentalBooking.findFirst({
+      where: { id: bookingId, product: { supplierId: supplier.id } },
+    });
+    if (!booking) throw new NotFoundException('Rental booking not found');
+    if (booking.status !== 'requested') {
+      throw new BadRequestException(`This booking is already "${booking.status}"`);
+    }
+    return this.prisma.rentalBooking.update({ where: { id: bookingId }, data: { status: 'confirmed' } });
+  }
+
+  async returnRentalBooking(accountId: string, bookingId: string) {
+    const supplier = await this.requireOwnSupplier(accountId);
+    const booking = await this.prisma.rentalBooking.findFirst({
+      where: { id: bookingId, product: { supplierId: supplier.id } },
+    });
+    if (!booking) throw new NotFoundException('Rental booking not found');
+    if (booking.status !== 'confirmed') {
+      throw new BadRequestException(`This booking is "${booking.status}" — only a confirmed booking can be marked returned`);
+    }
+    return this.prisma.rentalBooking.update({
+      where: { id: bookingId },
+      data: { status: 'returned', returnedAt: new Date() },
+    });
+  }
+
+  // Either side can cancel while it's still requested/confirmed — the
+  // renter changing their mind, or the supplier being unable to fulfil it.
+  async cancelRentalBooking(accountId: string, bookingId: string) {
+    const booking = await this.prisma.rentalBooking.findUnique({
+      where: { id: bookingId },
+      include: { product: true },
+    });
+    if (!booking) throw new NotFoundException('Rental booking not found');
+    const supplier = await this.prisma.supplier.findUnique({ where: { accountId } });
+    const isRenter = booking.accountId === accountId;
+    const isSupplier = supplier?.id === booking.product.supplierId;
+    if (!isRenter && !isSupplier) throw new NotFoundException('Rental booking not found');
+    if (booking.status !== 'requested' && booking.status !== 'confirmed') {
+      throw new BadRequestException(`This booking is already "${booking.status}"`);
+    }
+    return this.prisma.rentalBooking.update({ where: { id: bookingId }, data: { status: 'cancelled' } });
   }
 
   // --- Orders ------------------------------------------------------------

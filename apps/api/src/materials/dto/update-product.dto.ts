@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, Min } from 'class-validator';
 
 const PRODUCT_STATUSES = ['active', 'out_of_stock', 'discontinued'] as const;
 
@@ -20,4 +20,13 @@ export class UpdateProductDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isRentable?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  rentalPricePerDay?: number;
 }

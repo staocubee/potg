@@ -49,6 +49,11 @@ const PERMISSIONS = [
   { key: 'product:write', label: "Manage a supplier's own product catalog" },
   { key: 'order:read', label: 'View orders' },
   { key: 'order:write', label: 'Place an order, or update its status/delivery as the supplier' },
+  // Module 10's rental calendar — its own pair, same reasoning
+  // inspection:read/write and lease:read/write both give: renting a tool
+  // is a distinct action from buying materials, not folded into order:*.
+  { key: 'rental:read', label: 'View rental bookings' },
+  { key: 'rental:write', label: 'Request, confirm, return, or cancel a rental booking' },
   // Reviews — leaving one, on a completed project (vendor) or a delivered
   // order (supplier). Reading a review needs no permission of its own: it
   // rides along with vendor:read/supplier:read since findOne/findSupplier
@@ -94,6 +99,8 @@ const ROLES: Record<string, string[]> = {
     'product:read',
     'order:read',
     'order:write',
+    'rental:read',
+    'rental:write',
     'review:write',
   ],
   family_admin: [
@@ -130,6 +137,8 @@ const ROLES: Record<string, string[]> = {
     'product:read',
     'order:read',
     'order:write',
+    'rental:read',
+    'rental:write',
     'review:write',
   ],
   company_admin: [
@@ -166,6 +175,8 @@ const ROLES: Record<string, string[]> = {
     'product:read',
     'order:read',
     'order:write',
+    'rental:read',
+    'rental:write',
     'review:write',
   ],
   // A vendor account browses/edits its own marketplace profile, sees the
@@ -189,6 +200,10 @@ const ROLES: Record<string, string[]> = {
     // supplier:write/product:write, a vendor isn't a supplier.
     'supplier:read',
     'product:read',
+    // A contractor renting equipment for a job it's working — the renter
+    // side of Module 10's rental calendar.
+    'rental:read',
+    'rental:write',
   ],
   // A supplier account manages its own marketplace profile and product
   // catalog, and fulfills the orders placed against it — it never gets
@@ -202,6 +217,10 @@ const ROLES: Record<string, string[]> = {
     'product:write',
     'order:read',
     'order:write',
+    // The fulfillment side of Module 10's rental calendar — confirming,
+    // returning, or cancelling a booking against its own catalog.
+    'rental:read',
+    'rental:write',
     'review:respond',
   ],
   // Section 8's own example role: "a family member can view documents but
@@ -225,6 +244,7 @@ const ROLES: Record<string, string[]> = {
     'supplier:read',
     'product:read',
     'order:read',
+    'rental:read',
   ],
   // Module 6's actual "neutral reviewer" — a role deliberately never
   // granted to the vendor or supplier roles above, so a vendor/supplier

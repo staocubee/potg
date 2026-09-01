@@ -15,6 +15,7 @@ import { CreateOrderReviewDto } from './dto/create-order-review.dto';
 import { UpdateOrderReviewDto } from './dto/update-order-review.dto';
 import { ReplyToReviewDto } from '../vendors/dto/reply-to-review.dto';
 import { SetSupplierVerificationDto } from './dto/set-supplier-verification.dto';
+import { CreateRentalBookingDto } from './dto/create-rental-booking.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -97,6 +98,48 @@ export class MaterialsController {
   @Post('orders')
   createOrder(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: CreateOrderDto) {
     return this.materials.createOrder(member.accountId, dto);
+  }
+
+  // --- Rental bookings (Module 10) ---------------------------------------
+
+  @RequirePermissions('rental:write')
+  @Post('products/:productId/rental-bookings')
+  createRentalBooking(
+    @Param('productId') productId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Body() dto: CreateRentalBookingDto,
+  ) {
+    return this.materials.createRentalBooking(member.accountId, productId, dto);
+  }
+
+  @RequirePermissions('rental:read')
+  @Get('rental-bookings/me')
+  findMyRentalBookings(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.materials.findMyRentalBookings(member.accountId);
+  }
+
+  @RequirePermissions('rental:read')
+  @Get('suppliers/me/rental-bookings')
+  findSupplierRentalBookings(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.materials.findSupplierRentalBookings(member.accountId);
+  }
+
+  @RequirePermissions('rental:write')
+  @Post('rental-bookings/:bookingId/confirm')
+  confirmRentalBooking(@Param('bookingId') bookingId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.materials.confirmRentalBooking(member.accountId, bookingId);
+  }
+
+  @RequirePermissions('rental:write')
+  @Post('rental-bookings/:bookingId/return')
+  returnRentalBooking(@Param('bookingId') bookingId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.materials.returnRentalBooking(member.accountId, bookingId);
+  }
+
+  @RequirePermissions('rental:write')
+  @Post('rental-bookings/:bookingId/cancel')
+  cancelRentalBooking(@Param('bookingId') bookingId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.materials.cancelRentalBooking(member.accountId, bookingId);
   }
 
   @RequirePermissions('order:read')

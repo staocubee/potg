@@ -41,6 +41,9 @@ export default function MaterialsMarketplacePage() {
           <Link href="/marketplace/materials/orders" className="potg-btn potg-btn-secondary">
             My orders
           </Link>
+          <Link href="/marketplace/materials/rentals" className="potg-btn potg-btn-secondary">
+            My rentals
+          </Link>
           <Link href="/marketplace/materials/me" className="potg-btn potg-btn-primary">
             {isSupplierAccount ? "Your supplier dashboard" : "Become a supplier"}
           </Link>
