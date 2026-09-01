@@ -4,6 +4,9 @@ import { CreatePropertyDto } from './dto/create-property.dto';
 import { CreateValuationDto } from './dto/create-valuation.dto';
 import { ScheduleInspectionDto } from './dto/schedule-inspection.dto';
 import { CompleteInspectionDto } from './dto/complete-inspection.dto';
+import { CreateLeaseDto } from './dto/create-lease.dto';
+import { RecordRentPaymentDto } from './dto/record-rent-payment.dto';
+import { EndLeaseDto } from './dto/end-lease.dto';
 
 @Injectable()
 export class PropertiesService {
@@ -149,5 +152,95 @@ export class PropertiesService {
       throw new BadRequestException(`This inspection is already "${inspection.status}"`);
     }
     return this.prisma.propertyInspection.update({ where: { id: inspectionId }, data: { status: 'cancelled' } });
+  }
+
+  // Module 13. Deliberately not wired to Listing/Offer (Module 5) at all —
+  // a lease can just as well start from an owner recording a tenancy that
+  // predates this software, same "record what's true" reasoning
+  // PropertyValuation's "manual" source already uses.
+  async createLease(propertyId: string, dto: CreateLeaseDto) {
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      include: { account: { select: { currency: true } } },
+    });
+    if (!property) throw new NotFoundException('Property not found');
+
+    const lease = await this.prisma.lease.create({
+      data: {
+        propertyId,
+        tenantName: dto.tenantName,
+        tenantEmail: dto.tenantEmail,
+        tenantPhone: dto.tenantPhone,
+        rentAmount: dto.rentAmount,
+        currency: dto.currency ?? property.account.currency,
+        rentFrequency: dto.rentFrequency,
+        depositAmount: dto.depositAmount,
+        startDate: new Date(dto.startDate),
+        endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+        notes: dto.notes,
+      },
+    });
+    await this.prisma.propertyTimelineEvent.create({
+      data: {
+        propertyId,
+        eventType: 'lease_started',
+        label: `Lease started: ${dto.tenantName}, ${dto.rentAmount.toLocaleString()} ${lease.currency}/${dto.rentFrequency}`,
+      },
+    });
+    return lease;
+  }
+
+  findLeases(propertyId: string) {
+    return this.prisma.lease.findMany({
+      where: { propertyId },
+      include: { rentPayments: { orderBy: { periodStart: 'desc' } } },
+      orderBy: { startDate: 'desc' },
+    });
+  }
+
+  findLease(propertyId: string, leaseId: string) {
+    return this.prisma.lease.findFirst({
+      where: { id: leaseId, propertyId },
+      include: { rentPayments: { orderBy: { periodStart: 'desc' } } },
+    });
+  }
+
+  async recordRentPayment(propertyId: string, leaseId: string, dto: RecordRentPaymentDto) {
+    const lease = await this.prisma.lease.findFirst({ where: { id: leaseId, propertyId } });
+    if (!lease) throw new NotFoundException('Lease not found on this property');
+    if (lease.status !== 'active') {
+      throw new BadRequestException(`This lease is "${lease.status}" — no rent to record against it`);
+    }
+    return this.prisma.leaseRentPayment.create({
+      data: {
+        leaseId,
+        amount: dto.amount,
+        currency: dto.currency ?? lease.currency,
+        periodStart: new Date(dto.periodStart),
+        periodEnd: new Date(dto.periodEnd),
+        method: dto.method ?? 'manual',
+        notes: dto.notes,
+      },
+    });
+  }
+
+  async endLease(propertyId: string, leaseId: string, dto: EndLeaseDto) {
+    const lease = await this.prisma.lease.findFirst({ where: { id: leaseId, propertyId } });
+    if (!lease) throw new NotFoundException('Lease not found on this property');
+    if (lease.status !== 'active') {
+      throw new BadRequestException(`This lease is already "${lease.status}"`);
+    }
+    const updated = await this.prisma.lease.update({
+      where: { id: leaseId },
+      data: { status: dto.status, notes: dto.notes ?? lease.notes, endedAt: new Date() },
+    });
+    await this.prisma.propertyTimelineEvent.create({
+      data: {
+        propertyId,
+        eventType: 'lease_ended',
+        label: `Lease ${dto.status}: ${lease.tenantName}`,
+      },
+    });
+    return updated;
   }
 }

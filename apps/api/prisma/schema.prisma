@@ -249,6 +249,7 @@ model Property {
   listings       PropertyListing[]
   valuations     PropertyValuation[]
   inspections    PropertyInspection[]
+  leases         Lease[]
 
   @@map("properties")
 }
@@ -969,4 +970,61 @@ model InspectionFinding {
   inspection PropertyInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
 
   @@map("inspection_findings")
+}
+
+// --- Module 13: Leases ---------------------------------------------------
+//
+// The marketplace side (Module 5 — `PropertyListing` with `listingType:
+// "rent"`/`"short_let"`, `ListingInquiry`, `ListingOffer`) gets a property
+// rented out; nothing tracked what happens *after* that — the ongoing
+// tenancy, its rent schedule, or the payments against it. This is that:
+// deliberately not wired to Listing/Offer at all (a lease can just as well
+// start from an owner recording an existing tenancy that predates this
+// software), same "record what's true, don't force a specific prior
+// workflow" reasoning `PropertyValuation.source: "manual"` already uses.
+// No separate Tenant account/identity, same reasoning `PropertyInspection`
+// gives for `inspectorName` being freeform text instead of a relation.
+model Lease {
+  id            String    @id @default(uuid())
+  propertyId    String
+  tenantName    String
+  tenantEmail   String?
+  tenantPhone   String?
+  rentAmount    Decimal   @db.Decimal(14, 2)
+  currency      String
+  rentFrequency String // weekly | monthly | annually
+  depositAmount Decimal?  @db.Decimal(14, 2)
+  startDate     DateTime
+  endDate       DateTime?
+  status        String    @default("active") // active | ended | terminated
+  notes         String?
+  endedAt       DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  property     Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  rentPayments LeaseRentPayment[]
+
+  @@map("leases")
+}
+
+// A plain record that rent was paid — same "simulated, not a real payment
+// rail" depth as Module 11's own Payment model (see its comment): this
+// logs that a payment happened, it doesn't move any money or touch escrow.
+// A real deployment collecting rent through the platform would tie this to
+// Payment/EscrowAccount instead of standing alone.
+model LeaseRentPayment {
+  id          String   @id @default(uuid())
+  leaseId     String
+  amount      Decimal  @db.Decimal(14, 2)
+  currency    String
+  periodStart DateTime
+  periodEnd   DateTime
+  method      String   @default("manual") // manual | bank_transfer | mobile_money
+  notes       String?
+  paidAt      DateTime @default(now())
+
+  lease Lease @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+
+  @@map("lease_rent_payments")
 }

@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Project, Property, PropertyInspection, PropertyValuation } from "../../lib/api";
+import { ApiError, Lease, Project, Property, PropertyInspection, PropertyValuation } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -20,6 +20,8 @@ const TIMELINE_ICON: Record<string, string> = {
   document_uploaded: "📄",
   renovation_started: "🛠️",
   inspection_completed: "🔍",
+  lease_started: "🔑",
+  lease_ended: "📤",
 };
 
 export default function PropertyDetailPage() {
@@ -31,15 +33,23 @@ export default function PropertyDetailPage() {
   const [valuations, setValuations] = useState<PropertyValuation[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [inspections, setInspections] = useState<PropertyInspection[]>([]);
+  const [leases, setLeases] = useState<Lease[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showValuationForm, setShowValuationForm] = useState(false);
   const [showInspectionForm, setShowInspectionForm] = useState(false);
+  const [showLeaseForm, setShowLeaseForm] = useState(false);
 
   function load() {
     if (!id || !auth.currentAccountId) return;
     setError(null);
-    Promise.all([auth.api.getProperty(id), auth.api.listValuations(id), auth.api.listProjects(), auth.api.listInspections(id)])
-      .then(([p, v, allProjects, i]) => {
+    Promise.all([
+      auth.api.getProperty(id),
+      auth.api.listValuations(id),
+      auth.api.listProjects(),
+      auth.api.listInspections(id),
+      auth.api.listLeases(id),
+    ])
+      .then(([p, v, allProjects, i, l]) => {
         setProperty(p);
         setValuations(v);
         // No GET /properties/:id/projects endpoint — Project doesn't need
@@ -47,6 +57,7 @@ export default function PropertyDetailPage() {
         // small project list client-side is enough.
         setProjects(allProjects.filter((proj) => proj.propertyId === id));
         setInspections(i);
+        setLeases(l);
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this property."));
   }
@@ -230,6 +241,30 @@ export default function PropertyDetailPage() {
                 inspections.map((i) => (
                   <InspectionRow key={i.id} propertyId={id} inspection={i} onChanged={load} />
                 ))}
+            </div>
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <h3 style={{ fontSize: 14 }}>Leases</h3>
+              <button className="potg-btn potg-btn-secondary" onClick={() => setShowLeaseForm((v) => !v)}>
+                {showLeaseForm ? "Cancel" : "+ Add lease"}
+              </button>
+            </div>
+
+            {showLeaseForm && id && (
+              <CreateLeaseForm
+                propertyId={id}
+                onCreated={(l) => {
+                  setLeases((prev) => [l, ...prev]);
+                  setShowLeaseForm(false);
+                }}
+              />
+            )}
+
+            {leases.length === 0 && !showLeaseForm && <p className="potg-muted" style={{ fontSize: 12 }}>No leases yet.</p>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: showLeaseForm ? 12 : 0 }}>
+              {id && leases.map((l) => <LeaseRow key={l.id} propertyId={id} lease={l} onChanged={load} />)}
             </div>
           </div>
         </div>
@@ -513,6 +548,171 @@ function InspectionRow({
               {busy === "complete" ? "Saving…" : "Complete inspection"}
             </button>
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setCompleting(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+const RENT_FREQUENCIES = ["weekly", "monthly", "annually"];
+
+function CreateLeaseForm({ propertyId, onCreated }: { propertyId: string; onCreated: (l: Lease) => void }) {
+  const auth = useAuth();
+  const [tenantName, setTenantName] = useState("");
+  const [rentAmount, setRentAmount] = useState("");
+  const [rentFrequency, setRentFrequency] = useState(RENT_FREQUENCIES[1]);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [depositAmount, setDepositAmount] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const l = await auth.api.createLease(propertyId, {
+        tenantName,
+        rentAmount: Number(rentAmount),
+        rentFrequency,
+        startDate: new Date(startDate).toISOString(),
+        endDate: endDate ? new Date(endDate).toISOString() : undefined,
+        depositAmount: depositAmount ? Number(depositAmount) : undefined,
+      });
+      onCreated(l);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't add that lease.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
+      {error && <div className="potg-error">{error}</div>}
+      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 8 }}>
+        <input className="potg-input" required autoFocus placeholder="Tenant name" value={tenantName} onChange={(e) => setTenantName(e.target.value)} />
+        <input className="potg-input" type="number" min={0} required placeholder="Rent amount" value={rentAmount} onChange={(e) => setRentAmount(e.target.value)} />
+        <select className="potg-input" value={rentFrequency} onChange={(e) => setRentFrequency(e.target.value)}>
+          {RENT_FREQUENCIES.map((f) => (
+            <option key={f} value={f}>
+              {f}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+        <div>
+          <label className="potg-label" style={{ fontSize: 11 }}>Start date</label>
+          <input className="potg-input" type="date" required value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="potg-label" style={{ fontSize: 11 }}>End date (optional)</label>
+          <input className="potg-input" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="potg-label" style={{ fontSize: 11 }}>Deposit (optional)</label>
+          <input className="potg-input" type="number" min={0} value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} />
+        </div>
+      </div>
+      <div>
+        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+          {busy ? "Saving…" : "Save lease"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease: Lease; onChanged: () => void }) {
+  const auth = useAuth();
+  const [recording, setRecording] = useState(false);
+  const [amount, setAmount] = useState(lease.rentAmount);
+  const [periodStart, setPeriodStart] = useState("");
+  const [periodEnd, setPeriodEnd] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"record" | "end" | null>(null);
+
+  async function onRecordPayment(e: FormEvent) {
+    e.preventDefault();
+    setBusy("record");
+    setError(null);
+    try {
+      await auth.api.recordRentPayment(propertyId, lease.id, {
+        amount: Number(amount),
+        periodStart: new Date(periodStart).toISOString(),
+        periodEnd: new Date(periodEnd).toISOString(),
+      });
+      setRecording(false);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't record that payment.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onEnd(status: "ended" | "terminated") {
+    setBusy("end");
+    setError(null);
+    try {
+      await auth.api.endLease(propertyId, lease.id, { status });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't end that lease.");
+      setBusy(null);
+    }
+  }
+
+  const totalPaid = (lease.rentPayments ?? []).reduce((sum, p) => sum + Number(p.amount), 0);
+
+  return (
+    <div style={{ borderTop: "1px solid var(--potg-border)", paddingTop: 10, fontSize: 13 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontWeight: 600 }}>{lease.tenantName}</div>
+          <div className="potg-muted" style={{ fontSize: 11 }}>
+            {formatMoney(lease.rentAmount, lease.currency)}/{lease.rentFrequency} · from {new Date(lease.startDate).toLocaleDateString()}
+            {lease.endDate && ` to ${new Date(lease.endDate).toLocaleDateString()}`}
+          </div>
+          {lease.rentPayments && lease.rentPayments.length > 0 && (
+            <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
+              {lease.rentPayments.length} payment(s) recorded · {formatMoney(String(totalPaid), lease.currency)} total
+            </div>
+          )}
+        </div>
+        <span className="potg-badge">{lease.status}</span>
+      </div>
+
+      {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
+
+      {lease.status === "active" && !recording && (
+        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setRecording(true)}>
+            Record rent payment
+          </button>
+          <button className="potg-btn potg-btn-danger" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={() => onEnd("ended")}>
+            End lease
+          </button>
+        </div>
+      )}
+
+      {lease.status === "active" && recording && (
+        <form onSubmit={onRecordPayment} style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+            <input className="potg-input" type="number" min={0} required value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount" />
+            <input className="potg-input" type="date" required value={periodStart} onChange={(e) => setPeriodStart(e.target.value)} />
+            <input className="potg-input" type="date" required value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
+              {busy === "record" ? "Saving…" : "Save payment"}
+            </button>
+            <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setRecording(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
               Cancel
             </button>
           </div>

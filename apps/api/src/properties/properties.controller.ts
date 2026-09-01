@@ -9,6 +9,9 @@ import { CreatePropertyDto } from './dto/create-property.dto';
 import { CreateValuationDto } from './dto/create-valuation.dto';
 import { ScheduleInspectionDto } from './dto/schedule-inspection.dto';
 import { CompleteInspectionDto } from './dto/complete-inspection.dto';
+import { CreateLeaseDto } from './dto/create-lease.dto';
+import { RecordRentPaymentDto } from './dto/record-rent-payment.dto';
+import { EndLeaseDto } from './dto/end-lease.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -87,5 +90,41 @@ export class PropertiesController {
   @Post(':propertyId/inspections/:inspectionId/cancel')
   cancelInspection(@Param('propertyId') propertyId: string, @Param('inspectionId') inspectionId: string) {
     return this.properties.cancelInspection(propertyId, inspectionId);
+  }
+
+  // Module 13 — own permission pair, same reasoning as inspection:read/
+  // write above.
+  @RequirePermissions('lease:write')
+  @Post(':propertyId/leases')
+  createLease(@Param('propertyId') propertyId: string, @Body() dto: CreateLeaseDto) {
+    return this.properties.createLease(propertyId, dto);
+  }
+
+  @RequirePermissions('lease:read')
+  @Get(':propertyId/leases')
+  findLeases(@Param('propertyId') propertyId: string) {
+    return this.properties.findLeases(propertyId);
+  }
+
+  @RequirePermissions('lease:read')
+  @Get(':propertyId/leases/:leaseId')
+  findLease(@Param('propertyId') propertyId: string, @Param('leaseId') leaseId: string) {
+    return this.properties.findLease(propertyId, leaseId);
+  }
+
+  @RequirePermissions('lease:write')
+  @Post(':propertyId/leases/:leaseId/rent-payments')
+  recordRentPayment(
+    @Param('propertyId') propertyId: string,
+    @Param('leaseId') leaseId: string,
+    @Body() dto: RecordRentPaymentDto,
+  ) {
+    return this.properties.recordRentPayment(propertyId, leaseId, dto);
+  }
+
+  @RequirePermissions('lease:write')
+  @Post(':propertyId/leases/:leaseId/end')
+  endLease(@Param('propertyId') propertyId: string, @Param('leaseId') leaseId: string, @Body() dto: EndLeaseDto) {
+    return this.properties.endLease(propertyId, leaseId, dto);
   }
 }

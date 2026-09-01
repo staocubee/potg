@@ -20,6 +20,7 @@ import { modelRoiScenarioSkill } from './skills/model-roi-scenario.skill';
 import { assessListingRiskSkill } from './skills/assess-listing-risk.skill';
 import { generatePortfolioReportSkill } from './skills/generate-portfolio-report.skill';
 import { summarizeInspectionHistorySkill } from './skills/summarize-inspection-history.skill';
+import { summarizeLeaseStatusSkill } from './skills/summarize-lease-status.skill';
 
 @Module({
   imports: [ProjectsModule],
@@ -57,6 +58,7 @@ import { summarizeInspectionHistorySkill } from './skills/summarize-inspection-h
         assessListingRiskSkill,
         generatePortfolioReportSkill,
         summarizeInspectionHistorySkill,
+        summarizeLeaseStatusSkill,
       ],
     },
   ],

@@ -243,6 +243,38 @@ export type PropertyInspection = {
   findings?: InspectionFinding[];
 };
 
+export type LeaseRentPayment = {
+  id: string;
+  leaseId: string;
+  amount: string;
+  currency: string;
+  periodStart: string;
+  periodEnd: string;
+  method: string;
+  notes?: string | null;
+  paidAt: string;
+};
+
+export type Lease = {
+  id: string;
+  propertyId: string;
+  tenantName: string;
+  tenantEmail?: string | null;
+  tenantPhone?: string | null;
+  rentAmount: string;
+  currency: string;
+  rentFrequency: "weekly" | "monthly" | "annually" | string;
+  depositAmount?: string | null;
+  startDate: string;
+  endDate?: string | null;
+  status: "active" | "ended" | "terminated" | string;
+  notes?: string | null;
+  endedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  rentPayments?: LeaseRentPayment[];
+};
+
 export type AiSkillInputField = {
   type: "string" | "number" | "boolean";
   description: string;
@@ -764,6 +796,51 @@ export class ApiClient {
   cancelInspection(propertyId: string, inspectionId: string) {
     return request<PropertyInspection>(`/properties/${propertyId}/inspections/${inspectionId}/cancel`, {
       method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  createLease(
+    propertyId: string,
+    input: {
+      tenantName: string;
+      tenantEmail?: string;
+      tenantPhone?: string;
+      rentAmount: number;
+      currency?: string;
+      rentFrequency: string;
+      depositAmount?: number;
+      startDate: string;
+      endDate?: string;
+      notes?: string;
+    },
+  ) {
+    return request<Lease>(`/properties/${propertyId}/leases`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  listLeases(propertyId: string) {
+    return request<Lease[]>(`/properties/${propertyId}/leases`, { token: this.token, accountId: this.accountId });
+  }
+  recordRentPayment(
+    propertyId: string,
+    leaseId: string,
+    input: { amount: number; currency?: string; periodStart: string; periodEnd: string; method?: string; notes?: string },
+  ) {
+    return request<LeaseRentPayment>(`/properties/${propertyId}/leases/${leaseId}/rent-payments`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  endLease(propertyId: string, leaseId: string, input: { status: "ended" | "terminated"; notes?: string }) {
+    return request<Lease>(`/properties/${propertyId}/leases/${leaseId}/end`, {
+      method: "POST",
+      body: input,
       token: this.token,
       accountId: this.accountId,
     });

@@ -24,7 +24,7 @@ apps/api/            NestJS backend
   prisma/seed.ts         Seeds permissions, roles, a demo owner + property + project, and a demo vendor
   src/auth/              Register, login, list-my-accounts
   src/accounts/          Create an account, add a member (Module 1)
-  src/properties/        Property portfolio CRUD (Module 2) + inspections (Module 8)
+  src/properties/        Property portfolio CRUD (Module 2) + inspections (Module 8) + leases (Module 13)
   src/documents/         Document vault CRUD (Module 4)
   src/vendors/            Vendor marketplace profiles & quoting (Module 7)
   src/projects/           Project tracking — stages, milestones, updates, quotes (Module 9)
@@ -1135,24 +1135,79 @@ this checks the property itself.
   the browser (schedule → complete → timeline event, all through the
   actual form UI) — see "Not built yet" for the two gaps left in it.
 
+## Leases — Module 13 (this pass)
+
+The second genuinely new module added this session. Module 5's property
+marketplace (`PropertyListing` with `listingType: "rent"`/`"short_let"`,
+plus `ListingInquiry`/`ListingOffer`) gets a property rented out; nothing
+tracked what happens *after* that — the ongoing tenancy, its rent
+schedule, or payments against it. Deliberately not wired to
+Listing/Offer at all: a lease can just as well start from an owner
+recording a tenancy that predates this software, same "record what's
+true, don't force a specific prior workflow" reasoning
+`PropertyValuation.source: "manual"` already uses.
+
+- **`Lease`** (active → ended or terminated) and **`LeaseRentPayment`**
+  — same `accountId`-free, `:propertyId`-ABAC shape as `PropertyValuation`
+  and `PropertyInspection`. A rent payment here is a plain record that
+  rent was paid, same "simulated, not a real payment rail" depth Module
+  11's own `Payment` model already has — it doesn't move money or touch
+  escrow. A real deployment collecting rent through the platform would
+  tie this to `Payment`/`EscrowAccount` instead of standing alone.
+- **`POST /properties/:propertyId/leases`** creates one; **`.../leases/
+  :leaseId/rent-payments`** records a payment (blocked once the lease
+  isn't `"active"` — no rent to record against an ended one);
+  **`.../end`** is the other terminal state (`"ended"` or
+  `"terminated"`). New `lease:read`/`lease:write` permission pair,
+  granted like `inspection:read`/`write` — its own pair rather than
+  folded into `property:read`/`write`, same reasoning Module 8 gives.
+- **No separate Tenant identity.** `tenantName`/`tenantEmail`/
+  `tenantPhone` are freeform fields, not a relation — same scaffold-depth
+  tradeoff `PropertyInspection.inspectorName` already documents, for the
+  same reason (no licensed-tenant/renter account type exists here).
+- **`summarize_lease_status`** (new AI skill, `property` context) —
+  reads a property's full lease history and drafts what it actually
+  says: active vs. ended leases, total rent collected, and a call-out
+  when a lease is ending within 60 days (worth a renewal conversation),
+  not just a list of tenancies. Zero extra wiring for `AskAiPanel` to
+  pick it up, same as `summarize_inspection_history` before it.
+- **`pages/properties/[id].tsx`** gets a new Leases card: create-lease
+  form, per-lease status, an inline "record rent payment" form, and an
+  "end lease" action. New `lease_started`/`lease_ended` timeline events
+  (🔑/📤) — unlike `inspection_completed`, the original `TIMELINE_ICON`
+  map had no entry waiting for these, so this module genuinely wasn't
+  anticipated the way inspections turned out to be.
+- Verified against the live dev API (create, list, record two rent
+  payments, run the AI skill, end the lease, rent-after-ended rejected,
+  timeline events) and in the browser (create → record payment → end,
+  all through the actual form UI, plus the AI skill running from the
+  panel).
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
 blueprint, or explicitly cut from it:
 
-- **Modules 6, 12-14, 16-24** (the full property-verification/trust
+- **Modules 6, 12, 14, 16-24** (the full property-verification/trust
   workflow — a neutral reviewer, risk flags, trust scores; maintenance,
-  leases, the rest of valuation beyond `PropertyValuation`, compliance,
-  community management, AR/VR, the full fixed-dashboard side of reports,
-  admin operations, ...) — this scaffold now proves the pattern for
-  Modules 1, 2, 4, 5, 7, 9, 10, 11, and a slice of 8, 15, and 23, not the
-  full 24. Module 8 is a slice, not the full module, because there's no
-  separate Inspector identity — see "Property inspections" above.
+  the rest of valuation beyond `PropertyValuation`, compliance, community
+  management, AR/VR, the full fixed-dashboard side of reports, admin
+  operations, ...) — this scaffold now proves the pattern for Modules 1,
+  2, 4, 5, 7, 9, 10, 11, and a slice of 8, 13, 15, and 23, not the full
+  24. Modules 8 and 13 are slices, not the full modules, because there's
+  no separate Inspector or Tenant identity — see "Property inspections"
+  and "Leases" above.
 - **Property inspections — two gaps left in the new module.** No separate
   Inspector identity (see "Property inspections" above — `inspectorName`
   is freeform text, not an account relation), and no way to edit a
   scheduled inspection's date/type or reassign its project once created
   — only complete or cancel it outright and schedule a new one.
+- **Leases — three gaps left in the new module.** No separate Tenant
+  identity (see "Leases" above), no way to edit a lease's rent/dates once
+  created (only end it and create a new one), and rent payments are
+  manual entries with no reminder/overdue detection — `summarize_lease_
+  status` only ever looks at whether the lease itself is ending soon, not
+  whether a rent period has gone unpaid.
 - **AI-generated renovation visualizations.** Explicitly deferred by
   Priority 6 itself, pending Module 22 (AR/VR) existing at all.
 - **Multi-turn tool use in one chat turn.** `ChatService` calls at most one
