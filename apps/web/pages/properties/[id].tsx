@@ -15,6 +15,20 @@ function formatMoney(value?: string | null, currency?: string) {
   return currency ? `${currency} ${formatted}` : formatted;
 }
 
+const RENT_FREQUENCY_DAYS: Record<string, number> = { weekly: 7, monthly: 30, annually: 365 };
+
+// Same "more than one rent period since the last recorded payment" check
+// summarize_lease_status runs server-side — a client-side read of the same
+// definition so the badge shows without opening the AI panel, same pairing
+// isExpiring()/"expiring soon" gives documents on the Documents page.
+function isRentOverdue(lease: Lease) {
+  const periodDays = RENT_FREQUENCY_DAYS[lease.rentFrequency] ?? RENT_FREQUENCY_DAYS.monthly;
+  const periodEnds = (lease.rentPayments ?? []).map((p) => new Date(p.periodEnd).getTime());
+  const anchor = periodEnds.length > 0 ? Math.max(...periodEnds) : new Date(lease.startDate).getTime();
+  const daysSinceAnchor = (Date.now() - anchor) / (1000 * 60 * 60 * 24);
+  return daysSinceAnchor > periodDays;
+}
+
 const TIMELINE_ICON: Record<string, string> = {
   created: "🏁",
   document_uploaded: "📄",
@@ -816,7 +830,16 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
             </div>
           )}
         </div>
-        <span className="potg-badge">{lease.status}</span>
+        <div style={{ textAlign: "right" }}>
+          <span className="potg-badge">{lease.status}</span>
+          {lease.status === "active" && isRentOverdue(lease) && (
+            <div>
+              <span className="potg-badge" style={{ color: "var(--potg-danger)", marginTop: 4 }}>
+                rent overdue
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}

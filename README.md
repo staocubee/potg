@@ -1365,6 +1365,37 @@ already assume:
   refused) and in the browser for all three (pre-filled edit form saves
   and the row reflects the new values immediately).
 
+## Overdue-rent detection for Leases (this pass)
+
+The last piece of the Leases gap this session had already named:
+`summarize_lease_status` could say a lease was ending soon, but never
+whether rent itself had gone unpaid — there's no real payment/reminder
+system behind `LeaseRentPayment` (it's a manual record, same as it was
+when the module was first built), so this is a deterministic read of
+what's already on file, not a payment tracker.
+
+- **Definition**: a lease "looks overdue" when more than one rent period
+  (7/30/365 days for weekly/monthly/annually — `monthly` is a 30-day
+  approximation, same order-of-magnitude simplification `Document`'s
+  30-day "expiring soon" window already uses) has passed since the
+  latest recorded payment's `periodEnd`, or since the lease's own
+  `startDate` if no payment has ever been recorded.
+- **`summarize_lease_status`** now computes this per active lease,
+  mentions the count in its opening line, tags each overdue lease inline
+  (`— rent looks ~N day(s) overdue`), and sets `warn: true` whenever any
+  lease is overdue or ending soon (previously only the latter).
+- **`pages/properties/[id].tsx`**: `isRentOverdue()` runs the identical
+  check client-side so a "Rent Overdue" badge shows on the lease row
+  directly, without opening the AI panel — the same pairing `isExpiring()`
+  gives Documents' "expiring soon" badge. Two independent
+  implementations of the same simple formula, not a shared import, since
+  one runs in the AI skill's Prisma context and the other in the browser
+  against already-fetched JSON.
+- Verified against the live dev API (a lease with old `startDate` and no
+  payments correctly flagged with the right day count and `warn: true`;
+  a lease that started today correctly not flagged) and in the browser
+  (the overdue lease shows the red badge, the current one doesn't).
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -1387,12 +1418,10 @@ blueprint, or explicitly cut from it:
   is freeform text, not an account relation). Editing a scheduled
   inspection's date/type/project/inspector is now possible — see "Edit
   endpoints for Inspections, Leases, and Maintenance requests" below.
-- **Leases — two gaps left in the new module.** No separate Tenant
-  identity (see "Leases" above), and rent payments are manual entries
-  with no reminder/overdue detection — `summarize_lease_status` only
-  ever looks at whether the lease itself is ending soon, not whether a
-  rent period has gone unpaid. Editing a lease's rent/dates/deposit is
-  now possible — see "Edit endpoints" below.
+- **Leases — one gap left in the new module.** No separate Tenant
+  identity (see "Leases" above). Editing a lease's rent/dates/deposit,
+  and overdue-rent detection, are now possible — see "Edit endpoints"
+  and "Overdue-rent detection" below.
 - **Maintenance requests — one gap left in the new module.** No separate
   Contractor identity or link to Module 9's vendor marketplace (see
   "Maintenance requests" above — `assignedTo` is freeform text). Editing
