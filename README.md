@@ -928,18 +928,16 @@ Two small, unrelated fixes bundled together since both were the same
   initializes its `favorited` state from the response instead of always
   starting `false`. This was a real correctness bug, not just a missing
   feature — fixed outright, not flagged as a tradeoff.
-- **The materials cart survives a refresh.** `pages/marketplace/materials/
-  [id].tsx`'s cart (`productId -> quantity`) now round-trips through
-  `localStorage`, keyed per supplier (`potg:materials-cart:<supplierId>`)
-  so it doesn't leak between suppliers or, since it's keyed on supplier
-  rather than account, between accounts sharing the browser in an
-  unexpected way. Cleared the same way it always was — placing the order
-  empties `cart` state, which the persistence effect then removes from
-  storage. Deliberately *not* a server-side `Cart` model: a pre-checkout
-  quantity selector is exactly the kind of per-device convenience
-  `localStorage` is for, and a real synced-across-devices cart would need
-  to reconcile stock/price drift against a shared account, which is a
-  materially bigger feature than "stop losing it on refresh."
+- **The materials cart survives a refresh, at the time this was written.**
+  `pages/marketplace/materials/[id].tsx`'s cart (`productId -> quantity`)
+  round-tripped through `localStorage`, keyed per supplier
+  (`potg:materials-cart:<supplierId>`), deliberately *not* a server-side
+  `Cart` model — a real synced-across-devices cart was judged a
+  materially bigger feature than "stop losing it on refresh" at the time.
+  A later pass this same session built that bigger feature anyway and
+  replaced this `localStorage` version outright, since a real account-
+  scoped cart strictly subsumes what `localStorage` did — see "A real
+  server-side cart" further down.
 
 ## Review editing, replies, and the "me" dashboards (this pass)
 
@@ -1524,6 +1522,51 @@ date range, against shared stock — not another `OrderItem`.
   the supplier dashboard all worked end to end, with badges and card
   contents matching the API state at every step.
 
+## A real server-side cart (this pass)
+
+The last named half of the materials-marketplace gap this session
+inherited: "there's still no `Cart`/`CartItem` model, so it doesn't
+follow the account across devices or reconcile against a product's
+price/stock changing while it sits in the cart." Rental booking closed
+the other half. This replaces the supplier detail page's `localStorage`
+cart outright — a real account-scoped cart strictly subsumes what
+`localStorage` did (survive a refresh) plus what it never could (follow
+the account across devices), so there was no reason to keep both.
+
+- **`CartItem`** (new model) — one row per `(accountId, productId)`,
+  `@@unique` enforced so `upsertCartItem` is a straight upsert, not a
+  find-then-branch. Quantity `0` deletes the row rather than storing a
+  meaningless zero line.
+- **`GET /cart`** (`order:read`) lists every item across every supplier
+  for the caller's account. **`POST /cart/items`** and **`DELETE /cart/
+  items/:productId`** (`order:write`) upsert or remove one line.
+  **`POST /cart/checkout`** (`order:write`, body `{ supplierId,
+  projectId?, deliveryAddress? }`) reads the account's cart items for
+  *that* supplier, builds the same `{ productId, quantity }[]` shape
+  `CreateOrderDto` already takes, and calls `createOrder` directly —
+  price computation, stock decrement, and the "does every product belong
+  to this supplier" check all stay in the one place that already had
+  them, never duplicated. Only the checked-out supplier's items are
+  cleared from the cart afterward; items from other suppliers are
+  untouched, matching how an `Order` has always been per-supplier.
+  Deliberately reuses the existing `order:read`/`order:write`
+  permissions rather than adding a `cart:*` pair — a cart is a staging
+  area for an order, not a distinct action worth its own permission the
+  way inspections/leases/maintenance/rentals each got.
+- **`pages/marketplace/materials/[id].tsx`**: the `localStorage`
+  read/write `useEffect` pair is gone. The quantity inputs now call
+  `GET /cart` on load (filtered client-side to this supplier's items —
+  the account's cart can span suppliers, this page only shows one) and
+  `POST /cart/items` on every change; `OrderWidget`'s submit calls
+  `POST /cart/checkout` instead of building an `items` array from local
+  state and posting straight to `/orders`.
+- Verified against the live dev API (add/update/zero-clears a line,
+  checkout with no matching items 400s, checkout computes the right
+  total and decrements stock, the cart is empty afterward) and in the
+  browser: added a quantity, reloaded the page — the "4" survived the
+  reload from the server, not `localStorage` — then placed the order and
+  landed on its detail page showing the correct line and total.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -1594,9 +1637,6 @@ blueprint, or explicitly cut from it:
   holds the milestone/payment it's tied to. There's still no evidence
   request step, and "the other party" is just the project's owner account
   or its assigned vendor account, not an independent third party.
-- **Purchases still go straight from browsing to a line-item order, no
-  server-side cart.** Rental booking (the other half of this gap) is now
-  built — see "Tool/equipment rental booking" above.
 - **Deeper AI (Priority 6)** — natural-language project summaries beyond
   what `summarize_property`/`draft_project_status_update` already do,
   financial modeling chat, listing/risk summaries, valuation/ROI
@@ -1608,11 +1648,6 @@ blueprint, or explicitly cut from it:
   verification is no longer on this list — see "Document verification"
   above — though it's still an account's own admin doing the verifying,
   not an independent reviewer.
-- **The materials cart still isn't server-side.** See "Cart persistence &
-  favorite accuracy" above — it now survives a refresh via `localStorage`,
-  but there's still no `Cart`/`CartItem` model, so it doesn't follow the
-  account across devices or reconcile against a product's price/stock
-  changing while it sits in the cart.
 - **Reviews still have no moderation.** See "Review editing, replies, and
   the 'me' dashboards" above for what changed — the reviewer can now edit
   or delete their own review and the vendor/supplier can reply, but

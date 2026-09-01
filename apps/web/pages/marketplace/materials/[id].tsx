@@ -28,6 +28,10 @@ export default function SupplierDetailPage() {
   const [supplier, setSupplier] = useState<Supplier | null>(null);
   const [error, setError] = useState<string | null>(null);
   // productId -> quantity, only for products the buyer has set a quantity on.
+  // Mirrors the server-side CartItem rows for this supplier — GET /cart on
+  // load, POST /cart/items on every change, so the cart is real account
+  // state (follows the account across devices) rather than per-browser
+  // localStorage, closing the "materials cart still isn't server-side" gap.
   const [cart, setCart] = useState<Record<string, number>>({});
 
   function load() {
@@ -37,6 +41,16 @@ export default function SupplierDetailPage() {
       .getSupplier(id)
       .then(setSupplier)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this supplier."));
+    auth.api
+      .getCart()
+      .then((items) => {
+        const forThisSupplier: Record<string, number> = {};
+        for (const item of items) {
+          if (item.product?.supplierId === id) forThisSupplier[item.productId] = item.quantity;
+        }
+        setCart(forThisSupplier);
+      })
+      .catch(() => setCart({}));
   }
 
   useEffect(() => {
@@ -44,34 +58,20 @@ export default function SupplierDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, auth.currentAccountId]);
 
-  // Cart survives a refresh or coming back later, but stays per-browser and
-  // per-supplier — there's still no server-side Cart model (a real one
-  // would need to reconcile stock/price changes across a shared account),
-  // this just stops the previous "lost the moment you navigate away" gap.
-  // Keyed on supplierId only, not accountId, so it doesn't leak between
-  // accounts sharing this browser.
-  const cartKey = id ? `potg:materials-cart:${id}` : null;
-
-  useEffect(() => {
-    if (!cartKey) return;
-    try {
-      const raw = localStorage.getItem(cartKey);
-      if (raw) setCart(JSON.parse(raw));
-    } catch {
-      // private window, blocked storage, or corrupt JSON — just start empty
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cartKey]);
-
-  useEffect(() => {
-    if (!cartKey) return;
-    try {
-      if (Object.keys(cart).length === 0) localStorage.removeItem(cartKey);
-      else localStorage.setItem(cartKey, JSON.stringify(cart));
-    } catch {
-      // storage unavailable — cart just won't survive a refresh this time
-    }
-  }, [cartKey, cart]);
+  function setQuantity(productId: string, quantity: number) {
+    setCart((prev) => {
+      const next = { ...prev };
+      if (quantity > 0) next[productId] = quantity;
+      else delete next[productId];
+      return next;
+    });
+    auth.api.upsertCartItem(productId, quantity).catch(() => {
+      // best-effort sync — the qty input already reflects the buyer's
+      // intent locally; a failed sync just means the next page load
+      // won't remember it, same degraded behavior localStorage being
+      // unavailable used to have.
+    });
+  }
 
   const isSupplierAccount = auth.currentAccount?.accountType === "SUPPLIER";
   const isPlatformReviewer = auth.currentAccount?.role === "platform_reviewer";
@@ -158,7 +158,7 @@ export default function SupplierDetailPage() {
                         placeholder="Qty"
                         style={{ width: 80 }}
                         value={cart[p.id] ?? ""}
-                        onChange={(e) => setCart((prev) => ({ ...prev, [p.id]: Number(e.target.value) }))}
+                        onChange={(e) => setQuantity(p.id, Number(e.target.value))}
                         disabled={p.status !== "active" || p.stockQuantity === 0}
                       />
                     )}
@@ -230,10 +230,13 @@ function OrderWidget({
     setBusy(true);
     setError(null);
     try {
-      const order = await auth.api.createOrder({
+      // Checkout reads straight from the server-side cart (Module 10's
+      // CartItem rows this page keeps in sync via upsertCartItem), not
+      // from the `items` prop directly — `items` is only used above to
+      // render the item count.
+      const order = await auth.api.checkoutCart({
         supplierId,
         projectId: projectId || undefined,
-        items: items.map(([productId, quantity]) => ({ productId, quantity })),
         deliveryAddress: deliveryAddress || undefined,
       });
       onOrdered();

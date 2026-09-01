@@ -16,6 +16,8 @@ import { UpdateOrderReviewDto } from './dto/update-order-review.dto';
 import { ReplyToReviewDto } from '../vendors/dto/reply-to-review.dto';
 import { SetSupplierVerificationDto } from './dto/set-supplier-verification.dto';
 import { CreateRentalBookingDto } from './dto/create-rental-booking.dto';
+import { UpsertCartItemDto } from './dto/upsert-cart-item.dto';
+import { CheckoutCartDto } from './dto/checkout-cart.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -98,6 +100,32 @@ export class MaterialsController {
   @Post('orders')
   createOrder(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: CreateOrderDto) {
     return this.materials.createOrder(member.accountId, dto);
+  }
+
+  // --- Cart (server-side) --------------------------------------------------
+
+  @RequirePermissions('order:read')
+  @Get('cart')
+  getCart(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.materials.getCart(member.accountId);
+  }
+
+  @RequirePermissions('order:write')
+  @Post('cart/items')
+  upsertCartItem(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: UpsertCartItemDto) {
+    return this.materials.upsertCartItem(member.accountId, dto);
+  }
+
+  @RequirePermissions('order:write')
+  @Delete('cart/items/:productId')
+  removeCartItem(@Param('productId') productId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.materials.removeCartItem(member.accountId, productId);
+  }
+
+  @RequirePermissions('order:write')
+  @Post('cart/checkout')
+  checkoutCart(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: CheckoutCartDto) {
+    return this.materials.checkoutCart(member.accountId, dto);
   }
 
   // --- Rental bookings (Module 10) ---------------------------------------

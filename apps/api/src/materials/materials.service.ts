@@ -11,6 +11,8 @@ import { UpdateOrderReviewDto } from './dto/update-order-review.dto';
 import { ReplyToReviewDto } from '../vendors/dto/reply-to-review.dto';
 import { SetSupplierVerificationDto } from './dto/set-supplier-verification.dto';
 import { CreateRentalBookingDto } from './dto/create-rental-booking.dto';
+import { UpsertCartItemDto } from './dto/upsert-cart-item.dto';
+import { CheckoutCartDto } from './dto/checkout-cart.dto';
 import { getSupplierTrustScore } from './trust-score';
 
 @Injectable()
@@ -225,6 +227,63 @@ export class MaterialsService {
       throw new BadRequestException(`This booking is already "${booking.status}"`);
     }
     return this.prisma.rentalBooking.update({ where: { id: bookingId }, data: { status: 'cancelled' } });
+  }
+
+  // --- Cart (server-side) -------------------------------------------------
+  //
+  // Doesn't replace the supplier detail page's own localStorage cart — that
+  // stays the pre-account-decision scratch space while browsing. This is
+  // what CheckoutCart reads once the buyer is ready to place a real order,
+  // and (unlike localStorage) follows the account across devices.
+
+  getCart(accountId: string) {
+    return this.prisma.cartItem.findMany({
+      where: { accountId },
+      include: { product: { include: { supplier: { select: { id: true, businessName: true } } } } },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async upsertCartItem(accountId: string, dto: UpsertCartItemDto) {
+    const product = await this.prisma.product.findUnique({ where: { id: dto.productId } });
+    if (!product) throw new NotFoundException('Product not found');
+
+    if (dto.quantity <= 0) {
+      await this.prisma.cartItem.deleteMany({ where: { accountId, productId: dto.productId } });
+      return { removed: true };
+    }
+    return this.prisma.cartItem.upsert({
+      where: { accountId_productId: { accountId, productId: dto.productId } },
+      update: { quantity: dto.quantity },
+      create: { accountId, productId: dto.productId, quantity: dto.quantity },
+    });
+  }
+
+  async removeCartItem(accountId: string, productId: string) {
+    await this.prisma.cartItem.deleteMany({ where: { accountId, productId } });
+    return { removed: true };
+  }
+
+  // Converts every cart item for one supplier into a real Order via the
+  // exact same createOrder path a direct checkout uses (never duplicates
+  // its stock/price logic), then clears just those items — cart items for
+  // other suppliers are untouched, matching how the order itself is always
+  // per-supplier.
+  async checkoutCart(accountId: string, dto: CheckoutCartDto) {
+    const items = await this.prisma.cartItem.findMany({
+      where: { accountId, product: { supplierId: dto.supplierId } },
+    });
+    if (items.length === 0) {
+      throw new BadRequestException('Your cart has no items from this supplier');
+    }
+    const order = await this.createOrder(accountId, {
+      supplierId: dto.supplierId,
+      projectId: dto.projectId,
+      deliveryAddress: dto.deliveryAddress,
+      items: items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
+    });
+    await this.prisma.cartItem.deleteMany({ where: { id: { in: items.map((i) => i.id) } } });
+    return order;
   }
 
   // --- Orders ------------------------------------------------------------

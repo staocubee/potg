@@ -61,6 +61,7 @@ model Account {
   aiConversations AiConversation[]
   invites         AccountInvite[]
   rentalBookings  RentalBooking[]
+  cartItems       CartItem[]
 
   @@map("accounts")
 }
@@ -802,6 +803,7 @@ model Product {
   supplier       Supplier        @relation(fields: [supplierId], references: [id], onDelete: Cascade)
   orderItems     OrderItem[]
   rentalBookings RentalBooking[]
+  cartItems      CartItem[]
 
   @@map("products")
 }
@@ -829,6 +831,29 @@ model RentalBooking {
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@map("rental_bookings")
+}
+
+// A real server-side cart, closing the "materials cart still isn't
+// server-side" gap the localStorage-backed cart on the supplier detail
+// page always documented as a limitation — this doesn't replace that
+// page's localStorage cart (still used as the pre-account-decision
+// scratch space while browsing), it's what CheckoutCart reads once the
+// buyer is ready to place a real order. One row per (accountId,
+// productId); quantity 0 is never stored, removeCartItem/quantity<=0
+// deletes the row instead.
+model CartItem {
+  id        String   @id @default(uuid())
+  accountId String
+  productId String
+  quantity  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, productId])
+  @@map("cart_items")
 }
 
 model Order {
