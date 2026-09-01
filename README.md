@@ -1288,10 +1288,42 @@ flags for listings; this is its counterpart for the vendor marketplace.
   by whatever mechanism already existed (currently nothing — no
   vendor-verification endpoint exists, same gap `PropertyListing.
   verificationStatus` and `Document.verificationStatus` both document
-  elsewhere). Supplier profiles (Module 10's other marketplace side)
-  don't get an equivalent score this pass — vendors were picked because
-  they're the one profile type with reviews, assignments, and disputes
-  all already modeled together.
+  elsewhere).
+
+## Supplier trust score (this pass)
+
+The materials-marketplace counterpart to the vendor trust score above,
+added right after it in the same pass once the vendor version proved out
+— same formula shape, same "computed on read, shared with an AI skill"
+structure, just swapped for the signals a `Supplier` actually has.
+
+- **`apps/api/src/materials/trust-score.ts`** — same shared-module
+  pattern as `vendors/trust-score.ts`: start at 50, `+20` verified / `+5`
+  pending, `+(ratingAverage - 3) * 10`, then the two signals that differ
+  from the vendor version — suppliers have no `Dispute` model, so
+  delivered orders (`+2` each, capped at `+15`) stand in for completed
+  projects as the positive track-record signal, and cancelled orders
+  (`-8` each, capped at `-30`) stand in for disputes as the negative one
+  (the closest supplier-side analogue to "something went wrong with this
+  transaction"). Same `[0, 100]` clamp and excellent/good/fair/caution
+  bands.
+- **`GET /suppliers/:supplierId` and `GET /suppliers/me`** now attach the
+  same `trustScore` shape the vendor endpoints do.
+- **`explain_supplier_trust_score`** (new AI skill, `supplier` context) —
+  same public/buyer-facing shape as `explain_vendor_trust_score`, reusing
+  `materials/trust-score.ts` so it can't drift from the REST response.
+- **`pages/marketplace/materials/[id].tsx`** (the supplier detail page —
+  despite the URL, this is a `Supplier` profile, the materials-market
+  counterpart to `pages/vendors/[id].tsx`) gets the same trust score
+  badge and its first `AskAiPanel`.
+- Verified the same way as the vendor version: live API (`GET /suppliers/
+  :id` and the AI skill return matching numbers — 90/100 "excellent" for
+  the seeded supplier, hand-checked against the formula) and in the
+  browser (badge renders, "Explain supplier trust score" appears with
+  zero extra wiring, draft matches the page).
+- **Same limitations as the vendor score** — not a neutral reviewer, and
+  no endpoint exists to actually move `Supplier.verificationStatus` off
+  its `not_verified` default.
 
 ## Not built yet
 
@@ -1308,8 +1340,8 @@ blueprint, or explicitly cut from it:
   and 13 are slices, not the full modules, because there's no separate
   Inspector, Contractor, or Tenant identity — see "Property inspections",
   "Maintenance requests", and "Leases" above. Module 6 is a slice because
-  there's still no neutral-reviewer identity and no supplier-side trust
-  score — see "Vendor trust score" above.
+  there's still no neutral-reviewer identity — see "Vendor trust score"
+  and "Supplier trust score" above.
 - **Property inspections — two gaps left in the new module.** No separate
   Inspector identity (see "Property inspections" above — `inspectorName`
   is freeform text, not an account relation), and no way to edit a
@@ -1326,13 +1358,13 @@ blueprint, or explicitly cut from it:
   "Maintenance requests" above — `assignedTo` is freeform text), and no
   way to edit a request's title/description/priority once reported —
   only start, resolve, or cancel it.
-- **Vendor trust score — no neutral reviewer, no supplier equivalent.**
-  See "Vendor trust score" above: the score is the platform's own
-  arithmetic over data the vendor's own marketplace activity already
-  produced, not an independent audit, and there's still no endpoint that
-  actually sets `Vendor.verificationStatus` to anything but its
-  `not_verified` default. Suppliers (Module 10's other marketplace side)
-  have no equivalent score at all.
+- **Vendor and supplier trust scores — no neutral reviewer.** See "Vendor
+  trust score" and "Supplier trust score" above: both scores are the
+  platform's own arithmetic over data the vendor/supplier's own
+  marketplace activity already produced, not an independent audit, and
+  there's still no endpoint that actually sets `Vendor.verificationStatus`
+  or `Supplier.verificationStatus` to anything but their `not_verified`
+  default.
 - **AI-generated renovation visualizations.** Explicitly deferred by
   Priority 6 itself, pending Module 22 (AR/VR) existing at all.
 - **Multi-turn tool use in one chat turn.** `ChatService` calls at most one

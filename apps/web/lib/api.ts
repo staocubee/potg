@@ -623,6 +623,18 @@ export type ListingFavorite = {
   listing?: { id: string; title: string; askingPrice: string; currency: string; status: string };
 };
 
+export type SupplierTrustScore = {
+  score: number;
+  band: "excellent" | "good" | "fair" | "caution" | string;
+  factors: {
+    verificationStatus: string;
+    ratingAverage: number | null;
+    reviewCount: number;
+    deliveredOrders: number;
+    cancelledOrders: number;
+  };
+};
+
 export type Supplier = {
   id: string;
   accountId: string;
@@ -635,6 +647,7 @@ export type Supplier = {
   updatedAt: string;
   products?: Product[];
   reviews?: SupplierReview[];
+  trustScore?: SupplierTrustScore;
 };
 
 export type SupplierReview = {

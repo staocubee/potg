@@ -9,6 +9,7 @@ import { UpdateDeliveryDto } from './dto/update-delivery.dto';
 import { CreateOrderReviewDto } from './dto/create-order-review.dto';
 import { UpdateOrderReviewDto } from './dto/update-order-review.dto';
 import { ReplyToReviewDto } from '../vendors/dto/reply-to-review.dto';
+import { getSupplierTrustScore } from './trust-score';
 
 @Injectable()
 export class MaterialsService {
@@ -39,21 +40,25 @@ export class MaterialsService {
     });
   }
 
-  findMySupplier(accountId: string) {
-    return this.prisma.supplier.findUnique({
+  async findMySupplier(accountId: string) {
+    const supplier = await this.prisma.supplier.findUnique({
       where: { accountId },
       include: { products: true, reviews: { orderBy: { createdAt: 'desc' } } },
     });
+    if (!supplier) return supplier;
+    return { ...supplier, trustScore: await getSupplierTrustScore(this.prisma, supplier) };
   }
 
-  findSupplier(id: string) {
-    return this.prisma.supplier.findUnique({
+  async findSupplier(id: string) {
+    const supplier = await this.prisma.supplier.findUnique({
       where: { id },
       include: {
         products: { where: { status: 'active' } },
         reviews: { orderBy: { createdAt: 'desc' } },
       },
     });
+    if (!supplier) return supplier;
+    return { ...supplier, trustScore: await getSupplierTrustScore(this.prisma, supplier) };
   }
 
   // --- Products --------------------------------------------------------

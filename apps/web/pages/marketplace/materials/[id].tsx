@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useAuth } from "../../../lib/auth";
 import { ApiError, Project, Supplier } from "../../../lib/api";
 import AppShell from "../../../components/AppShell";
+import AskAiPanel from "../../../components/AskAiPanel";
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -12,6 +13,12 @@ function formatMoney(value?: string | null, currency?: string) {
   const formatted = n.toLocaleString(undefined, { maximumFractionDigits: 0 });
   return currency ? `${currency} ${formatted}` : formatted;
 }
+
+const TRUST_BAND_COLOR: Record<string, string | undefined> = {
+  excellent: "var(--potg-success)",
+  good: "var(--potg-success)",
+  caution: "var(--potg-danger)",
+};
 
 export default function SupplierDetailPage() {
   const auth = useAuth();
@@ -65,7 +72,10 @@ export default function SupplierDetailPage() {
   const cartItems = Object.entries(cart).filter(([, qty]) => qty > 0);
 
   return (
-    <AppShell title={supplier?.businessName ?? "Supplier"}>
+    <AppShell
+      title={supplier?.businessName ?? "Supplier"}
+      aiPanel={id ? <AskAiPanel moduleContext={`supplier:${id}`} heading={`Ask AI — ${supplier?.businessName ?? "this supplier"}`} /> : undefined}
+    >
       <Link href="/marketplace/materials" className="potg-muted" style={{ fontSize: 13, display: "inline-block", marginBottom: 14 }}>
         ← Back to materials & tools
       </Link>
@@ -91,6 +101,26 @@ export default function SupplierDetailPage() {
                 )}
               </div>
             </div>
+            {supplier.trustScore && (
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--potg-border)" }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                  <span className="potg-label">Trust score</span>
+                  <span style={{ fontWeight: 700, fontSize: 16, color: TRUST_BAND_COLOR[supplier.trustScore.band] }}>
+                    {supplier.trustScore.score}/100
+                  </span>
+                  <span className="potg-badge" style={{ textTransform: "capitalize" }}>
+                    {supplier.trustScore.band}
+                  </span>
+                </div>
+                <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
+                  {supplier.trustScore.factors.deliveredOrders} delivered order(s) ·{" "}
+                  {supplier.trustScore.factors.reviewCount} review(s)
+                  {supplier.trustScore.factors.cancelledOrders > 0 &&
+                    ` · ${supplier.trustScore.factors.cancelledOrders} cancelled order(s) on record`}
+                  {" — the platform's own arithmetic over its own data, not an independent audit."}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="potg-card" style={{ padding: 18 }}>
