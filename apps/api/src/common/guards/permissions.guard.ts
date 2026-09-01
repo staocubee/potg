@@ -68,6 +68,20 @@ export class PermissionsGuard implements CanActivate {
       }
     }
 
+    // Same pattern for :accountId (Module 1) — no extra query needed since
+    // AccountContextGuard already resolved which account the caller is
+    // acting as. Without this, POST /accounts/:accountId/members had a real
+    // IDOR: account:manage_members only ever checked that the caller had
+    // that permission *somewhere* (on whatever account X-Account-Id named),
+    // never that it was for *this* account — so any account owner could add
+    // themselves, with any role, to any other account on the platform just
+    // by putting a different id in the URL. Found and fixed in the same
+    // pass that added the invite flow below.
+    const accountIdParam = req.params?.accountId;
+    if (accountIdParam && accountIdParam !== accountMember.accountId) {
+      throw new NotFoundException('Account not found');
+    }
+
     return true;
   }
 }
