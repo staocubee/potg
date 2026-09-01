@@ -1054,12 +1054,6 @@ blueprint, or explicitly cut from it:
   beyond native HTML `required`/`minLength`/`type="email"`. Rate limiting
   and refresh-token revocation are no longer on this list — see "Auth
   hardening: rate limiting, refresh-token revocation, refunds" above.
-- **Ask AI panel input forms.** Quick actions always call `POST /ai/actions`
-  with an empty `input: {}` — fine today since every skill either ignores
-  `input` or has sensible defaults, but ties directly to the "per-skill
-  structured input schemas" gap above: once a skill needs required input
-  (e.g. `model_roi_scenario`'s `scenario` choice), the panel will need a
-  small per-skill form, not just a button.
 - **Search, media, and vector layers** (Elasticsearch/OpenSearch, S3-
   compatible object storage, a vector DB for AI context retrieval) — the
   Technical Architecture section calls these out, none are wired up here.
