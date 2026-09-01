@@ -829,6 +829,48 @@ of the backlog to close first, ahead of any new module.
   paying out, not giving back) — the updated `Payment.status` and the new
   `EscrowLedgerEntry` row are the record of it.
 
+## Document verification (this pass)
+
+Closes the specific gap the "Not built yet" list used to name: "no way for
+the web app (or the API) to change a document's `verificationStatus`."
+`verify_property_documents` (`src/ai/skills`) already checked a property's
+documents against a checklist, but its own comment was explicit that it
+never sets `verificationStatus` itself — that was always meant to be a
+separate human/admin action, which simply didn't exist yet.
+
+- **New permission `document:verify`**, distinct from `document:write` —
+  uploading your own document and approving someone's document are
+  different actions, same reasoning `payment:approve` is split from
+  `payment:write`. Granted to the `property_owner`, `family_admin`, and
+  `company_admin` roles; withheld from `vendor`, `supplier`, and `viewer`
+  the same as the rest of the account-admin permission set.
+- **`PATCH /documents/:documentId/verify`** (`DocumentsService.verify`) —
+  body is `{ status: "verified" | "rejected", notes?: string }`. Not
+  nested under `:propertyId`, so it can't lean on `PermissionsGuard`'s
+  ABAC convention; filters by the caller's `accountId` directly instead,
+  same shape as `PaymentsService.getAccountOverview`. Writes a
+  `document_verified`/`document_rejected` `PropertyTimelineEvent` when the
+  document is tied to a property, mirroring the existing
+  `document_uploaded` event.
+- **New `Document.verificationNotes`** column — a reviewer's reason for a
+  rejection (or any caveat on a verification), shown back on the document
+  row.
+- **`pages/documents/index.tsx`** — a document still sitting at
+  `not_verified` (or, if something ever sets it, `submitted`) gets
+  inline Verify/Reject buttons; Reject expands a small optional-reason
+  field first. Once a document is `verified` or `rejected` the controls
+  disappear — this endpoint decides once, it doesn't support re-review.
+  No client-side permission check: a member without `document:verify`
+  sees the buttons and gets the API's 403, same pattern the project
+  page's approve/release buttons already use.
+- **Still not a neutral reviewer.** This scaffold's RBAC has no
+  reviewer identity outside the account itself — an account's own
+  owner/admin can verify a document its own member uploaded, which isn't
+  what Module 6's "neutral reviewer" ultimately calls for. The bullet
+  below about the fuller trust workflow (risk flags, trust scores, a real
+  independent reviewer) stays open; this pass only adds the mechanical
+  ability to change the status at all.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -871,10 +913,10 @@ blueprint, or explicitly cut from it:
 - **The rest of the web app.** Several passes now built the app shell, the
   reusable `AskAiPanel`, and screens for portfolio + projects + vendor
   marketplace + payments/escrow + property/materials marketplace +
-  documents + reviews + a payments rollup (see "Web app" above). There's
-  still no way for the web app (or the API) to change a document's
-  `verificationStatus`; that stays a human/admin workflow Module 6 hasn't
-  been built yet.
+  documents + reviews + a payments rollup (see "Web app" above). Document
+  verification is no longer on this list — see "Document verification"
+  above — though it's still an account's own admin doing the verifying,
+  not an independent reviewer.
 - **Order carts and favorites don't persist server-side beyond what the API
   already tracks.** The materials order widget's "cart" is local component
   state cleared on submit (one order per checkout, no saved cart across

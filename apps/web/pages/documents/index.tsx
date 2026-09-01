@@ -120,10 +120,21 @@ export default function DocumentsPage() {
                   Uploaded {new Date(d.createdAt).toLocaleDateString()}
                   {d.expiryDate && ` · Expires ${new Date(d.expiryDate).toLocaleDateString()}`}
                 </div>
+                {d.verificationNotes && (
+                  <div className="potg-muted" style={{ fontSize: 12, marginTop: 2, fontStyle: "italic" }}>
+                    Reviewer note: {d.verificationNotes}
+                  </div>
+                )}
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
                 {isExpiring(d.expiryDate) && <span className="potg-badge" style={{ color: "var(--potg-danger)" }}>expiring soon</span>}
                 <span className="potg-badge">{d.verificationStatus.replace(/_/g, " ")}</span>
+                <VerifyDocumentControls
+                  document={d}
+                  onUpdated={(updated) =>
+                    setDocuments((prev) => prev?.map((doc) => (doc.id === updated.id ? updated : doc)) ?? prev)
+                  }
+                />
               </div>
             </div>
           ))}
@@ -227,5 +238,75 @@ function UploadDocumentForm({
         </button>
       </div>
     </form>
+  );
+}
+
+// Sets Document.verificationStatus — the "human/admin workflow" the AI
+// panel's verify_property_documents skill deliberately never does itself
+// (it only drafts a checklist). No client-side permission check: if the
+// signed-in member lacks document:verify the API 403s and the error
+// surfaces the same way every other permission-gated action on this page
+// already handles it, same pattern as approve/release on the project page.
+function VerifyDocumentControls({ document, onUpdated }: { document: AppDocument; onUpdated: (d: AppDocument) => void }) {
+  const auth = useAuth();
+  const [rejecting, setRejecting] = useState(false);
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState<"verified" | "rejected" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(status: "verified" | "rejected") {
+    setBusy(status);
+    setError(null);
+    try {
+      const updated = await auth.api.verifyDocument(document.id, { status, notes: notes || undefined });
+      onUpdated(updated);
+      setRejecting(false);
+      setNotes("");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update this document's verification status.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (document.verificationStatus === "verified" || document.verificationStatus === "rejected") {
+    return null;
+  }
+
+  if (rejecting) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+        {error && <div className="potg-error" style={{ fontSize: 11 }}>{error}</div>}
+        <input
+          className="potg-input"
+          style={{ fontSize: 12, padding: "4px 8px", width: 180 }}
+          placeholder="Reason (optional)"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+        <div style={{ display: "flex", gap: 4 }}>
+          <button className="potg-btn potg-btn-danger" style={{ fontSize: 11, padding: "3px 8px" }} disabled={busy !== null} onClick={() => submit("rejected")}>
+            {busy === "rejected" ? "…" : "Confirm reject"}
+          </button>
+          <button className="potg-btn potg-btn-secondary" style={{ fontSize: 11, padding: "3px 8px" }} onClick={() => setRejecting(false)}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+      {error && <div className="potg-error" style={{ fontSize: 11 }}>{error}</div>}
+      <div style={{ display: "flex", gap: 4 }}>
+        <button className="potg-btn potg-btn-primary" style={{ fontSize: 11, padding: "3px 8px" }} disabled={busy !== null} onClick={() => submit("verified")}>
+          {busy === "verified" ? "…" : "Verify"}
+        </button>
+        <button className="potg-btn potg-btn-secondary" style={{ fontSize: 11, padding: "3px 8px" }} disabled={busy !== null} onClick={() => setRejecting(true)}>
+          Reject
+        </button>
+      </div>
+    </div>
   );
 }

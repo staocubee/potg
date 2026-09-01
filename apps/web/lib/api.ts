@@ -169,6 +169,7 @@ export type AppDocument = {
   documentType: string;
   fileUrl: string;
   verificationStatus: "not_verified" | "submitted" | "verified" | "rejected" | string;
+  verificationNotes?: string | null;
   expiryDate?: string | null;
   uploadedByUserId: string;
   createdAt: string;
@@ -984,5 +985,13 @@ export class ApiClient {
   }
   findDocumentsForProperty(propertyId: string) {
     return request<AppDocument[]>(`/documents/property/${propertyId}`, { token: this.token, accountId: this.accountId });
+  }
+  verifyDocument(documentId: string, input: { status: "verified" | "rejected"; notes?: string }) {
+    return request<AppDocument>(`/documents/${documentId}/verify`, {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
   }
 }

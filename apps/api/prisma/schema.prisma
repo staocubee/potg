@@ -275,7 +275,8 @@ model Document {
   propertyId         String?
   documentType       String
   fileUrl            String
-  verificationStatus String    @default("not_verified")
+  verificationStatus String    @default("not_verified") // not_verified | submitted | verified | rejected
+  verificationNotes  String? // reviewer's note — the reason for a rejection, or any caveat on a verification
   expiryDate         DateTime?
   uploadedByUserId   String
   createdAt          DateTime  @default(now())
