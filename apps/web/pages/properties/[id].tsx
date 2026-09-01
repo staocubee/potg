@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Project, Property, PropertyValuation } from "../../lib/api";
+import { ApiError, Project, Property, PropertyInspection, PropertyValuation } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -30,20 +30,23 @@ export default function PropertyDetailPage() {
   const [property, setProperty] = useState<Property | null>(null);
   const [valuations, setValuations] = useState<PropertyValuation[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [inspections, setInspections] = useState<PropertyInspection[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showValuationForm, setShowValuationForm] = useState(false);
+  const [showInspectionForm, setShowInspectionForm] = useState(false);
 
   function load() {
     if (!id || !auth.currentAccountId) return;
     setError(null);
-    Promise.all([auth.api.getProperty(id), auth.api.listValuations(id), auth.api.listProjects()])
-      .then(([p, v, allProjects]) => {
+    Promise.all([auth.api.getProperty(id), auth.api.listValuations(id), auth.api.listProjects(), auth.api.listInspections(id)])
+      .then(([p, v, allProjects, i]) => {
         setProperty(p);
         setValuations(v);
         // No GET /properties/:id/projects endpoint — Project doesn't need
         // its own query surface for this, filtering the account's already-
         // small project list client-side is enough.
         setProjects(allProjects.filter((proj) => proj.propertyId === id));
+        setInspections(i);
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this property."));
   }
@@ -199,6 +202,36 @@ export default function PropertyDetailPage() {
               ))}
             </div>
           </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <h3 style={{ fontSize: 14 }}>Inspections</h3>
+              <button className="potg-btn potg-btn-secondary" onClick={() => setShowInspectionForm((v) => !v)}>
+                {showInspectionForm ? "Cancel" : "+ Schedule inspection"}
+              </button>
+            </div>
+
+            {showInspectionForm && id && (
+              <ScheduleInspectionForm
+                propertyId={id}
+                projects={projects}
+                onCreated={(i) => {
+                  setInspections((prev) => [i, ...prev]);
+                  setShowInspectionForm(false);
+                }}
+              />
+            )}
+
+            {inspections.length === 0 && !showInspectionForm && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>No inspections yet.</p>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: showInspectionForm ? 12 : 0 }}>
+              {id &&
+                inspections.map((i) => (
+                  <InspectionRow key={i.id} propertyId={id} inspection={i} onChanged={load} />
+                ))}
+            </div>
+          </div>
         </div>
       )}
     </AppShell>
@@ -259,5 +292,232 @@ function AddValuationForm({ propertyId, onCreated }: { propertyId: string; onCre
         </button>
       </div>
     </form>
+  );
+}
+
+const INSPECTION_TYPES = ["general", "pre_purchase", "move_in", "move_out", "safety", "post_renovation"];
+
+function ScheduleInspectionForm({
+  propertyId,
+  projects,
+  onCreated,
+}: {
+  propertyId: string;
+  projects: Project[];
+  onCreated: (i: PropertyInspection) => void;
+}) {
+  const auth = useAuth();
+  const [inspectionType, setInspectionType] = useState(INSPECTION_TYPES[0]);
+  const [scheduledFor, setScheduledFor] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [inspectorName, setInspectorName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const i = await auth.api.scheduleInspection(propertyId, {
+        inspectionType,
+        scheduledFor: new Date(scheduledFor).toISOString(),
+        projectId: projectId || undefined,
+        inspectorName: inspectorName || undefined,
+      });
+      onCreated(i);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't schedule that inspection.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
+      {error && <div className="potg-error">{error}</div>}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <select className="potg-input" value={inspectionType} onChange={(e) => setInspectionType(e.target.value)}>
+          {INSPECTION_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t.replace(/_/g, " ")}
+            </option>
+          ))}
+        </select>
+        <input
+          className="potg-input"
+          type="date"
+          required
+          value={scheduledFor}
+          onChange={(e) => setScheduledFor(e.target.value)}
+        />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <select className="potg-input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+          <option value="">Not tied to a project</option>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.title}
+            </option>
+          ))}
+        </select>
+        <input
+          className="potg-input"
+          placeholder="Inspector name (optional)"
+          value={inspectorName}
+          onChange={(e) => setInspectorName(e.target.value)}
+        />
+      </div>
+      <div>
+        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+          {busy ? "Scheduling…" : "Schedule inspection"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function InspectionRow({
+  propertyId,
+  inspection,
+  onChanged,
+}: {
+  propertyId: string;
+  inspection: PropertyInspection;
+  onChanged: () => void;
+}) {
+  const auth = useAuth();
+  const [completing, setCompleting] = useState(false);
+  const [overallResult, setOverallResult] = useState("pass");
+  const [summary, setSummary] = useState("");
+  const [findingArea, setFindingArea] = useState("");
+  const [findingDescription, setFindingDescription] = useState("");
+  const [findingSeverity, setFindingSeverity] = useState("minor");
+  const [pendingFindings, setPendingFindings] = useState<{ area: string; description: string; severity: string }[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"complete" | "cancel" | null>(null);
+
+  function addFinding() {
+    if (!findingArea || !findingDescription) return;
+    setPendingFindings((prev) => [...prev, { area: findingArea, description: findingDescription, severity: findingSeverity }]);
+    setFindingArea("");
+    setFindingDescription("");
+    setFindingSeverity("minor");
+  }
+
+  async function onComplete(e: FormEvent) {
+    e.preventDefault();
+    setBusy("complete");
+    setError(null);
+    try {
+      await auth.api.completeInspection(propertyId, inspection.id, {
+        overallResult,
+        summary: summary || undefined,
+        findings: pendingFindings,
+      });
+      setCompleting(false);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't complete that inspection.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onCancel() {
+    setBusy("cancel");
+    setError(null);
+    try {
+      await auth.api.cancelInspection(propertyId, inspection.id);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't cancel that inspection.");
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div style={{ borderTop: "1px solid var(--potg-border)", paddingTop: 10, fontSize: 13 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontWeight: 600, textTransform: "capitalize" }}>{inspection.inspectionType.replace(/_/g, " ")}</div>
+          <div className="potg-muted" style={{ fontSize: 11 }}>
+            {new Date(inspection.scheduledFor).toLocaleDateString()}
+            {inspection.inspectorName && ` · ${inspection.inspectorName}`}
+          </div>
+          {inspection.summary && <div style={{ marginTop: 4 }}>{inspection.summary}</div>}
+          {inspection.findings && inspection.findings.length > 0 && (
+            <ul style={{ margin: "6px 0 0", paddingLeft: 16 }}>
+              {inspection.findings.map((f) => (
+                <li key={f.id} className="potg-muted" style={{ fontSize: 12 }}>
+                  <strong>{f.area}</strong> ({f.severity}): {f.description}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
+          <span className="potg-badge" style={{ color: inspection.overallResult === "fail" ? "var(--potg-danger)" : undefined }}>
+            {inspection.status === "completed" ? inspection.overallResult?.replace(/_/g, " ") : inspection.status}
+          </span>
+        </div>
+      </div>
+
+      {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
+
+      {inspection.status === "scheduled" && !completing && (
+        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setCompleting(true)}>
+            Complete
+          </button>
+          <button className="potg-btn potg-btn-danger" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={onCancel}>
+            {busy === "cancel" ? "…" : "Cancel"}
+          </button>
+        </div>
+      )}
+
+      {inspection.status === "scheduled" && completing && (
+        <form onSubmit={onComplete} style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+          <select className="potg-input" value={overallResult} onChange={(e) => setOverallResult(e.target.value)}>
+            <option value="pass">Pass</option>
+            <option value="needs_attention">Needs attention</option>
+            <option value="fail">Fail</option>
+          </select>
+          <textarea className="potg-input" rows={2} placeholder="Summary (optional)" value={summary} onChange={(e) => setSummary(e.target.value)} />
+
+          <div className="potg-muted" style={{ fontSize: 11 }}>Findings (optional)</div>
+          {pendingFindings.length > 0 && (
+            <ul style={{ margin: 0, paddingLeft: 16 }}>
+              {pendingFindings.map((f, idx) => (
+                <li key={idx} style={{ fontSize: 12 }}>
+                  <strong>{f.area}</strong> ({f.severity}): {f.description}
+                </li>
+              ))}
+            </ul>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr auto", gap: 6 }}>
+            <input className="potg-input" placeholder="Area" value={findingArea} onChange={(e) => setFindingArea(e.target.value)} />
+            <input className="potg-input" placeholder="Description" value={findingDescription} onChange={(e) => setFindingDescription(e.target.value)} />
+            <select className="potg-input" value={findingSeverity} onChange={(e) => setFindingSeverity(e.target.value)}>
+              <option value="minor">Minor</option>
+              <option value="moderate">Moderate</option>
+              <option value="major">Major</option>
+            </select>
+            <button type="button" className="potg-btn potg-btn-secondary" onClick={addFinding}>
+              + Add
+            </button>
+          </div>
+
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
+              {busy === "complete" ? "Saving…" : "Complete inspection"}
+            </button>
+            <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setCompleting(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
   );
 }

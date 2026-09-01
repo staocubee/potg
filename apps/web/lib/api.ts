@@ -218,6 +218,31 @@ export type PropertyValuation = {
   valuedAt: string;
 };
 
+export type InspectionFinding = {
+  id: string;
+  inspectionId: string;
+  area: string;
+  description: string;
+  severity: "minor" | "moderate" | "major" | string;
+  createdAt: string;
+};
+
+export type PropertyInspection = {
+  id: string;
+  propertyId: string;
+  projectId?: string | null;
+  inspectionType: "general" | "pre_purchase" | "move_in" | "move_out" | "safety" | "post_renovation" | string;
+  status: "scheduled" | "completed" | "cancelled" | string;
+  scheduledFor: string;
+  inspectorName?: string | null;
+  overallResult?: "pass" | "needs_attention" | "fail" | string | null;
+  summary?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  findings?: InspectionFinding[];
+};
+
 export type AiSkillInputField = {
   type: "string" | "number" | "boolean";
   description: string;
@@ -706,6 +731,39 @@ export class ApiClient {
   }
   listValuations(propertyId: string) {
     return request<PropertyValuation[]>(`/properties/${propertyId}/valuations`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  scheduleInspection(propertyId: string, input: { inspectionType: string; scheduledFor: string; projectId?: string; inspectorName?: string }) {
+    return request<PropertyInspection>(`/properties/${propertyId}/inspections`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  listInspections(propertyId: string) {
+    return request<PropertyInspection[]>(`/properties/${propertyId}/inspections`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  completeInspection(
+    propertyId: string,
+    inspectionId: string,
+    input: { overallResult: string; summary?: string; findings?: { area: string; description: string; severity?: string }[] },
+  ) {
+    return request<PropertyInspection>(`/properties/${propertyId}/inspections/${inspectionId}/complete`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  cancelInspection(propertyId: string, inspectionId: string) {
+    return request<PropertyInspection>(`/properties/${propertyId}/inspections/${inspectionId}/cancel`, {
+      method: "POST",
       token: this.token,
       accountId: this.accountId,
     });

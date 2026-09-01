@@ -19,6 +19,7 @@ import { boqToOrderSkill } from './skills/boq-to-order.skill';
 import { modelRoiScenarioSkill } from './skills/model-roi-scenario.skill';
 import { assessListingRiskSkill } from './skills/assess-listing-risk.skill';
 import { generatePortfolioReportSkill } from './skills/generate-portfolio-report.skill';
+import { summarizeInspectionHistorySkill } from './skills/summarize-inspection-history.skill';
 
 @Module({
   imports: [ProjectsModule],
@@ -55,6 +56,7 @@ import { generatePortfolioReportSkill } from './skills/generate-portfolio-report
         modelRoiScenarioSkill,
         assessListingRiskSkill,
         generatePortfolioReportSkill,
+        summarizeInspectionHistorySkill,
       ],
     },
   ],

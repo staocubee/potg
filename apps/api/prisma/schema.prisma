@@ -248,6 +248,7 @@ model Property {
   projects       Project[]
   listings       PropertyListing[]
   valuations     PropertyValuation[]
+  inspections    PropertyInspection[]
 
   @@map("properties")
 }
@@ -426,6 +427,7 @@ model Project {
   payouts       Payout[]
   disputes      Dispute[]
   orders        Order[]
+  inspections   PropertyInspection[]
 
   @@map("projects")
 }
@@ -921,4 +923,50 @@ model PropertyValuation {
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@map("property_valuations")
+}
+
+// --- Module 8: Inspections -----------------------------------------------
+//
+// A scheduled, then completed, physical check of a property's condition —
+// distinct from Module 4's document verification (which checks paperwork,
+// not the property itself). No separate "Inspector" account type exists in
+// this scaffold (Modules 1-24 stop at the ones this codebase actually
+// implements — see the README), so `inspectorName` is freeform text rather
+// than a relation; a real deployment might tie this to a vendor or a
+// licensed-inspector role instead. Same accountId-free, :propertyId-ABAC
+// shape as PropertyValuation above — PermissionsGuard already enforces
+// tenant isolation on any route nested under /properties/:propertyId, so
+// there's no separate ownership check to duplicate here.
+model PropertyInspection {
+  id             String    @id @default(uuid())
+  propertyId     String
+  projectId      String? // set when this inspection is tied to a renovation project (e.g. a post-work inspection)
+  inspectionType String // general | pre_purchase | move_in | move_out | safety | post_renovation
+  status         String    @default("scheduled") // scheduled | completed | cancelled
+  scheduledFor   DateTime
+  inspectorName  String?
+  overallResult  String? // pass | needs_attention | fail — set on completion
+  summary        String?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  property Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  project  Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  findings InspectionFinding[]
+
+  @@map("property_inspections")
+}
+
+model InspectionFinding {
+  id           String   @id @default(uuid())
+  inspectionId String
+  area         String // e.g. "Kitchen", "Roof", "Electrical wiring"
+  description  String
+  severity     String   @default("minor") // minor | moderate | major
+  createdAt    DateTime @default(now())
+
+  inspection PropertyInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+
+  @@map("inspection_findings")
 }

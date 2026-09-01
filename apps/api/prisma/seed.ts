@@ -10,6 +10,8 @@ const prisma = new PrismaClient();
 const PERMISSIONS = [
   { key: 'property:read', label: 'View properties' },
   { key: 'property:write', label: 'Add or edit properties' },
+  { key: 'inspection:read', label: 'View property inspections' },
+  { key: 'inspection:write', label: 'Schedule, complete, or cancel a property inspection' },
   { key: 'document:read', label: 'View documents' },
   { key: 'document:write', label: 'Upload documents' },
   { key: 'document:verify', label: "Approve or reject an uploaded document's verification status" },
@@ -55,6 +57,8 @@ const ROLES: Record<string, string[]> = {
   property_owner: [
     'property:read',
     'property:write',
+    'inspection:read',
+    'inspection:write',
     'document:read',
     'document:write',
     'document:verify',
@@ -85,6 +89,8 @@ const ROLES: Record<string, string[]> = {
   family_admin: [
     'property:read',
     'property:write',
+    'inspection:read',
+    'inspection:write',
     'document:read',
     'document:write',
     'document:verify',
@@ -115,6 +121,8 @@ const ROLES: Record<string, string[]> = {
   company_admin: [
     'property:read',
     'property:write',
+    'inspection:read',
+    'inspection:write',
     'document:read',
     'document:write',
     'document:verify',
@@ -183,6 +191,7 @@ const ROLES: Record<string, string[]> = {
   // Notably excludes payment:approve and dispute:write for the same reason.
   viewer: [
     'property:read',
+    'inspection:read',
     'document:read',
     'ai:act',
     'vendor:read',

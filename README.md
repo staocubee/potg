@@ -24,7 +24,7 @@ apps/api/            NestJS backend
   prisma/seed.ts         Seeds permissions, roles, a demo owner + property + project, and a demo vendor
   src/auth/              Register, login, list-my-accounts
   src/accounts/          Create an account, add a member (Module 1)
-  src/properties/        Property portfolio CRUD (Module 2)
+  src/properties/        Property portfolio CRUD (Module 2) + inspections (Module 8)
   src/documents/         Document vault CRUD (Module 4)
   src/vendors/            Vendor marketplace profiles & quoting (Module 7)
   src/projects/           Project tracking — stages, milestones, updates, quotes (Module 9)
@@ -1076,18 +1076,83 @@ independently-fixed IDOR in the same endpoint — see below.
   resend, but there's no way to kill one without replacing it), and no
   invite listing beyond one account's own Members page.
 
+## Property inspections — Module 8 (this pass)
+
+The first genuinely new module added since the original scaffold, rather
+than a gap closed in one already built — chosen because it's fully
+self-contained (no external credentials or infrastructure, unlike a real
+payment gateway or a search/vector layer) and fits the existing data
+model directly: a property already has documents, valuations, and a
+timeline; this adds the physical-condition-check most of Module 8's
+blueprint description is actually about. Distinct from Module 4's
+document verification (this pass's earlier work) — that checks paperwork,
+this checks the property itself.
+
+- **`PropertyInspection`** (scheduled → completed or cancelled) and
+  **`InspectionFinding`** — same `accountId`-free, `:propertyId`-ABAC
+  shape as `PropertyValuation`: nothing here duplicates an ownership
+  check, since any route nested under `/properties/:propertyId/...`
+  already gets one from `PermissionsGuard`. An inspection can optionally
+  reference a `Project` (e.g. a post-renovation inspection) — validated
+  to actually belong to the same property, the same cross-reference
+  sanity check `VendorsService.createReview` and
+  `PaymentsService.raiseDispute` already make for their own optional
+  links.
+- **`POST /properties/:propertyId/inspections`** schedules one;
+  **`.../inspections/:inspectionId/complete`** sets the result, an
+  optional summary, and any findings (area/description/severity) in one
+  call — findings are never added one at a time, so an inspection's
+  findings can't drift out of sync with whether it's still "scheduled".
+  **`.../cancel`** is the other terminal state. New `inspection:read`/
+  `inspection:write` permission pair, granted like `property:read`/
+  `property:write` to the three account-admin roles (`inspection:read`
+  only for `viewer`) — kept separate from the property permissions
+  themselves since "who can see a property" and "who can schedule an
+  inspection on it" are reasonable to grant independently.
+- **No separate Inspector identity.** `inspectorName` is freeform text,
+  not a relation — this scaffold has no licensed-inspector account type
+  (Modules 1-24 stop at what's actually implemented here; see the
+  "Not built yet" list below). A real deployment doing this for real
+  would need one, the same way document verification's own "not a real
+  neutral reviewer" limitation would.
+- **`summarize_inspection_history`** (new AI skill, `property` context)
+  — reads a property's full inspection history and drafts what it
+  actually says about the property's condition (how many came back
+  needs-attention/fail, common major-finding areas), not just a list of
+  past visits. Zero extra wiring needed for `AskAiPanel` to pick it up —
+  confirmed live: the skill appeared in the panel and ran correctly the
+  moment it was registered in `AiModule`, exactly the "write one AiSkill,
+  list it once" design Section 5.4 calls for.
+- **`pages/properties/[id].tsx`** gets a new Inspections card — schedule
+  form, list with status badges, and an inline Complete form (result +
+  summary + add findings one at a time before submitting). The existing
+  `TIMELINE_ICON` map already had `inspection_completed: "🔍"` defined
+  from the original scaffold with nothing that ever produced that event
+  — first real confirmation this module was anticipated, not bolted on.
+- Verified against the live dev API (schedule, cross-property project
+  rejected, list, complete with findings, double-complete rejected,
+  cancel, permission-403 for a role without `inspection:write`) and in
+  the browser (schedule → complete → timeline event, all through the
+  actual form UI) — see "Not built yet" for the two gaps left in it.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
 blueprint, or explicitly cut from it:
 
-- **Modules 6, 8, 12-14, 16-24** (the full property-verification/trust
-  workflow — a neutral reviewer, risk flags, trust scores; inspections,
-  maintenance, leases, the rest of valuation beyond `PropertyValuation`,
-  compliance, community management, AR/VR, the full fixed-dashboard side of
-  reports, admin operations, ...) — this scaffold now proves the pattern
-  for Modules 1, 2, 4, 5, 7, 9, 10, 11, and a slice of 15 and 23, not the
-  full 24.
+- **Modules 6, 12-14, 16-24** (the full property-verification/trust
+  workflow — a neutral reviewer, risk flags, trust scores; maintenance,
+  leases, the rest of valuation beyond `PropertyValuation`, compliance,
+  community management, AR/VR, the full fixed-dashboard side of reports,
+  admin operations, ...) — this scaffold now proves the pattern for
+  Modules 1, 2, 4, 5, 7, 9, 10, 11, and a slice of 8, 15, and 23, not the
+  full 24. Module 8 is a slice, not the full module, because there's no
+  separate Inspector identity — see "Property inspections" above.
+- **Property inspections — two gaps left in the new module.** No separate
+  Inspector identity (see "Property inspections" above — `inspectorName`
+  is freeform text, not an account relation), and no way to edit a
+  scheduled inspection's date/type or reassign its project once created
+  — only complete or cancel it outright and schedule a new one.
 - **AI-generated renovation visualizations.** Explicitly deferred by
   Priority 6 itself, pending Module 22 (AR/VR) existing at all.
 - **Multi-turn tool use in one chat turn.** `ChatService` calls at most one

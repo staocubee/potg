@@ -7,6 +7,8 @@ import { CurrentAccountMember } from '../common/decorators/current-user.decorato
 import { PropertiesService } from './properties.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { CreateValuationDto } from './dto/create-valuation.dto';
+import { ScheduleInspectionDto } from './dto/schedule-inspection.dto';
+import { CompleteInspectionDto } from './dto/complete-inspection.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -47,5 +49,43 @@ export class PropertiesController {
   @Get(':propertyId/valuations')
   findValuations(@Param('propertyId') propertyId: string) {
     return this.properties.findValuations(propertyId);
+  }
+
+  // Module 8 — its own permission pair (not property:read/write) since
+  // "who can see a property" and "who can schedule/complete an inspection
+  // on it" are reasonable to grant separately, unlike valuations above
+  // which really are just more property data.
+  @RequirePermissions('inspection:write')
+  @Post(':propertyId/inspections')
+  scheduleInspection(@Param('propertyId') propertyId: string, @Body() dto: ScheduleInspectionDto) {
+    return this.properties.scheduleInspection(propertyId, dto);
+  }
+
+  @RequirePermissions('inspection:read')
+  @Get(':propertyId/inspections')
+  findInspections(@Param('propertyId') propertyId: string) {
+    return this.properties.findInspections(propertyId);
+  }
+
+  @RequirePermissions('inspection:read')
+  @Get(':propertyId/inspections/:inspectionId')
+  findInspection(@Param('propertyId') propertyId: string, @Param('inspectionId') inspectionId: string) {
+    return this.properties.findInspection(propertyId, inspectionId);
+  }
+
+  @RequirePermissions('inspection:write')
+  @Post(':propertyId/inspections/:inspectionId/complete')
+  completeInspection(
+    @Param('propertyId') propertyId: string,
+    @Param('inspectionId') inspectionId: string,
+    @Body() dto: CompleteInspectionDto,
+  ) {
+    return this.properties.completeInspection(propertyId, inspectionId, dto);
+  }
+
+  @RequirePermissions('inspection:write')
+  @Post(':propertyId/inspections/:inspectionId/cancel')
+  cancelInspection(@Param('propertyId') propertyId: string, @Param('inspectionId') inspectionId: string) {
+    return this.properties.cancelInspection(propertyId, inspectionId);
   }
 }
