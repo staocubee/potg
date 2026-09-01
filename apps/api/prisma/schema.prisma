@@ -250,6 +250,7 @@ model Property {
   valuations     PropertyValuation[]
   inspections    PropertyInspection[]
   leases         Lease[]
+  maintenanceRequests MaintenanceRequest[]
 
   @@map("properties")
 }
@@ -1002,8 +1003,9 @@ model Lease {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  property     Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  rentPayments LeaseRentPayment[]
+  property            Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  rentPayments        LeaseRentPayment[]
+  maintenanceRequests MaintenanceRequest[]
 
   @@map("leases")
 }
@@ -1027,4 +1029,39 @@ model LeaseRentPayment {
   lease Lease @relation(fields: [leaseId], references: [id], onDelete: Cascade)
 
   @@map("lease_rent_payments")
+}
+
+// --- Module 12: Maintenance ----------------------------------------------
+//
+// Distinct from a renovation Project (Module 9) even though
+// `Project.projectType` already allows `"maintenance"` as a value: a
+// Project's Scope -> Quote -> Materials -> Work -> Handover stages,
+// vendor quotes, and escrow are real machinery for a real renovation, not
+// something anyone wants to spin up for "the kitchen faucet is leaking."
+// This is the lightweight ticket that machinery was never meant to cover
+// — open a request, optionally note who's handling it, resolve or cancel
+// it. No formal relation for who reported it or who's fixing it
+// (`reportedBy`/`assignedTo` are freeform text) — same reasoning
+// `PropertyInspection.inspectorName` and `Lease.tenantName` already give,
+// extended to "whoever's assigned" too rather than forcing a Vendor
+// relation on what might just be the owner doing it themselves.
+model MaintenanceRequest {
+  id              String    @id @default(uuid())
+  propertyId      String
+  leaseId         String? // set when reported against an active tenancy
+  title           String
+  description     String
+  priority        String    @default("normal") // low | normal | high | urgent
+  status          String    @default("open") // open | in_progress | resolved | cancelled
+  reportedBy      String?
+  assignedTo      String?
+  resolutionNotes String?
+  resolvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  lease    Lease?   @relation(fields: [leaseId], references: [id], onDelete: SetNull)
+
+  @@map("maintenance_requests")
 }

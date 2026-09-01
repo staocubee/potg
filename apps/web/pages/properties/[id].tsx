@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Lease, Project, Property, PropertyInspection, PropertyValuation } from "../../lib/api";
+import { ApiError, Lease, MaintenanceRequest, Project, Property, PropertyInspection, PropertyValuation } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -22,6 +22,7 @@ const TIMELINE_ICON: Record<string, string> = {
   inspection_completed: "🔍",
   lease_started: "🔑",
   lease_ended: "📤",
+  maintenance_resolved: "🧰",
 };
 
 export default function PropertyDetailPage() {
@@ -34,10 +35,12 @@ export default function PropertyDetailPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [inspections, setInspections] = useState<PropertyInspection[]>([]);
   const [leases, setLeases] = useState<Lease[]>([]);
+  const [maintenanceRequests, setMaintenanceRequests] = useState<MaintenanceRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showValuationForm, setShowValuationForm] = useState(false);
   const [showInspectionForm, setShowInspectionForm] = useState(false);
   const [showLeaseForm, setShowLeaseForm] = useState(false);
+  const [showMaintenanceForm, setShowMaintenanceForm] = useState(false);
 
   function load() {
     if (!id || !auth.currentAccountId) return;
@@ -48,8 +51,9 @@ export default function PropertyDetailPage() {
       auth.api.listProjects(),
       auth.api.listInspections(id),
       auth.api.listLeases(id),
+      auth.api.listMaintenanceRequests(id),
     ])
-      .then(([p, v, allProjects, i, l]) => {
+      .then(([p, v, allProjects, i, l, m]) => {
         setProperty(p);
         setValuations(v);
         // No GET /properties/:id/projects endpoint — Project doesn't need
@@ -58,6 +62,7 @@ export default function PropertyDetailPage() {
         setProjects(allProjects.filter((proj) => proj.propertyId === id));
         setInspections(i);
         setLeases(l);
+        setMaintenanceRequests(m);
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this property."));
   }
@@ -265,6 +270,36 @@ export default function PropertyDetailPage() {
             {leases.length === 0 && !showLeaseForm && <p className="potg-muted" style={{ fontSize: 12 }}>No leases yet.</p>}
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: showLeaseForm ? 12 : 0 }}>
               {id && leases.map((l) => <LeaseRow key={l.id} propertyId={id} lease={l} onChanged={load} />)}
+            </div>
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <h3 style={{ fontSize: 14 }}>Maintenance</h3>
+              <button className="potg-btn potg-btn-secondary" onClick={() => setShowMaintenanceForm((v) => !v)}>
+                {showMaintenanceForm ? "Cancel" : "+ Report issue"}
+              </button>
+            </div>
+
+            {showMaintenanceForm && id && (
+              <ReportMaintenanceRequestForm
+                propertyId={id}
+                leases={leases}
+                onCreated={(m) => {
+                  setMaintenanceRequests((prev) => [m, ...prev]);
+                  setShowMaintenanceForm(false);
+                }}
+              />
+            )}
+
+            {maintenanceRequests.length === 0 && !showMaintenanceForm && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>No maintenance requests yet.</p>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: showMaintenanceForm ? 12 : 0 }}>
+              {id &&
+                maintenanceRequests.map((m) => (
+                  <MaintenanceRequestRow key={m.id} propertyId={id} request={m} onChanged={load} />
+                ))}
             </div>
           </div>
         </div>
@@ -713,6 +748,194 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
               {busy === "record" ? "Saving…" : "Save payment"}
             </button>
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setRecording(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
+const MAINTENANCE_PRIORITIES = ["low", "normal", "high", "urgent"];
+
+function ReportMaintenanceRequestForm({
+  propertyId,
+  leases,
+  onCreated,
+}: {
+  propertyId: string;
+  leases: Lease[];
+  onCreated: (m: MaintenanceRequest) => void;
+}) {
+  const auth = useAuth();
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [priority, setPriority] = useState("normal");
+  const [leaseId, setLeaseId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const m = await auth.api.reportMaintenanceRequest(propertyId, {
+        title,
+        description,
+        priority,
+        leaseId: leaseId || undefined,
+      });
+      onCreated(m);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't report that issue.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
+      {error && <div className="potg-error">{error}</div>}
+      <input className="potg-input" required autoFocus placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
+      <textarea className="potg-input" rows={2} required placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <select className="potg-input" value={priority} onChange={(e) => setPriority(e.target.value)}>
+          {MAINTENANCE_PRIORITIES.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+        <select className="potg-input" value={leaseId} onChange={(e) => setLeaseId(e.target.value)}>
+          <option value="">Not tied to a lease</option>
+          {leases.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.tenantName}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+          {busy ? "Reporting…" : "Report issue"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function MaintenanceRequestRow({
+  propertyId,
+  request,
+  onChanged,
+}: {
+  propertyId: string;
+  request: MaintenanceRequest;
+  onChanged: () => void;
+}) {
+  const auth = useAuth();
+  const [resolving, setResolving] = useState(false);
+  const [resolutionNotes, setResolutionNotes] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"start" | "resolve" | "cancel" | null>(null);
+
+  async function onStart() {
+    setBusy("start");
+    setError(null);
+    try {
+      await auth.api.startMaintenanceRequest(propertyId, request.id, {});
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't start that request.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onResolve(e: FormEvent) {
+    e.preventDefault();
+    setBusy("resolve");
+    setError(null);
+    try {
+      await auth.api.resolveMaintenanceRequest(propertyId, request.id, { resolutionNotes: resolutionNotes || undefined });
+      setResolving(false);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't resolve that request.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onCancel() {
+    setBusy("cancel");
+    setError(null);
+    try {
+      await auth.api.cancelMaintenanceRequest(propertyId, request.id);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't cancel that request.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const isOpen = request.status === "open" || request.status === "in_progress";
+
+  return (
+    <div style={{ borderTop: "1px solid var(--potg-border)", paddingTop: 10, fontSize: 13 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontWeight: 600 }}>{request.title}</div>
+          <div className="potg-muted" style={{ fontSize: 11 }}>
+            {request.priority} priority · {new Date(request.createdAt).toLocaleDateString()}
+          </div>
+          <div style={{ marginTop: 4 }}>{request.description}</div>
+          {request.resolutionNotes && (
+            <div className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Resolution: {request.resolutionNotes}
+            </div>
+          )}
+        </div>
+        <span className="potg-badge" style={{ color: request.priority === "urgent" ? "var(--potg-danger)" : undefined }}>
+          {request.status.replace(/_/g, " ")}
+        </span>
+      </div>
+
+      {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
+
+      {isOpen && !resolving && (
+        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          {request.status === "open" && (
+            <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={onStart}>
+              {busy === "start" ? "…" : "Start"}
+            </button>
+          )}
+          <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setResolving(true)}>
+            Resolve
+          </button>
+          <button className="potg-btn potg-btn-danger" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={onCancel}>
+            {busy === "cancel" ? "…" : "Cancel"}
+          </button>
+        </div>
+      )}
+
+      {isOpen && resolving && (
+        <form onSubmit={onResolve} style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+          <textarea
+            className="potg-input"
+            rows={2}
+            placeholder="Resolution notes (optional)"
+            value={resolutionNotes}
+            onChange={(e) => setResolutionNotes(e.target.value)}
+          />
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
+              {busy === "resolve" ? "Saving…" : "Mark resolved"}
+            </button>
+            <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setResolving(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
               Cancel
             </button>
           </div>

@@ -7,6 +7,9 @@ import { CompleteInspectionDto } from './dto/complete-inspection.dto';
 import { CreateLeaseDto } from './dto/create-lease.dto';
 import { RecordRentPaymentDto } from './dto/record-rent-payment.dto';
 import { EndLeaseDto } from './dto/end-lease.dto';
+import { ReportMaintenanceRequestDto } from './dto/report-maintenance-request.dto';
+import { StartMaintenanceRequestDto } from './dto/start-maintenance-request.dto';
+import { ResolveMaintenanceRequestDto } from './dto/resolve-maintenance-request.dto';
 
 @Injectable()
 export class PropertiesService {
@@ -242,5 +245,77 @@ export class PropertiesService {
       },
     });
     return updated;
+  }
+
+  // Module 12. Same "optional cross-reference must actually belong to
+  // this property" check ScheduleInspectionDto.projectId gets.
+  async reportMaintenanceRequest(propertyId: string, dto: ReportMaintenanceRequestDto) {
+    if (dto.leaseId) {
+      const lease = await this.prisma.lease.findFirst({ where: { id: dto.leaseId, propertyId } });
+      if (!lease) throw new BadRequestException('That lease does not belong to this property');
+    }
+    return this.prisma.maintenanceRequest.create({
+      data: {
+        propertyId,
+        leaseId: dto.leaseId,
+        title: dto.title,
+        description: dto.description,
+        priority: dto.priority ?? 'normal',
+        reportedBy: dto.reportedBy,
+        assignedTo: dto.assignedTo,
+      },
+    });
+  }
+
+  findMaintenanceRequests(propertyId: string) {
+    return this.prisma.maintenanceRequest.findMany({
+      where: { propertyId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  findMaintenanceRequest(propertyId: string, requestId: string) {
+    return this.prisma.maintenanceRequest.findFirst({ where: { id: requestId, propertyId } });
+  }
+
+  async startMaintenanceRequest(propertyId: string, requestId: string, dto: StartMaintenanceRequestDto) {
+    const request = await this.prisma.maintenanceRequest.findFirst({ where: { id: requestId, propertyId } });
+    if (!request) throw new NotFoundException('Maintenance request not found on this property');
+    if (request.status !== 'open') {
+      throw new BadRequestException(`This request is already "${request.status}"`);
+    }
+    return this.prisma.maintenanceRequest.update({
+      where: { id: requestId },
+      data: { status: 'in_progress', assignedTo: dto.assignedTo ?? request.assignedTo },
+    });
+  }
+
+  async resolveMaintenanceRequest(propertyId: string, requestId: string, dto: ResolveMaintenanceRequestDto) {
+    const request = await this.prisma.maintenanceRequest.findFirst({ where: { id: requestId, propertyId } });
+    if (!request) throw new NotFoundException('Maintenance request not found on this property');
+    if (request.status !== 'open' && request.status !== 'in_progress') {
+      throw new BadRequestException(`This request is already "${request.status}"`);
+    }
+    const updated = await this.prisma.maintenanceRequest.update({
+      where: { id: requestId },
+      data: { status: 'resolved', resolutionNotes: dto.resolutionNotes, resolvedAt: new Date() },
+    });
+    await this.prisma.propertyTimelineEvent.create({
+      data: {
+        propertyId,
+        eventType: 'maintenance_resolved',
+        label: `Maintenance resolved: ${request.title}`,
+      },
+    });
+    return updated;
+  }
+
+  async cancelMaintenanceRequest(propertyId: string, requestId: string) {
+    const request = await this.prisma.maintenanceRequest.findFirst({ where: { id: requestId, propertyId } });
+    if (!request) throw new NotFoundException('Maintenance request not found on this property');
+    if (request.status !== 'open' && request.status !== 'in_progress') {
+      throw new BadRequestException(`This request is already "${request.status}"`);
+    }
+    return this.prisma.maintenanceRequest.update({ where: { id: requestId }, data: { status: 'cancelled' } });
   }
 }

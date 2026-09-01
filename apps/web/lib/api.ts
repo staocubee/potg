@@ -275,6 +275,22 @@ export type Lease = {
   rentPayments?: LeaseRentPayment[];
 };
 
+export type MaintenanceRequest = {
+  id: string;
+  propertyId: string;
+  leaseId?: string | null;
+  title: string;
+  description: string;
+  priority: "low" | "normal" | "high" | "urgent" | string;
+  status: "open" | "in_progress" | "resolved" | "cancelled" | string;
+  reportedBy?: string | null;
+  assignedTo?: string | null;
+  resolutionNotes?: string | null;
+  resolvedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AiSkillInputField = {
   type: "string" | "number" | "boolean";
   description: string;
@@ -841,6 +857,46 @@ export class ApiClient {
     return request<Lease>(`/properties/${propertyId}/leases/${leaseId}/end`, {
       method: "POST",
       body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  reportMaintenanceRequest(
+    propertyId: string,
+    input: { title: string; description: string; priority?: string; leaseId?: string; reportedBy?: string; assignedTo?: string },
+  ) {
+    return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  listMaintenanceRequests(propertyId: string) {
+    return request<MaintenanceRequest[]>(`/properties/${propertyId}/maintenance-requests`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  startMaintenanceRequest(propertyId: string, requestId: string, input: { assignedTo?: string }) {
+    return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests/${requestId}/start`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  resolveMaintenanceRequest(propertyId: string, requestId: string, input: { resolutionNotes?: string }) {
+    return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests/${requestId}/resolve`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  cancelMaintenanceRequest(propertyId: string, requestId: string) {
+    return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests/${requestId}/cancel`, {
+      method: "POST",
       token: this.token,
       accountId: this.accountId,
     });

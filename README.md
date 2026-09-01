@@ -24,7 +24,7 @@ apps/api/            NestJS backend
   prisma/seed.ts         Seeds permissions, roles, a demo owner + property + project, and a demo vendor
   src/auth/              Register, login, list-my-accounts
   src/accounts/          Create an account, add a member (Module 1)
-  src/properties/        Property portfolio CRUD (Module 2) + inspections (Module 8) + leases (Module 13)
+  src/properties/        Property portfolio CRUD (Module 2) + inspections (Module 8) + leases (Module 13) + maintenance requests (Module 12)
   src/documents/         Document vault CRUD (Module 4)
   src/vendors/            Vendor marketplace profiles & quoting (Module 7)
   src/projects/           Project tracking — stages, milestones, updates, quotes (Module 9)
@@ -1183,20 +1183,78 @@ true, don't force a specific prior workflow" reasoning
   all through the actual form UI, plus the AI skill running from the
   panel).
 
+## Maintenance requests — Module 12 (this pass)
+
+The third genuinely new module added this session, same self-contained
+pattern as Property inspections and Leases: no external credentials or
+infrastructure, fits directly alongside the property's existing timeline
+and (optionally) an active lease. A maintenance request is what a tenant
+or owner reports going wrong with a property, tracked from report through
+resolution — distinct from Module 8's inspections (a scheduled, proactive
+condition check) and from Module 13's leases (the tenancy a request can
+optionally be reported against).
+
+- **`MaintenanceRequest`** (open → in_progress → resolved, or cancelled
+  from either open state) — same `accountId`-free, `:propertyId`-ABAC
+  shape as `PropertyInspection` and `Lease`. Optionally references a
+  `Lease`, validated to actually belong to the same property, the same
+  cross-reference check `PropertyInspection.projectId` already makes for
+  its own optional link.
+- **`POST /properties/:propertyId/maintenance-requests`** reports one
+  (title, description, `priority`: low/normal/high/urgent, defaulting to
+  normal); **`.../start`** moves it to `in_progress` and can set
+  `assignedTo`; **`.../resolve`** is a terminal state with optional
+  resolution notes and logs a `maintenance_resolved` timeline event
+  (🧰); **`.../cancel`** is the other terminal state, allowed from either
+  `open` or `in_progress`. New `maintenance:read`/`maintenance:write`
+  permission pair, granted like `inspection:read`/`write` and
+  `lease:read`/`write` — its own pair, same reasoning Module 8 and Module
+  13 both give.
+- **No separate Contractor/Vendor-assignment identity.** `assignedTo` is
+  freeform text, not a relation to `Vendor` — this module doesn't reuse
+  Module 9's vendor marketplace at all, the same "record what's true, no
+  forced workflow" tradeoff `Lease.tenantName` and
+  `PropertyInspection.inspectorName` already document. A real deployment
+  routing maintenance work through vendors would tie `assignedTo` to
+  `Vendor` instead.
+- **`summarize_maintenance_backlog`** (new AI skill, `property` context)
+  — reads a property's full maintenance history and drafts what it
+  actually says: how many requests are open/in-progress out of the
+  total, how many are urgent, and a call-out for anything open 7+ days
+  (worth following up), not just a list of tickets. Zero extra wiring
+  for `AskAiPanel` to pick it up, same as `summarize_inspection_history`
+  and `summarize_lease_status` before it.
+- **`pages/properties/[id].tsx`** gets a new Maintenance card: report
+  form (with an optional lease dropdown), per-request status, and
+  inline Start/Resolve/Cancel actions. New `maintenance_resolved`
+  timeline icon (🧰) — like Leases and unlike Inspections, the original
+  `TIMELINE_ICON` map had no entry waiting for this one.
+- Verified against the live dev API (report, cross-property lease
+  rejected, list, get one, start, double-start rejected, resolve,
+  cancel-after-resolve rejected, cancel from open, tenant isolation via
+  a nonexistent property returning 404, the AI skill) and in the browser
+  (report → start → resolve, all through the actual form UI). Browser
+  testing caught a real bug in the first pass: `onStart`/`onCancel` only
+  reset their `busy` flag in the `catch` branch, so after successfully
+  starting a request the Resolve/Cancel buttons stayed silently disabled
+  forever (the API call had already succeeded — only the UI was stuck).
+  Fixed by resetting `busy` in a `finally` block, matching the pattern
+  `onResolve` already used correctly.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
 blueprint, or explicitly cut from it:
 
-- **Modules 6, 12, 14, 16-24** (the full property-verification/trust
-  workflow — a neutral reviewer, risk flags, trust scores; maintenance,
-  the rest of valuation beyond `PropertyValuation`, compliance, community
-  management, AR/VR, the full fixed-dashboard side of reports, admin
-  operations, ...) — this scaffold now proves the pattern for Modules 1,
-  2, 4, 5, 7, 9, 10, 11, and a slice of 8, 13, 15, and 23, not the full
-  24. Modules 8 and 13 are slices, not the full modules, because there's
-  no separate Inspector or Tenant identity — see "Property inspections"
-  and "Leases" above.
+- **Modules 6, 14, 16-24** (the full property-verification/trust
+  workflow — a neutral reviewer, risk flags, trust scores; the rest of
+  valuation beyond `PropertyValuation`, compliance, community management,
+  AR/VR, the full fixed-dashboard side of reports, admin operations,
+  ...) — this scaffold now proves the pattern for Modules 1, 2, 4, 5, 7,
+  9, 10, 11, and a slice of 8, 12, 13, 15, and 23, not the full 24.
+  Modules 8, 12, and 13 are slices, not the full modules, because there's
+  no separate Inspector, Contractor, or Tenant identity — see "Property
+  inspections", "Maintenance requests", and "Leases" above.
 - **Property inspections — two gaps left in the new module.** No separate
   Inspector identity (see "Property inspections" above — `inspectorName`
   is freeform text, not an account relation), and no way to edit a
@@ -1208,6 +1266,11 @@ blueprint, or explicitly cut from it:
   manual entries with no reminder/overdue detection — `summarize_lease_
   status` only ever looks at whether the lease itself is ending soon, not
   whether a rent period has gone unpaid.
+- **Maintenance requests — two gaps left in the new module.** No separate
+  Contractor identity or link to Module 9's vendor marketplace (see
+  "Maintenance requests" above — `assignedTo` is freeform text), and no
+  way to edit a request's title/description/priority once reported —
+  only start, resolve, or cancel it.
 - **AI-generated renovation visualizations.** Explicitly deferred by
   Priority 6 itself, pending Module 22 (AR/VR) existing at all.
 - **Multi-turn tool use in one chat turn.** `ChatService` calls at most one

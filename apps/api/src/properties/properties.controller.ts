@@ -12,6 +12,9 @@ import { CompleteInspectionDto } from './dto/complete-inspection.dto';
 import { CreateLeaseDto } from './dto/create-lease.dto';
 import { RecordRentPaymentDto } from './dto/record-rent-payment.dto';
 import { EndLeaseDto } from './dto/end-lease.dto';
+import { ReportMaintenanceRequestDto } from './dto/report-maintenance-request.dto';
+import { StartMaintenanceRequestDto } from './dto/start-maintenance-request.dto';
+import { ResolveMaintenanceRequestDto } from './dto/resolve-maintenance-request.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -126,5 +129,51 @@ export class PropertiesController {
   @Post(':propertyId/leases/:leaseId/end')
   endLease(@Param('propertyId') propertyId: string, @Param('leaseId') leaseId: string, @Body() dto: EndLeaseDto) {
     return this.properties.endLease(propertyId, leaseId, dto);
+  }
+
+  // Module 12 — own permission pair, same reasoning as inspection/lease
+  // above.
+  @RequirePermissions('maintenance:write')
+  @Post(':propertyId/maintenance-requests')
+  reportMaintenanceRequest(@Param('propertyId') propertyId: string, @Body() dto: ReportMaintenanceRequestDto) {
+    return this.properties.reportMaintenanceRequest(propertyId, dto);
+  }
+
+  @RequirePermissions('maintenance:read')
+  @Get(':propertyId/maintenance-requests')
+  findMaintenanceRequests(@Param('propertyId') propertyId: string) {
+    return this.properties.findMaintenanceRequests(propertyId);
+  }
+
+  @RequirePermissions('maintenance:read')
+  @Get(':propertyId/maintenance-requests/:requestId')
+  findMaintenanceRequest(@Param('propertyId') propertyId: string, @Param('requestId') requestId: string) {
+    return this.properties.findMaintenanceRequest(propertyId, requestId);
+  }
+
+  @RequirePermissions('maintenance:write')
+  @Post(':propertyId/maintenance-requests/:requestId/start')
+  startMaintenanceRequest(
+    @Param('propertyId') propertyId: string,
+    @Param('requestId') requestId: string,
+    @Body() dto: StartMaintenanceRequestDto,
+  ) {
+    return this.properties.startMaintenanceRequest(propertyId, requestId, dto);
+  }
+
+  @RequirePermissions('maintenance:write')
+  @Post(':propertyId/maintenance-requests/:requestId/resolve')
+  resolveMaintenanceRequest(
+    @Param('propertyId') propertyId: string,
+    @Param('requestId') requestId: string,
+    @Body() dto: ResolveMaintenanceRequestDto,
+  ) {
+    return this.properties.resolveMaintenanceRequest(propertyId, requestId, dto);
+  }
+
+  @RequirePermissions('maintenance:write')
+  @Post(':propertyId/maintenance-requests/:requestId/cancel')
+  cancelMaintenanceRequest(@Param('propertyId') propertyId: string, @Param('requestId') requestId: string) {
+    return this.properties.cancelMaintenanceRequest(propertyId, requestId);
   }
 }

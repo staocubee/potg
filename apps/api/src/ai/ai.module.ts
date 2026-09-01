@@ -21,6 +21,7 @@ import { assessListingRiskSkill } from './skills/assess-listing-risk.skill';
 import { generatePortfolioReportSkill } from './skills/generate-portfolio-report.skill';
 import { summarizeInspectionHistorySkill } from './skills/summarize-inspection-history.skill';
 import { summarizeLeaseStatusSkill } from './skills/summarize-lease-status.skill';
+import { summarizeMaintenanceBacklogSkill } from './skills/summarize-maintenance-backlog.skill';
 
 @Module({
   imports: [ProjectsModule],
@@ -59,6 +60,7 @@ import { summarizeLeaseStatusSkill } from './skills/summarize-lease-status.skill
         generatePortfolioReportSkill,
         summarizeInspectionHistorySkill,
         summarizeLeaseStatusSkill,
+        summarizeMaintenanceBacklogSkill,
       ],
     },
   ],
