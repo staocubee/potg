@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -11,6 +11,7 @@ import { SubmitQuoteDto } from './dto/submit-quote.dto';
 import { RaiseDisputeAsVendorDto } from './dto/raise-dispute-as-vendor.dto';
 import { ResolveDisputeDto } from '../payments/dto/resolve-dispute.dto';
 import { ReplyToReviewDto } from './dto/reply-to-review.dto';
+import { SetVendorVerificationDto } from './dto/set-vendor-verification.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -109,5 +110,12 @@ export class VendorsController {
   @Get(':vendorId')
   findOne(@Param('vendorId') vendorId: string) {
     return this.vendors.findOne(vendorId);
+  }
+
+  // Module 6's neutral-reviewer action — see VendorsService.setVerificationStatus.
+  @RequirePermissions('vendor:verify')
+  @Patch(':vendorId/verification')
+  setVerificationStatus(@Param('vendorId') vendorId: string, @Body() dto: SetVendorVerificationDto) {
+    return this.vendors.setVerificationStatus(vendorId, dto);
   }
 }

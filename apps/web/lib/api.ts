@@ -1069,6 +1069,14 @@ export class ApiClient {
   getVendor(vendorId: string) {
     return request<Vendor>(`/vendors/${vendorId}`, { token: this.token, accountId: this.accountId });
   }
+  setVendorVerification(vendorId: string, status: string) {
+    return request<Vendor>(`/vendors/${vendorId}/verification`, {
+      method: "PATCH",
+      body: { status },
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   createVendor(input: { businessName: string; serviceCategory: string; locationCoverage?: string }) {
     return request<Vendor>("/vendors", { method: "POST", body: input, token: this.token, accountId: this.accountId });
   }
@@ -1298,6 +1306,14 @@ export class ApiClient {
   }
   getSupplier(supplierId: string) {
     return request<Supplier>(`/suppliers/${supplierId}`, { token: this.token, accountId: this.accountId });
+  }
+  setSupplierVerification(supplierId: string, status: string) {
+    return request<Supplier>(`/suppliers/${supplierId}/verification`, {
+      method: "PATCH",
+      body: { status },
+      token: this.token,
+      accountId: this.accountId,
+    });
   }
   findProducts(category?: string, supplierId?: string) {
     const params = new URLSearchParams();

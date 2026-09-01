@@ -24,6 +24,7 @@ const PERMISSIONS = [
   // Modules 7 & 9 — Vendor Marketplace & Project Tracking (Priority 3).
   { key: 'vendor:read', label: 'Browse vendor profiles' },
   { key: 'vendor:write', label: 'Create or edit a vendor profile' },
+  { key: 'vendor:verify', label: "Set a vendor's platform verification status (neutral reviewer only — never granted to the vendor role itself)" },
   { key: 'project:read', label: 'View projects' },
   { key: 'project:write', label: 'Create or edit projects' },
   { key: 'milestone:write', label: 'Add project milestones' },
@@ -43,6 +44,7 @@ const PERMISSIONS = [
   { key: 'offer:write', label: 'Submit or respond to an offer' },
   { key: 'supplier:read', label: 'Browse supplier profiles' },
   { key: 'supplier:write', label: 'Create or edit a supplier profile' },
+  { key: 'supplier:verify', label: "Set a supplier's platform verification status (neutral reviewer only — never granted to the supplier role itself)" },
   { key: 'product:read', label: 'Browse the materials/tools/equipment catalog' },
   { key: 'product:write', label: "Manage a supplier's own product catalog" },
   { key: 'order:read', label: 'View orders' },
@@ -224,6 +226,13 @@ const ROLES: Record<string, string[]> = {
     'product:read',
     'order:read',
   ],
+  // Module 6's actual "neutral reviewer" — a role deliberately never
+  // granted to the vendor or supplier roles above, so a vendor/supplier
+  // can never move its own verificationStatus off "not_verified". Reads
+  // only what it needs to review (vendor:read/supplier:read) plus the two
+  // new :verify permissions — nothing else, not even ai:act, since this
+  // role's whole job is the one mechanical action of setting a status.
+  platform_reviewer: ['vendor:read', 'vendor:verify', 'supplier:read', 'supplier:verify'],
 };
 
 const DEMO_ACCOUNT_ID = '00000000-0000-0000-0000-000000000001';
@@ -242,6 +251,7 @@ const DEMO_PRODUCT_PAINT_ID = '00000000-0000-0000-0000-00000000000b';
 const DEMO_ORDER_ID = '00000000-0000-0000-0000-00000000000c';
 const DEMO_VALUATION_ID = '00000000-0000-0000-0000-00000000000d';
 const DEMO_CONVERSATION_ID = '00000000-0000-0000-0000-00000000000e';
+const DEMO_PLATFORM_ACCOUNT_ID = '00000000-0000-0000-0000-00000000000f';
 // Matches ProjectsService.create's default stage sequence — kept in sync by
 // hand since the seed script doesn't call the service directly.
 const DEFAULT_STAGES = ['Scope', 'Quote', 'Materials', 'Work', 'Handover'];
@@ -738,6 +748,32 @@ async function main() {
     });
   }
 
+  console.log('Seeding demo platform reviewer account...');
+  // Same demo user, a third membership — same "one user, several accounts"
+  // pattern the vendor/supplier accounts above already use. accountType is
+  // COMPANY (not a new enum value) purely to avoid a schema migration for
+  // what's really just a role distinction — the neutral-reviewer property
+  // comes entirely from platform_reviewer being a role no vendor/supplier
+  // account is ever granted, not from any account-level flag.
+  const platformReviewerRole = await prisma.role.findUniqueOrThrow({ where: { key: 'platform_reviewer' } });
+  const platformAccount = await prisma.account.upsert({
+    where: { id: DEMO_PLATFORM_ACCOUNT_ID },
+    update: {},
+    create: {
+      id: DEMO_PLATFORM_ACCOUNT_ID,
+      accountType: 'COMPANY',
+      name: 'PropertyOnTheGo Trust & Safety',
+      country: 'NG',
+      currency: 'NGN',
+      timezone: 'Africa/Lagos',
+    },
+  });
+  await prisma.accountMember.upsert({
+    where: { accountId_userId: { accountId: platformAccount.id, userId: user.id } },
+    update: {},
+    create: { accountId: platformAccount.id, userId: user.id, roleId: platformReviewerRole.id },
+  });
+
   console.log('\nDone. Demo login:');
   console.log(`  email:           ${DEMO_USER_EMAIL}`);
   console.log(`  password:        ${DEMO_USER_PASSWORD}`);
@@ -753,6 +789,9 @@ async function main() {
   console.log(`  supplier account: ${supplierAccount.id} (switch X-Account-Id to this to act as the supplier)`);
   console.log(`  supplier:         ${supplier.id} — 3 products seeded, 1 order already placed and in transit`);
   console.log(`  conversation:     ${DEMO_CONVERSATION_ID} — GET /ai/conversations/${DEMO_CONVERSATION_ID} to see the tool-call pattern`);
+  console.log(
+    `  platform account: ${platformAccount.id} (switch X-Account-Id to this to act as the neutral platform reviewer — vendor:verify/supplier:verify only)`,
+  );
 }
 
 main()

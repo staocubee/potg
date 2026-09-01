@@ -35,6 +35,7 @@ export default function VendorDetailPage() {
   }, [id, auth.currentAccountId]);
 
   const isVendorAccount = auth.currentAccount?.accountType === "VENDOR";
+  const isPlatformReviewer = auth.currentAccount?.role === "platform_reviewer";
 
   return (
     <AppShell
@@ -86,6 +87,10 @@ export default function VendorDetailPage() {
               </div>
             )}
           </div>
+
+          {isPlatformReviewer && id && (
+            <PlatformReviewPanel vendorId={id} status={vendor.verificationStatus} onChanged={load} />
+          )}
 
           {!isVendorAccount && id && (
             <RequestQuoteForProject vendorId={id} vendorName={vendor.businessName} />
@@ -181,6 +186,56 @@ function RequestQuoteForProject({ vendorId, vendorName }: { vendorId: string; ve
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+const VERIFICATION_STATUSES = ["not_verified", "pending", "verified"];
+
+// Module 6's neutral-reviewer action, on the vendor side — only rendered
+// for the platform_reviewer role (see isPlatformReviewer above), which is
+// never granted to a vendor's own account, so this can't be used to
+// self-verify. Mirrors the shape of the Documents page's Verify/Reject
+// controls without the client-side permission check that page's own note
+// explains skipping — here the panel's visibility already is the check.
+function PlatformReviewPanel({ vendorId, status, onChanged }: { vendorId: string; status: string; onChanged: () => void }) {
+  const auth = useAuth();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSetStatus(newStatus: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.setVendorVerification(vendorId, newStatus);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update verification status.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 18, border: "1px solid var(--potg-teal)" }}>
+      <h3 style={{ fontSize: 14, marginBottom: 4 }}>Platform review</h3>
+      <p className="potg-muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 10 }}>
+        Set this vendor's platform verification status. Visible only to the platform reviewer role.
+      </p>
+      {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+      <div style={{ display: "flex", gap: 6 }}>
+        {VERIFICATION_STATUSES.map((s) => (
+          <button
+            key={s}
+            className={s === status ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
+            disabled={busy || s === status}
+            onClick={() => onSetStatus(s)}
+            style={{ padding: "4px 9px", fontSize: 11, textTransform: "capitalize" }}
+          >
+            {s.replace(/_/g, " ")}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

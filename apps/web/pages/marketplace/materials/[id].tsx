@@ -30,14 +30,19 @@ export default function SupplierDetailPage() {
   // productId -> quantity, only for products the buyer has set a quantity on.
   const [cart, setCart] = useState<Record<string, number>>({});
 
-  useEffect(() => {
+  function load() {
     if (!id || !auth.currentAccountId) return;
     setError(null);
     auth.api
       .getSupplier(id)
       .then(setSupplier)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this supplier."));
-  }, [id, auth.currentAccountId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, auth.currentAccountId]);
 
   // Cart survives a refresh or coming back later, but stays per-browser and
   // per-supplier — there's still no server-side Cart model (a real one
@@ -69,6 +74,7 @@ export default function SupplierDetailPage() {
   }, [cartKey, cart]);
 
   const isSupplierAccount = auth.currentAccount?.accountType === "SUPPLIER";
+  const isPlatformReviewer = auth.currentAccount?.role === "platform_reviewer";
   const cartItems = Object.entries(cart).filter(([, qty]) => qty > 0);
 
   return (
@@ -122,6 +128,10 @@ export default function SupplierDetailPage() {
               </div>
             )}
           </div>
+
+          {isPlatformReviewer && id && (
+            <PlatformReviewPanel supplierId={id} status={supplier.verificationStatus} onChanged={load} />
+          )}
 
           <div className="potg-card" style={{ padding: 18 }}>
             <h3 style={{ fontSize: 14, marginBottom: 10 }}>Product catalog</h3>
@@ -255,6 +265,54 @@ function OrderWidget({
         <button className="potg-btn potg-btn-primary" onClick={onSubmit} disabled={busy}>
           {busy ? "Placing order…" : "Place order"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+const VERIFICATION_STATUSES = ["not_verified", "pending", "verified"];
+
+// Module 6's neutral-reviewer action, on the supplier side — the
+// materials-marketplace counterpart to the vendor page's PlatformReviewPanel.
+// Only rendered for the platform_reviewer role, never granted to a
+// supplier's own account, so this can't be used to self-verify.
+function PlatformReviewPanel({ supplierId, status, onChanged }: { supplierId: string; status: string; onChanged: () => void }) {
+  const auth = useAuth();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSetStatus(newStatus: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.setSupplierVerification(supplierId, newStatus);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update verification status.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 18, border: "1px solid var(--potg-teal)" }}>
+      <h3 style={{ fontSize: 14, marginBottom: 4 }}>Platform review</h3>
+      <p className="potg-muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 10 }}>
+        Set this supplier's platform verification status. Visible only to the platform reviewer role.
+      </p>
+      {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+      <div style={{ display: "flex", gap: 6 }}>
+        {VERIFICATION_STATUSES.map((s) => (
+          <button
+            key={s}
+            className={s === status ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
+            disabled={busy || s === status}
+            onClick={() => onSetStatus(s)}
+            style={{ padding: "4px 9px", fontSize: 11, textTransform: "capitalize" }}
+          >
+            {s.replace(/_/g, " ")}
+          </button>
+        ))}
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import { SubmitQuoteDto } from './dto/submit-quote.dto';
 import { CreateVendorReviewDto } from './dto/create-vendor-review.dto';
 import { UpdateVendorReviewDto } from './dto/update-vendor-review.dto';
 import { ReplyToReviewDto } from './dto/reply-to-review.dto';
+import { SetVendorVerificationDto } from './dto/set-vendor-verification.dto';
 import { getVendorTrustScore } from './trust-score';
 
 @Injectable()
@@ -54,6 +55,18 @@ export class VendorsService {
     });
     if (!vendor) return vendor;
     return { ...vendor, trustScore: await getVendorTrustScore(this.prisma, vendor) };
+  }
+
+  // Module 6's actual neutral-reviewer action — gated on vendor:verify,
+  // which only the platform_reviewer role carries (never the vendor role
+  // itself, see seed.ts), so a vendor can never set its own status. No
+  // :accountId/:propertyId param for PermissionsGuard's ABAC to key on, so
+  // this reaches any vendor on the platform, same as GET /vendors/:id
+  // already does for browsing.
+  async setVerificationStatus(vendorId: string, dto: SetVendorVerificationDto) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { id: vendorId } });
+    if (!vendor) throw new NotFoundException('Vendor not found');
+    return this.prisma.vendor.update({ where: { id: vendorId }, data: { verificationStatus: dto.status } });
   }
 
   // Vendor-initiated: submitting or revising a quote on a project. This

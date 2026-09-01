@@ -9,6 +9,7 @@ import { UpdateDeliveryDto } from './dto/update-delivery.dto';
 import { CreateOrderReviewDto } from './dto/create-order-review.dto';
 import { UpdateOrderReviewDto } from './dto/update-order-review.dto';
 import { ReplyToReviewDto } from '../vendors/dto/reply-to-review.dto';
+import { SetSupplierVerificationDto } from './dto/set-supplier-verification.dto';
 import { getSupplierTrustScore } from './trust-score';
 
 @Injectable()
@@ -59,6 +60,16 @@ export class MaterialsService {
     });
     if (!supplier) return supplier;
     return { ...supplier, trustScore: await getSupplierTrustScore(this.prisma, supplier) };
+  }
+
+  // Module 6's actual neutral-reviewer action, the materials-marketplace
+  // counterpart to VendorsService.setVerificationStatus — gated on
+  // supplier:verify, which only the platform_reviewer role carries, never
+  // the supplier role itself.
+  async setSupplierVerificationStatus(supplierId: string, dto: SetSupplierVerificationDto) {
+    const supplier = await this.prisma.supplier.findUnique({ where: { id: supplierId } });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+    return this.prisma.supplier.update({ where: { id: supplierId }, data: { verificationStatus: dto.status } });
   }
 
   // --- Products --------------------------------------------------------

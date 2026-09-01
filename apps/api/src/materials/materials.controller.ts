@@ -14,6 +14,7 @@ import { UpdateDeliveryDto } from './dto/update-delivery.dto';
 import { CreateOrderReviewDto } from './dto/create-order-review.dto';
 import { UpdateOrderReviewDto } from './dto/update-order-review.dto';
 import { ReplyToReviewDto } from '../vendors/dto/reply-to-review.dto';
+import { SetSupplierVerificationDto } from './dto/set-supplier-verification.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -70,6 +71,13 @@ export class MaterialsController {
   @Get('suppliers/:supplierId')
   findSupplier(@Param('supplierId') supplierId: string) {
     return this.materials.findSupplier(supplierId);
+  }
+
+  // Module 6's neutral-reviewer action — see MaterialsService.setSupplierVerificationStatus.
+  @RequirePermissions('supplier:verify')
+  @Patch('suppliers/:supplierId/verification')
+  setSupplierVerificationStatus(@Param('supplierId') supplierId: string, @Body() dto: SetSupplierVerificationDto) {
+    return this.materials.setSupplierVerificationStatus(supplierId, dto);
   }
 
   // Public catalog browse/search across suppliers.

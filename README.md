@@ -1281,14 +1281,14 @@ flags for listings; this is its counterpart for the vendor marketplace.
   the REST numbers exactly) and in the browser (badge renders, "Explain
   vendor trust score" appears in the panel with zero extra wiring and
   its draft matches the page).
-- **Still not what Module 6's "neutral reviewer" calls for.** This is the
-  platform's own arithmetic over data the vendor's own marketplace
-  activity already produced — reviews come from the accounts that hired
-  it, not an independent auditor, and `verificationStatus` is still set
-  by whatever mechanism already existed (currently nothing — no
-  vendor-verification endpoint exists, same gap `PropertyListing.
-  verificationStatus` and `Document.verificationStatus` both document
-  elsewhere).
+- **Still not what Module 6's "neutral reviewer" calls for at the time
+  this was written.** This is the platform's own arithmetic over data
+  the vendor's own marketplace activity already produced — reviews come
+  from the accounts that hired it, not an independent auditor — and at
+  this point in the session `verificationStatus` still had no endpoint
+  at all. A later pass this same session added one, gated to a real
+  separate role — see "A real neutral reviewer for vendor/supplier
+  verification" further down.
 
 ## Supplier trust score (this pass)
 
@@ -1321,9 +1321,11 @@ structure, just swapped for the signals a `Supplier` actually has.
   the seeded supplier, hand-checked against the formula) and in the
   browser (badge renders, "Explain supplier trust score" appears with
   zero extra wiring, draft matches the page).
-- **Same limitations as the vendor score** — not a neutral reviewer, and
-  no endpoint exists to actually move `Supplier.verificationStatus` off
-  its `not_verified` default.
+- **Same limitations as the vendor score at the time this was written**
+  — the score itself still isn't an independent audit, and at this point
+  `Supplier.verificationStatus` still had no endpoint either. See "A real
+  neutral reviewer for vendor/supplier verification" further down for
+  what a later pass this session added.
 
 ## Edit endpoints for Inspections, Leases, and Maintenance requests (this pass)
 
@@ -1396,23 +1398,85 @@ what's already on file, not a payment tracker.
   a lease that started today correctly not flagged) and in the browser
   (the overdue lease shows the red badge, the current one doesn't).
 
+## A real neutral reviewer for vendor/supplier verification (Module 6)
+
+Every earlier mention of Module 6 in this README carried the same
+caveat: verification and trust scores are the platform's own arithmetic,
+or an account's own admin verifying its own content — never an
+independent party. This pass closes that gap for exactly two fields,
+`Vendor.verificationStatus` and `Supplier.verificationStatus`, which
+until now had no endpoint at all (not even a self-serve one). The design
+question was whether a "reviewer" role granted to the vendor/supplier's
+own account would even count as neutral — it wouldn't, a business
+verifying itself defeats the point — so this had to be a genuinely
+separate account with a role no vendor or supplier account ever holds.
+
+- **New `vendor:verify`/`supplier:verify` permissions** and a new
+  **`platform_reviewer` role** (`seed.ts`) — deliberately minimal
+  (`vendor:read`, `vendor:verify`, `supplier:read`, `supplier:verify`
+  only, not even `ai:act`), and deliberately *never* added to the
+  `vendor`/`supplier`/owner roles above it, the same way `RolePermission`
+  already keeps `payment:approve` off the `vendor` role so a vendor can't
+  release its own escrow. That omission — not an account-type flag — is
+  what actually makes this neutral.
+- **`PATCH /vendors/:vendorId/verification`** and **`PATCH /suppliers/
+  :supplierId/verification`** — no `:accountId`/`:propertyId` param for
+  `PermissionsGuard`'s ABAC to key on, so (like the existing `GET .../:id`
+  routes) these reach any vendor/supplier on the platform once the
+  caller's role has the permission; there's nothing to reach if it
+  doesn't. Status is one of `not_verified`/`pending`/`verified`, same set
+  the field's own default comment already listed.
+- **Demo data**: `seed.ts` gives the same demo owner a *third* account
+  membership — `PropertyOnTheGo Trust & Safety` (`COMPANY` accountType,
+  chosen only to avoid an `AccountType` enum migration for what's really
+  a role distinction; the account has no properties, projects, or
+  anything else) — with the `platform_reviewer` role. Same "one user,
+  several accounts" pattern the demo vendor/supplier accounts already
+  established.
+- **Web UI**: a `PlatformReviewPanel` on both `pages/vendors/[id].tsx` and
+  `pages/marketplace/materials/[id].tsx`, rendered only when
+  `auth.currentAccount?.role === "platform_reviewer"` — unlike the
+  Documents page's Verify/Reject controls (which skip the client-side
+  check on purpose, see "Document verification" above), here the panel's
+  *visibility* doing the gating is deliberate: showing self-verification
+  controls to every vendor/supplier visiting their own page would be
+  actively misleading about what the feature is for, not just redundant.
+- Verified against the live dev API: the platform account can move a
+  vendor/supplier through all three statuses; the vendor's own account
+  gets 403 `Missing permission(s): vendor:verify` attempting the same
+  call on itself; an unrelated property-owner account gets the identical
+  403; an invalid status value gets a 400. In the browser: switching to
+  the seeded platform account surfaces the panel and live-updates the
+  trust score underneath it as status changes (verified → pending
+  visibly dropped the same vendor's score from 53 to 38, "Fair" to
+  "Caution"), and switching back to the demo owner's own account hides
+  the panel entirely — the "Request a quote" panel takes its place.
+- **Still not the full Module 6 neutral-reviewer workflow.** This closes
+  it for exactly the two fields that had no verification path at all.
+  Document verification (any account's own admin) and dispute resolution
+  (the project's owner or its assigned vendor) remain what they were —
+  seeded data, not moved onto the new role, since a document/dispute
+  reviewer would need to review specific content, not just flip a status,
+  which is a larger workflow than this pass's scope.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
 blueprint, or explicitly cut from it:
 
 - **Modules 6, 14, 16-24** (the full property-verification/trust
-  workflow — a neutral reviewer, the rest of risk flags/trust scores
-  beyond listings and vendors; the rest of valuation beyond
-  `PropertyValuation`, compliance, community management, AR/VR, the full
-  fixed-dashboard side of reports, admin operations, ...) — this
-  scaffold now proves the pattern for Modules 1, 2, 4, 5, 7, 9, 10, 11,
-  and a slice of 6, 8, 12, 13, 15, and 23, not the full 24. Modules 8, 12,
-  and 13 are slices, not the full modules, because there's no separate
-  Inspector, Contractor, or Tenant identity — see "Property inspections",
-  "Maintenance requests", and "Leases" above. Module 6 is a slice because
-  there's still no neutral-reviewer identity — see "Vendor trust score"
-  and "Supplier trust score" above.
+  workflow — the rest of risk flags/trust scores beyond listings and
+  vendors/suppliers, document/dispute review by the new neutral role; the
+  rest of valuation beyond `PropertyValuation`, compliance, community
+  management, AR/VR, the full fixed-dashboard side of reports, admin
+  operations, ...) — this scaffold now proves the pattern for Modules 1,
+  2, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12, 13, 15, and 23, not the
+  full 24. Modules 8, 12, and 13 are slices, not the full modules,
+  because there's no separate Inspector, Contractor, or Tenant identity —
+  see "Property inspections", "Maintenance requests", and "Leases" above.
+  Module 6 is a slice because the new `platform_reviewer` role only
+  covers vendor/supplier verification, not document verification or
+  dispute resolution — see "A real neutral reviewer" above.
 - **Property inspections — one gap left in the new module.** No separate
   Inspector identity (see "Property inspections" above — `inspectorName`
   is freeform text, not an account relation). Editing a scheduled
@@ -1427,13 +1491,21 @@ blueprint, or explicitly cut from it:
   "Maintenance requests" above — `assignedTo` is freeform text). Editing
   a request's title/description/priority is now possible — see "Edit
   endpoints" below.
-- **Vendor and supplier trust scores — no neutral reviewer.** See "Vendor
-  trust score" and "Supplier trust score" above: both scores are the
-  platform's own arithmetic over data the vendor/supplier's own
-  marketplace activity already produced, not an independent audit, and
-  there's still no endpoint that actually sets `Vendor.verificationStatus`
-  or `Supplier.verificationStatus` to anything but their `not_verified`
-  default.
+- **Vendor and supplier trust scores are still the platform's own
+  arithmetic.** See "Vendor trust score" and "Supplier trust score"
+  above: the *score* is computed from data the vendor/supplier's own
+  marketplace activity produced (reviews, completed work), not an
+  independent audit — a real reviewer setting `verificationStatus` (see
+  "A real neutral reviewer" above) only ever feeds one input into that
+  formula, it doesn't audit the rest.
+- **Document verification and dispute resolution are still not on the
+  new neutral-reviewer role.** The new `platform_reviewer` role only
+  covers `Vendor`/`Supplier.verificationStatus` — see "A real neutral
+  reviewer" above for why a document/dispute reviewer needs to look at
+  specific content, not just flip a status, which stayed out of scope
+  this pass. Document verification is still an account's own admin;
+  dispute resolution is still the project's owner or its assigned
+  vendor.
 - **AI-generated renovation visualizations.** Explicitly deferred by
   Priority 6 itself, pending Module 22 (AR/VR) existing at all.
 - **Multi-turn tool use in one chat turn.** `ChatService` calls at most one
