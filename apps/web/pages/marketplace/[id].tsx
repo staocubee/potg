@@ -24,10 +24,6 @@ export default function ListingDetailPage() {
   const [offers, setOffers] = useState<ListingOffer[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
-  // No GET endpoint reports whether *this* account already favorited this
-  // listing, so this button is optimistic-only (fires favorite/unfavorite
-  // based on local toggle state, not a persisted read) — good enough at
-  // scaffold depth, called out here rather than silently faked.
   const [favorited, setFavorited] = useState(false);
 
   const isOwner = !!listing && listing.accountId === auth.currentAccountId;
@@ -37,7 +33,10 @@ export default function ListingDetailPage() {
     setError(null);
     auth.api
       .getListing(id)
-      .then(setListing)
+      .then((l) => {
+        setListing(l);
+        setFavorited(!!l.isFavorited);
+      })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this listing."));
   }
 

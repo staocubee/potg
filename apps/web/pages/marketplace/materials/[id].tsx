@@ -32,6 +32,35 @@ export default function SupplierDetailPage() {
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this supplier."));
   }, [id, auth.currentAccountId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Cart survives a refresh or coming back later, but stays per-browser and
+  // per-supplier — there's still no server-side Cart model (a real one
+  // would need to reconcile stock/price changes across a shared account),
+  // this just stops the previous "lost the moment you navigate away" gap.
+  // Keyed on supplierId only, not accountId, so it doesn't leak between
+  // accounts sharing this browser.
+  const cartKey = id ? `potg:materials-cart:${id}` : null;
+
+  useEffect(() => {
+    if (!cartKey) return;
+    try {
+      const raw = localStorage.getItem(cartKey);
+      if (raw) setCart(JSON.parse(raw));
+    } catch {
+      // private window, blocked storage, or corrupt JSON — just start empty
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartKey]);
+
+  useEffect(() => {
+    if (!cartKey) return;
+    try {
+      if (Object.keys(cart).length === 0) localStorage.removeItem(cartKey);
+      else localStorage.setItem(cartKey, JSON.stringify(cart));
+    } catch {
+      // storage unavailable — cart just won't survive a refresh this time
+    }
+  }, [cartKey, cart]);
+
   const isSupplierAccount = auth.currentAccount?.accountType === "SUPPLIER";
   const cartItems = Object.entries(cart).filter(([, qty]) => qty > 0);
 

@@ -71,7 +71,11 @@ export class ListingsService {
     });
   }
 
-  async findOne(listingId: string) {
+  // accountId is who's asking, not who owns the listing — used only to
+  // report whether *this* account has favorited it, closing the gap the
+  // web app's own comment used to flag (favorite state was optimistic-only
+  // because there was nothing to read it back from).
+  async findOne(listingId: string, accountId: string) {
     const listing = await this.prisma.propertyListing.findUnique({
       where: { id: listingId },
       include: { property: true },
@@ -83,7 +87,10 @@ export class ListingsService {
       where: { id: listingId },
       data: { viewCount: { increment: 1 } },
     });
-    return listing;
+    const favorite = await this.prisma.listingFavorite.findUnique({
+      where: { listingId_accountId: { listingId, accountId } },
+    });
+    return { ...listing, isFavorited: favorite !== null };
   }
 
   async publish(listingId: string, accountId: string) {

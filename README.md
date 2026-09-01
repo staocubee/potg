@@ -913,6 +913,34 @@ are closed.
   project picker built from the vendor's own quotes/payouts), and resolve,
   all wired to the new vendor-side routes.
 
+## Cart persistence & favorite accuracy (this pass)
+
+Two small, unrelated fixes bundled together since both were the same
+"Not built yet" bullet:
+
+- **`GET /listings/:listingId` now reports `isFavorited`.** Before this,
+  the listing detail page's Favorite button was optimistic-only — it
+  fired the favorite/unfavorite call and toggled local state, but a
+  reload always came back to an unfavorited-looking button regardless of
+  the real `ListingFavorite` row, because `findOne` had no `accountId` to
+  check one against. It does now (`ListingsController.findOne` passes
+  `member.accountId` through), and `pages/marketplace/[id].tsx`
+  initializes its `favorited` state from the response instead of always
+  starting `false`. This was a real correctness bug, not just a missing
+  feature — fixed outright, not flagged as a tradeoff.
+- **The materials cart survives a refresh.** `pages/marketplace/materials/
+  [id].tsx`'s cart (`productId -> quantity`) now round-trips through
+  `localStorage`, keyed per supplier (`potg:materials-cart:<supplierId>`)
+  so it doesn't leak between suppliers or, since it's keyed on supplier
+  rather than account, between accounts sharing the browser in an
+  unexpected way. Cleared the same way it always was — placing the order
+  empties `cart` state, which the persistence effect then removes from
+  storage. Deliberately *not* a server-side `Cart` model: a pre-checkout
+  quantity selector is exactly the kind of per-device convenience
+  `localStorage` is for, and a real synced-across-devices cart would need
+  to reconcile stock/price drift against a shared account, which is a
+  materially bigger feature than "stop losing it on refresh."
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -962,12 +990,11 @@ blueprint, or explicitly cut from it:
   verification is no longer on this list — see "Document verification"
   above — though it's still an account's own admin doing the verifying,
   not an independent reviewer.
-- **Order carts and favorites don't persist server-side beyond what the API
-  already tracks.** The materials order widget's "cart" is local component
-  state cleared on submit (one order per checkout, no saved cart across
-  visits); the listing detail page's Favorite button is optimistic-only
-  since there's no `GET` that reports whether the current account already
-  favorited a given listing (see the code comment in `pages/marketplace/[id].tsx`).
+- **The materials cart still isn't server-side.** See "Cart persistence &
+  favorite accuracy" above — it now survives a refresh via `localStorage`,
+  but there's still no `Cart`/`CartItem` model, so it doesn't follow the
+  account across devices or reconcile against a product's price/stock
+  changing while it sits in the cart.
 - **Reviews are one-shot and unmoderated.** No editing or deleting a review
   once submitted (by the reviewer or an admin), no reply from the
   vendor/supplier being reviewed, and no surfacing of a vendor's/supplier's

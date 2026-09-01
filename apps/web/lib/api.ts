@@ -471,6 +471,9 @@ export type Listing = {
   createdAt: string;
   updatedAt: string;
   property?: Property | { propertyType: string; city?: string | null; country: string };
+  // Only present on GET /listings/:listingId — whether the calling
+  // account has favorited this listing.
+  isFavorited?: boolean;
 };
 
 export type ListingInquiry = {

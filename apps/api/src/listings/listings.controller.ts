@@ -55,8 +55,8 @@ export class ListingsController {
 
   @RequirePermissions('listing:read')
   @Get(':listingId')
-  findOne(@Param('listingId') listingId: string) {
-    return this.listings.findOne(listingId);
+  findOne(@Param('listingId') listingId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.listings.findOne(listingId, member.accountId);
   }
 
   @RequirePermissions('listing:write')
