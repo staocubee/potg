@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -8,11 +8,14 @@ import { PropertiesService } from './properties.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { CreateValuationDto } from './dto/create-valuation.dto';
 import { ScheduleInspectionDto } from './dto/schedule-inspection.dto';
+import { UpdateInspectionDto } from './dto/update-inspection.dto';
 import { CompleteInspectionDto } from './dto/complete-inspection.dto';
 import { CreateLeaseDto } from './dto/create-lease.dto';
+import { UpdateLeaseDto } from './dto/update-lease.dto';
 import { RecordRentPaymentDto } from './dto/record-rent-payment.dto';
 import { EndLeaseDto } from './dto/end-lease.dto';
 import { ReportMaintenanceRequestDto } from './dto/report-maintenance-request.dto';
+import { UpdateMaintenanceRequestDto } from './dto/update-maintenance-request.dto';
 import { StartMaintenanceRequestDto } from './dto/start-maintenance-request.dto';
 import { ResolveMaintenanceRequestDto } from './dto/resolve-maintenance-request.dto';
 
@@ -67,6 +70,16 @@ export class PropertiesController {
     return this.properties.scheduleInspection(propertyId, dto);
   }
 
+  @RequirePermissions('inspection:write')
+  @Patch(':propertyId/inspections/:inspectionId')
+  updateInspection(
+    @Param('propertyId') propertyId: string,
+    @Param('inspectionId') inspectionId: string,
+    @Body() dto: UpdateInspectionDto,
+  ) {
+    return this.properties.updateInspection(propertyId, inspectionId, dto);
+  }
+
   @RequirePermissions('inspection:read')
   @Get(':propertyId/inspections')
   findInspections(@Param('propertyId') propertyId: string) {
@@ -103,6 +116,12 @@ export class PropertiesController {
     return this.properties.createLease(propertyId, dto);
   }
 
+  @RequirePermissions('lease:write')
+  @Patch(':propertyId/leases/:leaseId')
+  updateLease(@Param('propertyId') propertyId: string, @Param('leaseId') leaseId: string, @Body() dto: UpdateLeaseDto) {
+    return this.properties.updateLease(propertyId, leaseId, dto);
+  }
+
   @RequirePermissions('lease:read')
   @Get(':propertyId/leases')
   findLeases(@Param('propertyId') propertyId: string) {
@@ -137,6 +156,16 @@ export class PropertiesController {
   @Post(':propertyId/maintenance-requests')
   reportMaintenanceRequest(@Param('propertyId') propertyId: string, @Body() dto: ReportMaintenanceRequestDto) {
     return this.properties.reportMaintenanceRequest(propertyId, dto);
+  }
+
+  @RequirePermissions('maintenance:write')
+  @Patch(':propertyId/maintenance-requests/:requestId')
+  updateMaintenanceRequest(
+    @Param('propertyId') propertyId: string,
+    @Param('requestId') requestId: string,
+    @Body() dto: UpdateMaintenanceRequestDto,
+  ) {
+    return this.properties.updateMaintenanceRequest(propertyId, requestId, dto);
   }
 
   @RequirePermissions('maintenance:read')

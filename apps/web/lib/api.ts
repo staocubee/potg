@@ -823,6 +823,18 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  updateInspection(
+    propertyId: string,
+    inspectionId: string,
+    input: { inspectionType?: string; scheduledFor?: string; projectId?: string; inspectorName?: string },
+  ) {
+    return request<PropertyInspection>(`/properties/${propertyId}/inspections/${inspectionId}`, {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   completeInspection(
     propertyId: string,
     inspectionId: string,
@@ -867,6 +879,28 @@ export class ApiClient {
   listLeases(propertyId: string) {
     return request<Lease[]>(`/properties/${propertyId}/leases`, { token: this.token, accountId: this.accountId });
   }
+  updateLease(
+    propertyId: string,
+    leaseId: string,
+    input: {
+      tenantName?: string;
+      tenantEmail?: string;
+      tenantPhone?: string;
+      rentAmount?: number;
+      rentFrequency?: string;
+      depositAmount?: number;
+      startDate?: string;
+      endDate?: string;
+      notes?: string;
+    },
+  ) {
+    return request<Lease>(`/properties/${propertyId}/leases/${leaseId}`, {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   recordRentPayment(
     propertyId: string,
     leaseId: string,
@@ -900,6 +934,14 @@ export class ApiClient {
   }
   listMaintenanceRequests(propertyId: string) {
     return request<MaintenanceRequest[]>(`/properties/${propertyId}/maintenance-requests`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  updateMaintenanceRequest(propertyId: string, requestId: string, input: { title?: string; description?: string; priority?: string }) {
+    return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests/${requestId}`, {
+      method: "PATCH",
+      body: input,
       token: this.token,
       accountId: this.accountId,
     });

@@ -244,7 +244,7 @@ export default function PropertyDetailPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: showInspectionForm ? 12 : 0 }}>
               {id &&
                 inspections.map((i) => (
-                  <InspectionRow key={i.id} propertyId={id} inspection={i} onChanged={load} />
+                  <InspectionRow key={i.id} propertyId={id} inspection={i} projects={projects} onChanged={load} />
                 ))}
             </div>
           </div>
@@ -450,22 +450,29 @@ function ScheduleInspectionForm({
 function InspectionRow({
   propertyId,
   inspection,
+  projects,
   onChanged,
 }: {
   propertyId: string;
   inspection: PropertyInspection;
+  projects: Project[];
   onChanged: () => void;
 }) {
   const auth = useAuth();
   const [completing, setCompleting] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [overallResult, setOverallResult] = useState("pass");
   const [summary, setSummary] = useState("");
   const [findingArea, setFindingArea] = useState("");
   const [findingDescription, setFindingDescription] = useState("");
   const [findingSeverity, setFindingSeverity] = useState("minor");
   const [pendingFindings, setPendingFindings] = useState<{ area: string; description: string; severity: string }[]>([]);
+  const [editType, setEditType] = useState(inspection.inspectionType);
+  const [editScheduledFor, setEditScheduledFor] = useState(inspection.scheduledFor.slice(0, 10));
+  const [editProjectId, setEditProjectId] = useState(inspection.projectId ?? "");
+  const [editInspectorName, setEditInspectorName] = useState(inspection.inspectorName ?? "");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"complete" | "cancel" | null>(null);
+  const [busy, setBusy] = useState<"complete" | "cancel" | "edit" | null>(null);
 
   function addFinding() {
     if (!findingArea || !findingDescription) return;
@@ -506,6 +513,26 @@ function InspectionRow({
     }
   }
 
+  async function onSaveEdit(e: FormEvent) {
+    e.preventDefault();
+    setBusy("edit");
+    setError(null);
+    try {
+      await auth.api.updateInspection(propertyId, inspection.id, {
+        inspectionType: editType,
+        scheduledFor: new Date(editScheduledFor).toISOString(),
+        projectId: editProjectId,
+        inspectorName: editInspectorName,
+      });
+      setEditing(false);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't save those changes.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div style={{ borderTop: "1px solid var(--potg-border)", paddingTop: 10, fontSize: 13 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -535,15 +562,57 @@ function InspectionRow({
 
       {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
 
-      {inspection.status === "scheduled" && !completing && (
+      {inspection.status === "scheduled" && !completing && !editing && (
         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
           <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setCompleting(true)}>
             Complete
+          </button>
+          <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setEditing(true)}>
+            Edit
           </button>
           <button className="potg-btn potg-btn-danger" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={onCancel}>
             {busy === "cancel" ? "…" : "Cancel"}
           </button>
         </div>
+      )}
+
+      {inspection.status === "scheduled" && editing && (
+        <form onSubmit={onSaveEdit} style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <select className="potg-input" value={editType} onChange={(e) => setEditType(e.target.value)}>
+              {INSPECTION_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+            <input className="potg-input" type="date" required value={editScheduledFor} onChange={(e) => setEditScheduledFor(e.target.value)} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <select className="potg-input" value={editProjectId} onChange={(e) => setEditProjectId(e.target.value)}>
+              <option value="">Not tied to a project</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title}
+                </option>
+              ))}
+            </select>
+            <input
+              className="potg-input"
+              placeholder="Inspector name (optional)"
+              value={editInspectorName}
+              onChange={(e) => setEditInspectorName(e.target.value)}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
+              {busy === "edit" ? "Saving…" : "Save changes"}
+            </button>
+            <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setEditing(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
+              Cancel
+            </button>
+          </div>
+        </form>
       )}
 
       {inspection.status === "scheduled" && completing && (
@@ -666,11 +735,17 @@ function CreateLeaseForm({ propertyId, onCreated }: { propertyId: string; onCrea
 function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease: Lease; onChanged: () => void }) {
   const auth = useAuth();
   const [recording, setRecording] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [amount, setAmount] = useState(lease.rentAmount);
   const [periodStart, setPeriodStart] = useState("");
   const [periodEnd, setPeriodEnd] = useState("");
+  const [editRentAmount, setEditRentAmount] = useState(lease.rentAmount);
+  const [editRentFrequency, setEditRentFrequency] = useState(lease.rentFrequency);
+  const [editDepositAmount, setEditDepositAmount] = useState(lease.depositAmount ?? "");
+  const [editStartDate, setEditStartDate] = useState(lease.startDate.slice(0, 10));
+  const [editEndDate, setEditEndDate] = useState(lease.endDate ? lease.endDate.slice(0, 10) : "");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"record" | "end" | null>(null);
+  const [busy, setBusy] = useState<"record" | "end" | "edit" | null>(null);
 
   async function onRecordPayment(e: FormEvent) {
     e.preventDefault();
@@ -703,6 +778,27 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
     }
   }
 
+  async function onSaveEdit(e: FormEvent) {
+    e.preventDefault();
+    setBusy("edit");
+    setError(null);
+    try {
+      await auth.api.updateLease(propertyId, lease.id, {
+        rentAmount: Number(editRentAmount),
+        rentFrequency: editRentFrequency,
+        depositAmount: editDepositAmount ? Number(editDepositAmount) : undefined,
+        startDate: new Date(editStartDate).toISOString(),
+        endDate: editEndDate ? new Date(editEndDate).toISOString() : "",
+      });
+      setEditing(false);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't save those changes.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const totalPaid = (lease.rentPayments ?? []).reduce((sum, p) => sum + Number(p.amount), 0);
 
   return (
@@ -725,10 +821,13 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
 
       {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
 
-      {lease.status === "active" && !recording && (
+      {lease.status === "active" && !recording && !editing && (
         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
           <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setRecording(true)}>
             Record rent payment
+          </button>
+          <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setEditing(true)}>
+            Edit
           </button>
           <button className="potg-btn potg-btn-danger" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={() => onEnd("ended")}>
             End lease
@@ -748,6 +847,51 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
               {busy === "record" ? "Saving…" : "Save payment"}
             </button>
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setRecording(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {lease.status === "active" && editing && (
+        <form onSubmit={onSaveEdit} style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+            <input
+              className="potg-input"
+              type="number"
+              min={0}
+              required
+              value={editRentAmount}
+              onChange={(e) => setEditRentAmount(e.target.value)}
+              placeholder="Rent amount"
+            />
+            <select className="potg-input" value={editRentFrequency} onChange={(e) => setEditRentFrequency(e.target.value)}>
+              {RENT_FREQUENCIES.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
+            <div>
+              <label className="potg-label" style={{ fontSize: 11 }}>Start date</label>
+              <input className="potg-input" type="date" required value={editStartDate} onChange={(e) => setEditStartDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="potg-label" style={{ fontSize: 11 }}>End date (optional)</label>
+              <input className="potg-input" type="date" value={editEndDate} onChange={(e) => setEditEndDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="potg-label" style={{ fontSize: 11 }}>Deposit (optional)</label>
+              <input className="potg-input" type="number" min={0} value={editDepositAmount} onChange={(e) => setEditDepositAmount(e.target.value)} />
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
+              {busy === "edit" ? "Saving…" : "Save changes"}
+            </button>
+            <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setEditing(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
               Cancel
             </button>
           </div>
@@ -837,9 +981,13 @@ function MaintenanceRequestRow({
 }) {
   const auth = useAuth();
   const [resolving, setResolving] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [resolutionNotes, setResolutionNotes] = useState("");
+  const [editTitle, setEditTitle] = useState(request.title);
+  const [editDescription, setEditDescription] = useState(request.description);
+  const [editPriority, setEditPriority] = useState(request.priority);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"start" | "resolve" | "cancel" | null>(null);
+  const [busy, setBusy] = useState<"start" | "resolve" | "cancel" | "edit" | null>(null);
 
   async function onStart() {
     setBusy("start");
@@ -882,6 +1030,25 @@ function MaintenanceRequestRow({
     }
   }
 
+  async function onSaveEdit(e: FormEvent) {
+    e.preventDefault();
+    setBusy("edit");
+    setError(null);
+    try {
+      await auth.api.updateMaintenanceRequest(propertyId, request.id, {
+        title: editTitle,
+        description: editDescription,
+        priority: editPriority,
+      });
+      setEditing(false);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't save those changes.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const isOpen = request.status === "open" || request.status === "in_progress";
 
   return (
@@ -906,13 +1073,16 @@ function MaintenanceRequestRow({
 
       {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
 
-      {isOpen && !resolving && (
+      {isOpen && !resolving && !editing && (
         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
           {request.status === "open" && (
             <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={onStart}>
               {busy === "start" ? "…" : "Start"}
             </button>
           )}
+          <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setEditing(true)}>
+            Edit
+          </button>
           <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setResolving(true)}>
             Resolve
           </button>
@@ -936,6 +1106,35 @@ function MaintenanceRequestRow({
               {busy === "resolve" ? "Saving…" : "Mark resolved"}
             </button>
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setResolving(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+
+      {isOpen && editing && (
+        <form onSubmit={onSaveEdit} style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+          <input className="potg-input" required value={editTitle} onChange={(e) => setEditTitle(e.target.value)} placeholder="Title" />
+          <textarea
+            className="potg-input"
+            rows={2}
+            required
+            value={editDescription}
+            onChange={(e) => setEditDescription(e.target.value)}
+            placeholder="Description"
+          />
+          <select className="potg-input" value={editPriority} onChange={(e) => setEditPriority(e.target.value)}>
+            {MAINTENANCE_PRIORITIES.map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
+              {busy === "edit" ? "Saving…" : "Save changes"}
+            </button>
+            <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setEditing(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
               Cancel
             </button>
           </div>

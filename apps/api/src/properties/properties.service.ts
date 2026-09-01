@@ -3,11 +3,14 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { CreateValuationDto } from './dto/create-valuation.dto';
 import { ScheduleInspectionDto } from './dto/schedule-inspection.dto';
+import { UpdateInspectionDto } from './dto/update-inspection.dto';
 import { CompleteInspectionDto } from './dto/complete-inspection.dto';
 import { CreateLeaseDto } from './dto/create-lease.dto';
+import { UpdateLeaseDto } from './dto/update-lease.dto';
 import { RecordRentPaymentDto } from './dto/record-rent-payment.dto';
 import { EndLeaseDto } from './dto/end-lease.dto';
 import { ReportMaintenanceRequestDto } from './dto/report-maintenance-request.dto';
+import { UpdateMaintenanceRequestDto } from './dto/update-maintenance-request.dto';
 import { StartMaintenanceRequestDto } from './dto/start-maintenance-request.dto';
 import { ResolveMaintenanceRequestDto } from './dto/resolve-maintenance-request.dto';
 
@@ -95,6 +98,31 @@ export class PropertiesService {
         inspectionType: dto.inspectionType,
         scheduledFor: new Date(dto.scheduledFor),
         inspectorName: dto.inspectorName,
+      },
+    });
+  }
+
+  // Closes the "no way to edit a scheduled inspection" gap the README
+  // flagged when this module was first built — only while still
+  // "scheduled", same reasoning completeInspection/cancelInspection
+  // already gate on. Empty string clears an existing projectId link.
+  async updateInspection(propertyId: string, inspectionId: string, dto: UpdateInspectionDto) {
+    const inspection = await this.prisma.propertyInspection.findFirst({ where: { id: inspectionId, propertyId } });
+    if (!inspection) throw new NotFoundException('Inspection not found on this property');
+    if (inspection.status !== 'scheduled') {
+      throw new BadRequestException(`This inspection is already "${inspection.status}" — only a scheduled inspection can be edited`);
+    }
+    if (dto.projectId) {
+      const project = await this.prisma.project.findFirst({ where: { id: dto.projectId, propertyId } });
+      if (!project) throw new BadRequestException('That project does not belong to this property');
+    }
+    return this.prisma.propertyInspection.update({
+      where: { id: inspectionId },
+      data: {
+        inspectionType: dto.inspectionType ?? undefined,
+        scheduledFor: dto.scheduledFor ? new Date(dto.scheduledFor) : undefined,
+        projectId: dto.projectId !== undefined ? dto.projectId || null : undefined,
+        inspectorName: dto.inspectorName !== undefined ? dto.inspectorName : undefined,
       },
     });
   }
@@ -193,6 +221,32 @@ export class PropertiesService {
     return lease;
   }
 
+  // Closes the "no way to edit a lease's rent/dates once created" gap the
+  // README flagged when this module was first built — only while still
+  // "active", same reasoning recordRentPayment/endLease already gate on.
+  // Empty string clears an existing endDate.
+  async updateLease(propertyId: string, leaseId: string, dto: UpdateLeaseDto) {
+    const lease = await this.prisma.lease.findFirst({ where: { id: leaseId, propertyId } });
+    if (!lease) throw new NotFoundException('Lease not found on this property');
+    if (lease.status !== 'active') {
+      throw new BadRequestException(`This lease is "${lease.status}" — only an active lease can be edited`);
+    }
+    return this.prisma.lease.update({
+      where: { id: leaseId },
+      data: {
+        tenantName: dto.tenantName ?? undefined,
+        tenantEmail: dto.tenantEmail !== undefined ? dto.tenantEmail : undefined,
+        tenantPhone: dto.tenantPhone !== undefined ? dto.tenantPhone : undefined,
+        rentAmount: dto.rentAmount ?? undefined,
+        rentFrequency: dto.rentFrequency ?? undefined,
+        depositAmount: dto.depositAmount ?? undefined,
+        startDate: dto.startDate ? new Date(dto.startDate) : undefined,
+        endDate: dto.endDate !== undefined ? (dto.endDate ? new Date(dto.endDate) : null) : undefined,
+        notes: dto.notes !== undefined ? dto.notes : undefined,
+      },
+    });
+  }
+
   findLeases(propertyId: string) {
     return this.prisma.lease.findMany({
       where: { propertyId },
@@ -263,6 +317,26 @@ export class PropertiesService {
         priority: dto.priority ?? 'normal',
         reportedBy: dto.reportedBy,
         assignedTo: dto.assignedTo,
+      },
+    });
+  }
+
+  // Closes the "no way to edit a request's title/description/priority
+  // once reported" gap the README flagged when this module was first
+  // built — allowed while "open" or "in_progress", the same isOpen shape
+  // resolveMaintenanceRequest/cancelMaintenanceRequest already gate on.
+  async updateMaintenanceRequest(propertyId: string, requestId: string, dto: UpdateMaintenanceRequestDto) {
+    const request = await this.prisma.maintenanceRequest.findFirst({ where: { id: requestId, propertyId } });
+    if (!request) throw new NotFoundException('Maintenance request not found on this property');
+    if (request.status !== 'open' && request.status !== 'in_progress') {
+      throw new BadRequestException(`This request is already "${request.status}" — only an open or in-progress request can be edited`);
+    }
+    return this.prisma.maintenanceRequest.update({
+      where: { id: requestId },
+      data: {
+        title: dto.title ?? undefined,
+        description: dto.description ?? undefined,
+        priority: dto.priority ?? undefined,
       },
     });
   }

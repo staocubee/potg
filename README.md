@@ -1325,6 +1325,46 @@ structure, just swapped for the signals a `Supplier` actually has.
   no endpoint exists to actually move `Supplier.verificationStatus` off
   its `not_verified` default.
 
+## Edit endpoints for Inspections, Leases, and Maintenance requests (this pass)
+
+After the two marketplace trust scores, back to closing self-flagged
+gaps: each of this session's three property-nested modules could be
+created and moved through its own lifecycle, but never edited — a typo
+in an inspection's inspector name, a lease's rent changing mid-tenancy,
+or a maintenance request's priority needing to go up, all meant deleting
+the record and starting over (which none of these modules even support —
+there's no delete endpoint either). One `PATCH` route per module, each
+gated to the same lifecycle stage its own create/action endpoints
+already assume:
+
+- **`PATCH /properties/:propertyId/inspections/:inspectionId`**
+  (`inspection:write`) — only while still `"scheduled"`, the same gate
+  `completeInspection`/`cancelInspection` already use. Can change type,
+  date, inspector name, or the linked project (re-validated to belong to
+  the same property, same check `scheduleInspection` makes); an empty
+  `projectId` clears an existing link.
+- **`PATCH /properties/:propertyId/leases/:leaseId`** (`lease:write`) —
+  only while still `"active"`. Can change tenant contact fields, rent
+  amount/frequency, deposit, start date, or end date; an empty `endDate`
+  clears one. Notably does *not* touch existing `LeaseRentPayment`
+  records if the currency or amount changes — those stay historical.
+- **`PATCH /properties/:propertyId/maintenance-requests/:requestId`**
+  (`maintenance:write`) — only while `"open"` or `"in_progress"`, the
+  same `isOpen` gate `resolveMaintenanceRequest`/`cancelMaintenanceRequest`
+  share. Title, description, and priority only — not `leaseId` or
+  `assignedTo`, since re-pointing which lease a report is against after
+  the fact felt like a different action than fixing a typo, not an edit.
+- **Web UI**: each of the three list rows (`InspectionRow`, `LeaseRow`,
+  `MaintenanceRequestRow` in `pages/properties/[id].tsx`) gets an inline
+  "Edit" button next to its existing actions, opening a form pre-filled
+  from the current record — same inline-toggle pattern the existing
+  Complete/Resolve/Record-payment forms already use.
+- Verified against the live dev API (edit while eligible, rejected with
+  a clear message once the record leaves that stage — cancelled
+  inspection, ended lease, resolved maintenance request all correctly
+  refused) and in the browser for all three (pre-filled edit form saves
+  and the row reflects the new values immediately).
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -1342,22 +1382,22 @@ blueprint, or explicitly cut from it:
   "Maintenance requests", and "Leases" above. Module 6 is a slice because
   there's still no neutral-reviewer identity — see "Vendor trust score"
   and "Supplier trust score" above.
-- **Property inspections — two gaps left in the new module.** No separate
+- **Property inspections — one gap left in the new module.** No separate
   Inspector identity (see "Property inspections" above — `inspectorName`
-  is freeform text, not an account relation), and no way to edit a
-  scheduled inspection's date/type or reassign its project once created
-  — only complete or cancel it outright and schedule a new one.
-- **Leases — three gaps left in the new module.** No separate Tenant
-  identity (see "Leases" above), no way to edit a lease's rent/dates once
-  created (only end it and create a new one), and rent payments are
-  manual entries with no reminder/overdue detection — `summarize_lease_
-  status` only ever looks at whether the lease itself is ending soon, not
-  whether a rent period has gone unpaid.
-- **Maintenance requests — two gaps left in the new module.** No separate
+  is freeform text, not an account relation). Editing a scheduled
+  inspection's date/type/project/inspector is now possible — see "Edit
+  endpoints for Inspections, Leases, and Maintenance requests" below.
+- **Leases — two gaps left in the new module.** No separate Tenant
+  identity (see "Leases" above), and rent payments are manual entries
+  with no reminder/overdue detection — `summarize_lease_status` only
+  ever looks at whether the lease itself is ending soon, not whether a
+  rent period has gone unpaid. Editing a lease's rent/dates/deposit is
+  now possible — see "Edit endpoints" below.
+- **Maintenance requests — one gap left in the new module.** No separate
   Contractor identity or link to Module 9's vendor marketplace (see
-  "Maintenance requests" above — `assignedTo` is freeform text), and no
-  way to edit a request's title/description/priority once reported —
-  only start, resolve, or cancel it.
+  "Maintenance requests" above — `assignedTo` is freeform text). Editing
+  a request's title/description/priority is now possible — see "Edit
+  endpoints" below.
 - **Vendor and supplier trust scores — no neutral reviewer.** See "Vendor
   trust score" and "Supplier trust score" above: both scores are the
   platform's own arithmetic over data the vendor/supplier's own
