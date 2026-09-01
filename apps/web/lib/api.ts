@@ -543,9 +543,10 @@ export type Dispute = {
   resolutionNotes?: string | null;
   createdAt: string;
   resolvedAt?: string | null;
-  // Only present on GET /vendors/me/disputes — the owner-side
-  // /projects/:projectId/disputes routes already know the project.
-  project?: { id: string; title: string };
+  // Only present on GET /vendors/me/disputes and GET /payments/disputes/
+  // open — the owner-side /projects/:projectId/disputes routes already
+  // know the project.
+  project?: { id: string; title: string; accountId?: string };
 };
 
 // GET /payments/overview — the account-wide rollup that finally backs the
@@ -1200,6 +1201,17 @@ export class ApiClient {
   }
   getPaymentsOverview() {
     return request<PaymentsOverview>("/payments/overview", { token: this.token, accountId: this.accountId });
+  }
+  findOpenDisputesForArbitration() {
+    return request<Dispute[]>("/payments/disputes/open", { token: this.token, accountId: this.accountId });
+  }
+  arbitrateDispute(disputeId: string, input: { status: "resolved" | "rejected"; resolutionNotes?: string }) {
+    return request<Dispute>(`/payments/disputes/${disputeId}/arbitrate`, {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
   }
   completeProject(projectId: string) {
     return request<Project>(`/projects/${projectId}/complete`, { method: "POST", token: this.token, accountId: this.accountId });

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -121,5 +121,22 @@ export class AccountPaymentsController {
   @Get('overview')
   getOverview(@CurrentAccountMember() member: AccountMemberCtx) {
     return this.payments.getAccountOverview(member.accountId);
+  }
+
+  // Module 6's neutral-reviewer path for disputes — see
+  // PaymentsService.findOpenDisputesForArbitration/arbitrateDispute. No
+  // :projectId param for PermissionsGuard's ABAC to key on, so (like the
+  // vendor/supplier verification routes) this reaches any dispute on the
+  // platform once the caller's role has dispute:arbitrate.
+  @RequirePermissions('dispute:arbitrate')
+  @Get('disputes/open')
+  findOpenDisputesForArbitration() {
+    return this.payments.findOpenDisputesForArbitration();
+  }
+
+  @RequirePermissions('dispute:arbitrate')
+  @Patch('disputes/:disputeId/arbitrate')
+  arbitrateDispute(@Param('disputeId') disputeId: string, @Body() dto: ResolveDisputeDto) {
+    return this.payments.arbitrateDispute(disputeId, dto);
   }
 }

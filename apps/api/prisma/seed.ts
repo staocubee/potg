@@ -37,6 +37,7 @@ const PERMISSIONS = [
   { key: 'payout:read', label: 'View vendor payouts' },
   { key: 'dispute:read', label: 'View disputes' },
   { key: 'dispute:write', label: 'Raise or resolve disputes' },
+  { key: 'dispute:arbitrate', label: 'Arbitrate any open dispute platform-wide (neutral reviewer only — never granted to dispute:write roles)' },
   // Modules 5 & 10 — Property Marketplace & Materials Marketplace (Priority 5).
   { key: 'listing:read', label: 'Browse and search property listings' },
   { key: 'listing:write', label: 'Create, publish, and manage a property listing' },
@@ -248,11 +249,13 @@ const ROLES: Record<string, string[]> = {
   ],
   // Module 6's actual "neutral reviewer" — a role deliberately never
   // granted to the vendor or supplier roles above, so a vendor/supplier
-  // can never move its own verificationStatus off "not_verified". Reads
-  // only what it needs to review (vendor:read/supplier:read) plus the two
-  // new :verify permissions — nothing else, not even ai:act, since this
-  // role's whole job is the one mechanical action of setting a status.
-  platform_reviewer: ['vendor:read', 'vendor:verify', 'supplier:read', 'supplier:verify'],
+  // can never move its own verificationStatus off "not_verified", and
+  // never granted dispute:write, so it can never be the account that
+  // raised a dispute it goes on to arbitrate. Reads only what it needs to
+  // review (vendor:read/supplier:read) plus :verify/:arbitrate — nothing
+  // else, not even ai:act, since this role's whole job is a handful of
+  // mechanical actions on other accounts' data.
+  platform_reviewer: ['vendor:read', 'vendor:verify', 'supplier:read', 'supplier:verify', 'dispute:arbitrate'],
 };
 
 const DEMO_ACCOUNT_ID = '00000000-0000-0000-0000-000000000001';

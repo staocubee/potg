@@ -405,6 +405,35 @@ export class PaymentsService {
     return this.applyDisputeResolution(dispute, resolvingAccountId, dto);
   }
 
+  // Module 6's actual neutral-reviewer path for disputes, the payments
+  // counterpart to VendorsService.setVerificationStatus /
+  // MaterialsService.setSupplierVerificationStatus. Gated on
+  // dispute:arbitrate, which only the platform_reviewer role carries — a
+  // role that never gets dispute:write, so it structurally can never be
+  // the account that raised the dispute it's arbitrating. That's why this
+  // skips applyDisputeResolution's raisedByAccountId check entirely rather
+  // than reusing it: that check exists to stop the *other* party
+  // (owner/vendor) from self-resolving, which isn't the risk here.
+  findOpenDisputesForArbitration() {
+    return this.prisma.dispute.findMany({
+      where: { status: { in: ['open', 'under_review'] } },
+      include: { project: { select: { id: true, title: true, accountId: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async arbitrateDispute(disputeId: string, dto: ResolveDisputeDto) {
+    const dispute = await this.prisma.dispute.findUnique({ where: { id: disputeId } });
+    if (!dispute) throw new NotFoundException('Dispute not found');
+    if (dispute.status === 'resolved' || dispute.status === 'rejected') {
+      throw new ConflictException('This dispute has already been resolved');
+    }
+    return this.prisma.dispute.update({
+      where: { id: disputeId },
+      data: { status: dto.status, resolutionNotes: dto.resolutionNotes, resolvedAt: new Date() },
+    });
+  }
+
   // The vendor-side counterpart to resolveDispute above — deliberately not
   // under /projects/:projectId/..., same reasoning as submitQuote, so it
   // looks the dispute up by id alone and checks a ProjectVendorAssignment

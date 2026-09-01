@@ -1567,6 +1567,49 @@ the account across devices), so there was no reason to keep both.
   reload from the server, not `localStorage` — then placed the order and
   landed on its detail page showing the correct line and total.
 
+## Extending the neutral reviewer to dispute arbitration (Module 6)
+
+The last of this session's Module 6 passes: "dispute resolution is still
+not a neutral-reviewer workflow" was the other gap the vendor/supplier
+verification work had left open. Same shape as that pass — a new
+permission granted only to `platform_reviewer`, never to a role that can
+raise a dispute in the first place, so the reviewer is neutral by
+construction, not by an extra runtime check.
+
+- **New `dispute:arbitrate` permission**, granted only to
+  `platform_reviewer`. Because that role never gets `dispute:write` (see
+  `seed.ts`), it structurally can never be the account that raised the
+  dispute it's arbitrating — `arbitrateDispute` skips
+  `applyDisputeResolution`'s `raisedByAccountId` check entirely rather
+  than reusing it, since that check exists to stop the *other* party
+  (owner or vendor) from self-resolving, a different risk than the one
+  here.
+- **`GET /payments/disputes/open`** lists every `open`/`under_review`
+  dispute platform-wide with its project's title, regardless of which
+  account raised it or owns the project — no `:projectId` param for
+  `PermissionsGuard`'s ABAC to key on, same reasoning the vendor/supplier
+  verification routes already use. **`PATCH /payments/disputes/
+  :disputeId/arbitrate`** records the decision (`resolved`/`rejected`,
+  optional notes), 409s if the dispute is already resolved.
+  Both live on `AccountPaymentsController` (the already-unscoped
+  `/payments` controller the account-wide overview uses), not the
+  `:projectId`-nested one.
+- **Web UI**: `pages/payments/index.tsx` branches on
+  `auth.currentAccount?.role === "platform_reviewer"` — that account has
+  no `payment:read` and owns no projects, so the normal overview would
+  just 403 or show "no projects yet". Instead it renders a
+  `DisputeArbitrationQueue`: every open dispute with a resolve/reject
+  action and an optional notes field.
+- Verified against the live dev API (a fresh dispute appears in the
+  open queue with its project's title; the raising account still gets
+  403 attempting the normal resolve route; the reviewer's arbitration
+  succeeds; arbitrating twice 409s; the queue is empty again after) and
+  in the browser: switching to the seeded platform account turns
+  `/payments` into the arbitration queue, resolving a dispute there
+  empties the queue, and switching back to the demo owner's own account
+  shows `Open disputes: 0` on the normal overview — the decision
+  propagated to the exact page a real dispute lives on.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -1606,14 +1649,14 @@ blueprint, or explicitly cut from it:
   independent audit — a real reviewer setting `verificationStatus` (see
   "A real neutral reviewer" above) only ever feeds one input into that
   formula, it doesn't audit the rest.
-- **Document verification and dispute resolution are still not on the
-  new neutral-reviewer role.** The new `platform_reviewer` role only
-  covers `Vendor`/`Supplier.verificationStatus` — see "A real neutral
-  reviewer" above for why a document/dispute reviewer needs to look at
-  specific content, not just flip a status, which stayed out of scope
-  this pass. Document verification is still an account's own admin;
-  dispute resolution is still the project's owner or its assigned
-  vendor.
+- **Document verification is still not on the neutral-reviewer role.**
+  `platform_reviewer` now covers `Vendor`/`Supplier.verificationStatus`
+  and dispute arbitration (see "A real neutral reviewer" and "Extending
+  the neutral reviewer to dispute arbitration" above) — document
+  verification is the one piece left, still an account's own admin. A
+  document reviewer would need to look at specific uploaded content, not
+  just flip a status the way verification/disputes both turned out to
+  be, which is a different shape of feature than this pass built.
 - **AI-generated renovation visualizations.** Explicitly deferred by
   Priority 6 itself, pending Module 22 (AR/VR) existing at all.
 - **Multi-turn tool use in one chat turn.** `ChatService` calls at most one
@@ -1631,12 +1674,15 @@ blueprint, or explicitly cut from it:
   payout instantly — Paystack/Flutterwave/Stripe/PayPal integration
   (Section 16), and the licensing/compliance workstream the blueprint says
   to run in parallel with it (Section 15), are both still open.
-- **Dispute resolution is still not a neutral-reviewer workflow.** See
-  "Two-party dispute resolution" above for what changed — the account
-  that raised a dispute can no longer resolve it, and an open dispute now
-  holds the milestone/payment it's tied to. There's still no evidence
-  request step, and "the other party" is just the project's owner account
-  or its assigned vendor account, not an independent third party.
+- **Dispute arbitration has no evidence-request step.** See "Extending
+  the neutral reviewer to dispute arbitration" above for the actual
+  neutral-reviewer path this pass added — `platform_reviewer` can now
+  arbitrate any open dispute platform-wide without ever having raised it.
+  What's still missing: no way for the reviewer to request more evidence
+  from either party before deciding, and the two-party path ("Two-party
+  dispute resolution" above — the account that raised a dispute can't
+  resolve it, an open dispute holds its milestone/payment) still exists
+  alongside arbitration rather than being replaced by it.
 - **Deeper AI (Priority 6)** — natural-language project summaries beyond
   what `summarize_property`/`draft_project_status_update` already do,
   financial modeling chat, listing/risk summaries, valuation/ROI

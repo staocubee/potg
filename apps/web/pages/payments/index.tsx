@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, PaymentsOverview } from "../../lib/api";
+import { ApiError, Dispute, PaymentsOverview } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 function formatMoney(value: number, currency: string) {
@@ -49,15 +49,28 @@ export default function PaymentsOverviewPage() {
   const [overview, setOverview] = useState<PaymentsOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const isPlatformReviewer = auth.currentAccount?.role === "platform_reviewer";
+
   useEffect(() => {
-    if (!auth.currentAccountId) return;
+    if (!auth.currentAccountId || isPlatformReviewer) return;
     setError(null);
     auth.api
       .getPaymentsOverview()
       .then(setOverview)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load your payments overview."));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.currentAccountId]);
+  }, [auth.currentAccountId, isPlatformReviewer]);
+
+  // The platform reviewer has no projects/escrow of its own — payment:read
+  // is never in its role, so getPaymentsOverview would just 403. This
+  // account only ever sees the arbitration queue.
+  if (isPlatformReviewer) {
+    return (
+      <AppShell title="Dispute arbitration">
+        <DisputeArbitrationQueue />
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell title="Payments">
@@ -120,5 +133,112 @@ export default function PaymentsOverviewPage() {
         </>
       )}
     </AppShell>
+  );
+}
+
+// Module 6's neutral-reviewer path for disputes — only ever rendered for
+// the platform_reviewer role (see isPlatformReviewer above), which never
+// gets dispute:write, so it can't be the account that raised whatever
+// it's arbitrating here.
+function DisputeArbitrationQueue() {
+  const auth = useAuth();
+  const [disputes, setDisputes] = useState<Dispute[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    if (!auth.currentAccountId) return;
+    setError(null);
+    auth.api
+      .findOpenDisputesForArbitration()
+      .then(setDisputes)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load open disputes."));
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  return (
+    <div>
+      <p className="potg-muted" style={{ fontSize: 13, marginTop: 0 }}>
+        Every open or under-review dispute platform-wide, regardless of which account raised it.
+      </p>
+      {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
+      {!disputes && !error && <p className="potg-muted">Loading…</p>}
+      {disputes && disputes.length === 0 && (
+        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
+          <p className="potg-muted" style={{ margin: 0 }}>No open disputes right now.</p>
+        </div>
+      )}
+      {disputes && disputes.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {disputes.map((d) => (
+            <ArbitrationRow key={d.id} dispute={d} onChanged={load} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ArbitrationRow({ dispute, onChanged }: { dispute: Dispute; onChanged: () => void }) {
+  const auth = useAuth();
+  const [resolutionNotes, setResolutionNotes] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"resolved" | "rejected" | null>(null);
+
+  async function onDecide(status: "resolved" | "rejected") {
+    setBusy(status);
+    setError(null);
+    try {
+      await auth.api.arbitrateDispute(dispute.id, { status, resolutionNotes: resolutionNotes || undefined });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't record that decision.");
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>{dispute.project?.title ?? "Project"}</div>
+          <p className="potg-muted" style={{ fontSize: 12, margin: "2px 0 0" }}>
+            Raised {new Date(dispute.createdAt).toLocaleDateString()}
+          </p>
+          <p style={{ fontSize: 13, marginTop: 8 }}>{dispute.reason}</p>
+        </div>
+        <span className="potg-badge">{dispute.status.replace(/_/g, " ")}</span>
+      </div>
+      {error && <div className="potg-error" style={{ marginTop: 8 }}>{error}</div>}
+      <textarea
+        className="potg-input"
+        rows={2}
+        placeholder="Arbitration notes (optional)"
+        value={resolutionNotes}
+        onChange={(e) => setResolutionNotes(e.target.value)}
+        style={{ marginTop: 8 }}
+      />
+      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+        <button
+          className="potg-btn potg-btn-primary"
+          style={{ padding: "4px 9px", fontSize: 11 }}
+          disabled={busy !== null}
+          onClick={() => onDecide("resolved")}
+        >
+          {busy === "resolved" ? "…" : "Resolve in favor of the claim"}
+        </button>
+        <button
+          className="potg-btn potg-btn-danger"
+          style={{ padding: "4px 9px", fontSize: 11 }}
+          disabled={busy !== null}
+          onClick={() => onDecide("rejected")}
+        >
+          {busy === "rejected" ? "…" : "Reject the claim"}
+        </button>
+      </div>
+    </div>
   );
 }
