@@ -46,10 +46,12 @@ export class AiController {
   @Post('outputs/:outputId/decision')
   decide(
     @CurrentUser() user: UserCtx,
+    @CurrentAccountMember() member: AccountMemberCtx,
     @Param('outputId') outputId: string,
     @Body() dto: DecideAiOutputDto,
   ) {
-    return this.ai.decide(outputId, user.id, dto.decision, dto.notes);
+    const permissions = new Set(member.role.permissions.map((rp) => rp.permission.key));
+    return this.ai.decide(outputId, user.id, { accountId: member.accountId, permissions }, dto.decision, dto.notes);
   }
 
   // The chat surface — same "ai:act" gate as everything else here, plus

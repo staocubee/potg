@@ -983,6 +983,41 @@ resolution.
   falls back to client-only rendering to recover. Every page hit this.
   Fixed to a single interpolated string.
 
+## Accepting a status-update draft now posts it (this pass)
+
+Closes the gap the "Not built yet" list called "chaining an AI Accept
+into the action it drafted for" — for one skill. The original example
+given (a payment-anomaly flag's Accept placing a payment hold) turned out
+not to fit once re-examined: `flag_payment_anomaly` reports anomalies
+already present in the ledger (a mismatched payout, a duplicate release)
+— there's no pending action for an Accept to trigger, nothing to "hold."
+`draft_project_status_update` was substituted: its draft is exactly one
+paragraph of text with one obvious destination
+(`POST /projects/:projectId/updates`), which is exactly the shape "Accept
+should perform the real action" needs to mean something.
+
+- **`AiService.decide`** now runs a new private `applyChainedAction`
+  before recording the `AiActionApproval` — not after, so if the chained
+  action fails, nothing gets marked "decided" and the caller can retry,
+  rather than being stuck with a recorded Accept that never took effect.
+  Only `decision === "accepted"` chains; `"edited"` deliberately never
+  does, since an edit's `notes` describe what the human changed, not the
+  corrected text itself — there's nothing safe to write automatically.
+- **`draft_project_status_update`'s Accept** calls
+  `ProjectsService.addUpdate` with the draft's own text. Its own
+  `run()` only ever needed `project:read`, but posting a real update
+  needs `project:write` — so accepting the draft checks `project:write`
+  again rather than assuming the permission that let someone *see* the
+  draft is enough to let them *post* it.
+- **Fixed a real gap found while wiring this up:** `AiService.decide` had
+  no tenant-isolation check at all — any account with `ai:act` could
+  decide on any `AiOutput` by id, regardless of which account's
+  `AiRequest` it belonged to. Now 404s (not 403) for a draft that isn't
+  the caller's account's own, same "don't confirm it exists" shape as
+  every other cross-tenant check in this codebase.
+- Every other skill's Accept is unchanged — still records the decision
+  only. See "Not built yet" below for which ones and why.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -1064,6 +1099,14 @@ blueprint, or explicitly cut from it:
 - **A real invite/accept flow.** `POST /accounts/:accountId/members` only
   adds an *existing* user by email; inviting someone who doesn't have an
   account yet is future work.
-- **Chaining an AI Accept into the action it drafted for** (e.g. accepting
-  a milestone-release anomaly flag should actually place the payment hold
-  described in Module 11) — right now Accept only records the decision.
+- **Chaining an AI Accept into its drafted action — mostly still open.**
+  See "Accepting a status-update draft now posts it" above for the one
+  skill this closed. Every other skill's Accept still only records the
+  decision — and for most of them that's not a shortcut, it's the design:
+  `compare_vendor_quotes` and `boq_to_order` are explicitly advisory (see
+  their own code comments), and `flag_payment_anomaly` reports anomalies
+  that already happened in the ledger, not a pending action there's
+  anything to "hold" — the milestone-release-hold example this bullet
+  used to give doesn't actually correspond to any flag that skill raises.
+  `generate_listing_description` is the next-clearest candidate (Accept
+  could set `Listing.description`) if this gets picked up again.

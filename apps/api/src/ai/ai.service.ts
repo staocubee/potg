@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ProjectsService } from '../projects/projects.service';
 import { AI_SKILLS, LLM_PROVIDER } from './llm/llm.constants';
 import { AiSkill } from './skills/ai-skill.interface';
 import { AiSkillInputSchema } from './skills/ai-skill-input-schema';
@@ -36,6 +37,7 @@ export class AiService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly projects: ProjectsService,
     @Inject(AI_SKILLS) skills: AiSkill[],
     @Inject(LLM_PROVIDER) private readonly llm: LlmProvider,
   ) {
@@ -160,20 +162,71 @@ export class AiService {
   // The other half of the human-in-the-loop rule: an AiOutput is a draft
   // until exactly one AiActionApproval exists for it. Nothing downstream
   // should ever treat an AiOutput as final by itself.
+  //
+  // For most skills that's still the whole story — Accept just records the
+  // decision, same as every pass before this one. A handful of skills draft
+  // text that has an obvious, single real destination (a status update, a
+  // listing description) rather than being purely advisory (a comparison, a
+  // risk flag, a cost estimate) — for those, Accept now also performs that
+  // real action, via applyChainedAction below. "Edited" deliberately never
+  // chains: the notes on an edit describe what the human changed, not the
+  // corrected text itself, so there's nothing safe to write automatically.
   async decide(
     aiOutputId: string,
     decidedByUserId: string,
+    accountMember: { accountId: string; permissions: Set<string> },
     decision: 'accepted' | 'edited' | 'discarded',
     notes?: string,
   ) {
-    const output = await this.prisma.aiOutput.findUnique({ where: { id: aiOutputId } });
-    if (!output) throw new NotFoundException('AI draft not found');
+    const output = await this.prisma.aiOutput.findUnique({
+      where: { id: aiOutputId },
+      include: { aiRequest: true },
+    });
+    // 404, not 403, for a draft on an account that isn't the caller's own —
+    // same "don't confirm it exists" reasoning as every other cross-tenant
+    // check in this codebase. This was previously unchecked entirely.
+    if (!output || output.aiRequest.accountId !== accountMember.accountId) {
+      throw new NotFoundException('AI draft not found');
+    }
 
     const existing = await this.prisma.aiActionApproval.findUnique({ where: { aiOutputId } });
     if (existing) throw new ConflictException('This draft already has a recorded decision');
 
+    if (decision === 'accepted') {
+      // Runs before the approval is recorded: if the chained action fails,
+      // nothing gets marked "decided" and the caller can retry, rather than
+      // being stuck with a recorded Accept that never actually took effect.
+      await this.applyChainedAction(output.aiRequest, output, decidedByUserId, accountMember.permissions);
+    }
+
     return this.prisma.aiActionApproval.create({
       data: { aiOutputId, decidedByUserId, decision, notes },
     });
+  }
+
+  // One switch arm proves the pattern; every other actionType is still
+  // draft-only — see the README's "Not built yet" for what chaining the
+  // rest would need (most of them are advisory by design, not a deferred
+  // real action — compare_vendor_quotes and boq_to_order say so in their
+  // own comments).
+  private async applyChainedAction(
+    aiRequest: { actionType: string; moduleContext: string },
+    output: { draftBody: unknown },
+    userId: string,
+    permissions: Set<string>,
+  ) {
+    if (aiRequest.actionType === 'draft_project_status_update') {
+      // Accepting this draft is exactly the human action
+      // POST /projects/:projectId/updates already gates behind
+      // project:write — running the draft itself only ever needed
+      // project:read, so accepting it must be checked again here rather
+      // than assumed just because the caller could see the draft.
+      if (!permissions.has('project:write')) {
+        throw new ForbiddenException('Accepting this draft requires the "project:write" permission');
+      }
+      const projectId = aiRequest.moduleContext.split(':')[1];
+      const [description] = (output.draftBody as { items: string[] }).items;
+      await this.projects.addUpdate(projectId, userId, { description });
+    }
   }
 }

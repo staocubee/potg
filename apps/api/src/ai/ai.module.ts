@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ProjectsModule } from '../projects/projects.module';
 import { AiService } from './ai.service';
 import { ChatService } from './chat.service';
 import { AiController } from './ai.controller';
@@ -20,6 +21,7 @@ import { assessListingRiskSkill } from './skills/assess-listing-risk.skill';
 import { generatePortfolioReportSkill } from './skills/generate-portfolio-report.skill';
 
 @Module({
+  imports: [ProjectsModule],
   controllers: [AiController],
   providers: [
     AiService,
