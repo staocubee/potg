@@ -660,6 +660,11 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
   const [busy, setBusy] = useState<"resolved" | "rejected" | null>(null);
 
   const open = dispute.status === "open" || dispute.status === "under_review";
+  // The account that raised a dispute can't be the one that resolves it —
+  // the API 403s that, this just avoids showing a button that can't work.
+  // If the vendor side raised it, resolving happens from their own
+  // dashboard (GET/POST /vendors/me/disputes), not from here.
+  const canResolve = dispute.raisedByAccountId !== auth.currentAccountId;
 
   async function onResolve(status: "resolved" | "rejected") {
     setBusy(status);
@@ -684,12 +689,17 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
       <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
         raised {new Date(dispute.createdAt).toLocaleDateString()}
       </div>
-      {open && !resolving && (
+      {open && !canResolve && (
+        <div className="potg-muted" style={{ fontSize: 11, marginTop: 6 }}>
+          You raised this dispute — the other party needs to resolve it.
+        </div>
+      )}
+      {open && canResolve && !resolving && (
         <button className="potg-btn potg-btn-secondary" style={{ padding: "4px 9px", fontSize: 11, marginTop: 6 }} onClick={() => setResolving(true)}>
           Resolve
         </button>
       )}
-      {open && resolving && (
+      {open && canResolve && resolving && (
         <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
           {error && <div className="potg-error">{error}</div>}
           <input className="potg-input" placeholder="Resolution notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />

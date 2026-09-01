@@ -427,6 +427,9 @@ export type Dispute = {
   resolutionNotes?: string | null;
   createdAt: string;
   resolvedAt?: string | null;
+  // Only present on GET /vendors/me/disputes — the owner-side
+  // /projects/:projectId/disputes routes already know the project.
+  project?: { id: string; title: string };
 };
 
 // GET /payments/overview — the account-wide rollup that finally backs the
@@ -758,6 +761,25 @@ export class ApiClient {
   }
   submitVendorQuote(input: { projectId: string; amount: number; currency?: string; notes?: string }) {
     return request<VendorQuote>("/vendors/me/quotes", {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  myDisputes() {
+    return request<Dispute[]>("/vendors/me/disputes", { token: this.token, accountId: this.accountId });
+  }
+  raiseDisputeAsVendor(input: { projectId: string; reason: string; milestoneId?: string; paymentId?: string; payoutId?: string }) {
+    return request<Dispute>("/vendors/me/disputes", {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  resolveDisputeAsVendor(disputeId: string, input: { status: "resolved" | "rejected"; resolutionNotes?: string }) {
+    return request<Dispute>(`/vendors/me/disputes/${disputeId}/resolve`, {
       method: "POST",
       body: input,
       token: this.token,

@@ -871,6 +871,48 @@ separate human/admin action, which simply didn't exist yet.
   independent reviewer) stays open; this pass only adds the mechanical
   ability to change the status at all.
 
+## Two-party dispute resolution (this pass)
+
+Closes the specific gap the "Not built yet" list used to name: "any
+account member with `dispute:write` can both raise and resolve a
+dispute — no neutral reviewer... or payment hold tied to an open
+dispute." Still no independent third-party reviewer (same limitation as
+document verification), but the two real, checkable pieces of that gap
+are closed.
+
+- **Can't resolve your own dispute.** `PaymentsService` now has a private
+  `applyDisputeResolution` that both the owner-side and vendor-side
+  resolve routes share: if `dispute.raisedByAccountId` matches the
+  account trying to resolve it, that's a 403, not a resolution. On a
+  project there are exactly two parties — the owning account and its
+  assigned vendor's account — so this is a real check, not a
+  self-certification with extra steps. Resolving an already-resolved or
+  -rejected dispute is now a 409, not a silent overwrite.
+- **Payment hold.** `releaseMilestone` and the new `refundPayment` (see
+  "Auth hardening" above) both now check for an `open`/`under_review`
+  dispute tied to that milestone/payment before moving money, and refuse
+  with a 400 if one exists. Resolving the dispute clears the hold.
+- **The vendor side of this didn't actually exist before.** The `vendor`
+  role has always had `dispute:read`/`dispute:write`, but every dispute
+  route lived under `/projects/:projectId/...`, and `PermissionsGuard`'s
+  ABAC check 404s that whole path for any account that isn't the
+  project's *owner* — a vendor could never reach it. New
+  **`GET/POST /vendors/me/disputes`** and
+  **`POST /vendors/me/disputes/:disputeId/resolve`** (`VendorsController`,
+  delegating into `PaymentsService` — `VendorsModule` now imports
+  `PaymentsModule`) give the vendor side the same access the owner side
+  already had, keyed off `ProjectVendorAssignment` instead of the
+  `:projectId` ABAC convention, same shape as `submitQuote`/`myQuotes`.
+  Without this, the "can't resolve your own dispute" rule above would
+  have made every dispute the owner raises permanently unresolvable —
+  there'd be no other party who could ever reach the route.
+- **`pages/projects/[id].tsx`** — the Resolve button disappears (replaced
+  with "You raised this dispute — the other party needs to resolve it")
+  when the signed-in account is the one that raised it.
+  **`pages/vendors/me.tsx`** gets a new Disputes card: list, raise (with a
+  project picker built from the vendor's own quotes/payouts), and resolve,
+  all wired to the new vendor-side routes.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -900,9 +942,12 @@ blueprint, or explicitly cut from it:
   payout instantly — Paystack/Flutterwave/Stripe/PayPal integration
   (Section 16), and the licensing/compliance workstream the blueprint says
   to run in parallel with it (Section 15), are both still open.
-- **A real dispute-resolution workflow.** Right now any account member with
-  `dispute:write` can both raise and resolve a dispute — no neutral
-  reviewer, evidence request, or payment hold tied to an open dispute.
+- **Dispute resolution is still not a neutral-reviewer workflow.** See
+  "Two-party dispute resolution" above for what changed — the account
+  that raised a dispute can no longer resolve it, and an open dispute now
+  holds the milestone/payment it's tied to. There's still no evidence
+  request step, and "the other party" is just the project's owner account
+  or its assigned vendor account, not an independent third party.
 - **A cart, and tool/equipment rental booking.** `src/materials` goes
   straight from browsing to a line-item order; Module 10's rental calendar/
   booking flow for tools and equipment isn't built.

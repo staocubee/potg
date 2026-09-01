@@ -1,6 +1,6 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Payout, Vendor, VendorQuote } from "../../lib/api";
+import { ApiError, Dispute, Payout, Vendor, VendorQuote } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 const SERVICE_CATEGORIES = [
@@ -34,6 +34,7 @@ export default function VendorDashboardPage() {
   const [vendor, setVendor] = useState<Vendor | null | undefined>(undefined); // undefined = loading
   const [quotes, setQuotes] = useState<VendorQuote[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   function load() {
@@ -44,14 +45,27 @@ export default function VendorDashboardPage() {
       .then((v) => {
         setVendor(v);
         if (v) {
-          return Promise.all([auth.api.myQuotes(), auth.api.myPayouts()]).then(([q, p]) => {
-            setQuotes(q);
-            setPayouts(p);
-          });
+          return Promise.all([auth.api.myQuotes(), auth.api.myPayouts(), auth.api.myDisputes()]).then(
+            ([q, p, d]) => {
+              setQuotes(q);
+              setPayouts(p);
+              setDisputes(d);
+            },
+          );
         }
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load your vendor dashboard."));
   }
+
+  // Projects this vendor has actually quoted/been paid on — the only ones
+  // it could plausibly have a dispute about, used to populate the "raise a
+  // dispute" project picker below.
+  const knownProjects = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const q of quotes) if (q.project) map.set(q.project.id, q.project.title);
+    for (const p of payouts) if (p.project) map.set(p.project.id, p.project.title);
+    return Array.from(map, ([id, title]) => ({ id, title }));
+  }, [quotes, payouts]);
 
   useEffect(() => {
     load();
@@ -103,6 +117,10 @@ export default function VendorDashboardPage() {
                 <QuoteRow key={q.id} quote={q} onSubmitted={load} />
               ))}
             </div>
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <DisputesSection disputes={disputes} knownProjects={knownProjects} onChanged={load} />
           </div>
 
           <div className="potg-card" style={{ padding: 18 }}>
@@ -225,6 +243,163 @@ function QuoteRow({ quote, onSubmitted }: { quote: VendorQuote; onSubmitted: () 
             {busy ? "…" : "Submit"}
           </button>
         </form>
+      )}
+    </div>
+  );
+}
+
+// The vendor side of the two-party dispute model — before this pass a
+// vendor had dispute:read/dispute:write in its role but nowhere to use
+// them (the owner-side /projects/:projectId/disputes routes 404 for any
+// account that isn't the project's owner). Same "can't resolve your own
+// dispute" rule as the project page's DisputesCard, mirrored here via
+// PaymentsService.resolveDisputeAsVendor.
+function DisputesSection({
+  disputes,
+  knownProjects,
+  onChanged,
+}: {
+  disputes: Dispute[];
+  knownProjects: { id: string; title: string }[];
+  onChanged: () => void;
+}) {
+  const [showForm, setShowForm] = useState(false);
+  return (
+    <>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <h3 style={{ fontSize: 14 }}>Disputes</h3>
+        <button className="potg-btn potg-btn-secondary" style={{ padding: "4px 9px", fontSize: 11 }} onClick={() => setShowForm((v) => !v)}>
+          {showForm ? "Cancel" : "+ Raise dispute"}
+        </button>
+      </div>
+      {showForm && (
+        <RaiseVendorDisputeForm
+          knownProjects={knownProjects}
+          onCreated={() => {
+            setShowForm(false);
+            onChanged();
+          }}
+        />
+      )}
+      {disputes.length === 0 && !showForm && <p className="potg-muted" style={{ fontSize: 12 }}>No disputes.</p>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {disputes.map((d) => (
+          <VendorDisputeRow key={d.id} dispute={d} onResolved={onChanged} />
+        ))}
+      </div>
+    </>
+  );
+}
+
+function RaiseVendorDisputeForm({
+  knownProjects,
+  onCreated,
+}: {
+  knownProjects: { id: string; title: string }[];
+  onCreated: () => void;
+}) {
+  const auth = useAuth();
+  const [projectId, setProjectId] = useState(knownProjects[0]?.id ?? "");
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await auth.api.raiseDisputeAsVendor({ projectId, reason });
+      setReason("");
+      onCreated();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't raise that dispute.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (knownProjects.length === 0) {
+    return <p className="potg-muted" style={{ fontSize: 12, marginBottom: 10 }}>No projects to raise a dispute on yet.</p>;
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="potg-card" style={{ padding: 12, marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+      {error && <div className="potg-error">{error}</div>}
+      <select className="potg-input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+        {knownProjects.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.title}
+          </option>
+        ))}
+      </select>
+      <input className="potg-input" required placeholder="What's the issue?" value={reason} onChange={(e) => setReason(e.target.value)} />
+      <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ alignSelf: "flex-start" }}>
+        {busy ? "Raising…" : "Raise dispute"}
+      </button>
+    </form>
+  );
+}
+
+function VendorDisputeRow({ dispute, onResolved }: { dispute: Dispute; onResolved: () => void }) {
+  const auth = useAuth();
+  const [resolving, setResolving] = useState(false);
+  const [notes, setNotes] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"resolved" | "rejected" | null>(null);
+
+  const open = dispute.status === "open" || dispute.status === "under_review";
+  const canResolve = dispute.raisedByAccountId !== auth.currentAccountId;
+
+  async function onResolve(status: "resolved" | "rejected") {
+    setBusy(status);
+    setError(null);
+    try {
+      await auth.api.resolveDisputeAsVendor(dispute.id, { status, resolutionNotes: notes || undefined });
+      onResolved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't resolve that dispute.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div style={{ fontSize: 13, borderBottom: "1px solid var(--potg-border)", paddingBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
+        <span>
+          {dispute.project?.title ? `${dispute.project.title} — ` : ""}
+          {dispute.reason}
+        </span>
+        <span className="potg-badge">{dispute.status.replace(/_/g, " ")}</span>
+      </div>
+      {dispute.resolutionNotes && <div className="potg-muted" style={{ fontSize: 12, marginTop: 2 }}>{dispute.resolutionNotes}</div>}
+      <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
+        raised {new Date(dispute.createdAt).toLocaleDateString()}
+      </div>
+      {open && !canResolve && (
+        <div className="potg-muted" style={{ fontSize: 11, marginTop: 6 }}>
+          You raised this dispute — the other party needs to resolve it.
+        </div>
+      )}
+      {open && canResolve && !resolving && (
+        <button className="potg-btn potg-btn-secondary" style={{ padding: "4px 9px", fontSize: 11, marginTop: 6 }} onClick={() => setResolving(true)}>
+          Resolve
+        </button>
+      )}
+      {open && canResolve && resolving && (
+        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+          {error && <div className="potg-error">{error}</div>}
+          <input className="potg-input" placeholder="Resolution notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="potg-btn potg-btn-primary" style={{ padding: "4px 9px", fontSize: 11 }} disabled={busy !== null} onClick={() => onResolve("resolved")}>
+              {busy === "resolved" ? "…" : "Mark resolved"}
+            </button>
+            <button className="potg-btn potg-btn-danger" style={{ padding: "4px 9px", fontSize: 11 }} disabled={busy !== null} onClick={() => onResolve("rejected")}>
+              {busy === "rejected" ? "…" : "Reject"}
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -98,9 +98,10 @@ export class PaymentsController {
   resolveDispute(
     @Param('projectId') projectId: string,
     @Param('disputeId') disputeId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
     @Body() dto: ResolveDisputeDto,
   ) {
-    return this.payments.resolveDispute(projectId, disputeId, dto);
+    return this.payments.resolveDispute(projectId, disputeId, member.accountId, dto);
   }
 }
 

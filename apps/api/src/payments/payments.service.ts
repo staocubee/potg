@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { DepositDto } from './dto/deposit.dto';
 import { RaiseDisputeDto } from './dto/raise-dispute.dto';
@@ -105,6 +105,13 @@ export class PaymentsService {
       throw new BadRequestException('Only a completed payment can be refunded');
     }
 
+    const openDispute = await this.prisma.dispute.findFirst({
+      where: { paymentId, status: { in: ['open', 'under_review'] } },
+    });
+    if (openDispute) {
+      throw new BadRequestException('This payment has an open dispute — resolve it before refunding');
+    }
+
     const escrowAccount = await this.prisma.escrowAccount.findUnique({ where: { id: payment.escrowAccountId } });
     if (!escrowAccount) {
       throw new BadRequestException('This payment has no escrow account to refund from');
@@ -167,6 +174,13 @@ export class PaymentsService {
     });
     if (alreadyReleased) {
       throw new ConflictException('This milestone has already been released');
+    }
+
+    const openDispute = await this.prisma.dispute.findFirst({
+      where: { milestoneId, status: { in: ['open', 'under_review'] } },
+    });
+    if (openDispute) {
+      throw new BadRequestException('This milestone has an open dispute — resolve it before releasing funds');
     }
 
     const escrowAccount = await this.prisma.escrowAccount.findUnique({ where: { projectId } });
@@ -352,12 +366,103 @@ export class PaymentsService {
     };
   }
 
-  async resolveDispute(projectId: string, disputeId: string, dto: ResolveDisputeDto) {
+  // Closes half of the gap the README used to flag: "any account member
+  // with dispute:write can both raise and resolve a dispute." There's
+  // still no neutral third party in this scaffold's RBAC (same limitation
+  // as document verification), but the account that raised a dispute can
+  // no longer be the one that resolves it in its own favor — on a project,
+  // the only other party able to act is whichever side (owner or vendor)
+  // didn't raise it. That's a real check, not a full neutral-reviewer
+  // workflow; still open, see the README.
+  //
+  // The check itself lives in this one private method so both sides of a
+  // project share it: the owner-side route below (already ABAC-scoped to
+  // its own project by PermissionsGuard) and VendorsService's vendor-side
+  // route (which has no :projectId to lean on, so it checks a
+  // ProjectVendorAssignment itself before ever reaching here).
+  private async applyDisputeResolution(
+    dispute: { id: string; raisedByAccountId: string; status: string },
+    resolvingAccountId: string,
+    dto: ResolveDisputeDto,
+  ) {
+    if (dispute.status === 'resolved' || dispute.status === 'rejected') {
+      throw new ConflictException('This dispute has already been resolved');
+    }
+    if (dispute.raisedByAccountId === resolvingAccountId) {
+      throw new ForbiddenException(
+        'The account that raised this dispute cannot resolve it — the other party needs to weigh in',
+      );
+    }
+    return this.prisma.dispute.update({
+      where: { id: dispute.id },
+      data: { status: dto.status, resolutionNotes: dto.resolutionNotes, resolvedAt: new Date() },
+    });
+  }
+
+  async resolveDispute(projectId: string, disputeId: string, resolvingAccountId: string, dto: ResolveDisputeDto) {
     const dispute = await this.prisma.dispute.findFirst({ where: { id: disputeId, projectId } });
     if (!dispute) throw new NotFoundException('Dispute not found on this project');
-    return this.prisma.dispute.update({
-      where: { id: disputeId },
-      data: { status: dto.status, resolutionNotes: dto.resolutionNotes, resolvedAt: new Date() },
+    return this.applyDisputeResolution(dispute, resolvingAccountId, dto);
+  }
+
+  // The vendor-side counterpart to resolveDispute above — deliberately not
+  // under /projects/:projectId/..., same reasoning as submitQuote, so it
+  // looks the dispute up by id alone and checks a ProjectVendorAssignment
+  // itself instead of relying on PermissionsGuard's ABAC. 404s (not 403)
+  // for a dispute on a project this vendor isn't assigned to, so it can't
+  // be used to probe which disputes exist on projects it has nothing to
+  // do with.
+  async resolveDisputeAsVendor(vendorAccountId: string, disputeId: string, dto: ResolveDisputeDto) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { accountId: vendorAccountId } });
+    if (!vendor) throw new NotFoundException('Dispute not found');
+    const dispute = await this.prisma.dispute.findUnique({ where: { id: disputeId } });
+    if (!dispute) throw new NotFoundException('Dispute not found');
+    const assignment = await this.prisma.projectVendorAssignment.findFirst({
+      where: { projectId: dispute.projectId, vendorId: vendor.id },
+    });
+    if (!assignment) throw new NotFoundException('Dispute not found');
+    return this.applyDisputeResolution(dispute, vendorAccountId, dto);
+  }
+
+  // Vendor-side raise/read, same shape as submitQuote/myQuotes: the vendor
+  // is never assumed to be the project's owning account, so these key off
+  // ProjectVendorAssignment instead of PermissionsGuard's :projectId ABAC.
+  async raiseDisputeAsVendor(vendorAccountId: string, dto: RaiseDisputeDto & { projectId: string }) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { accountId: vendorAccountId } });
+    if (!vendor) {
+      throw new BadRequestException('This account has no vendor profile yet — create one with POST /vendors first');
+    }
+    const assignment = await this.prisma.projectVendorAssignment.findFirst({
+      where: { projectId: dto.projectId, vendorId: vendor.id },
+    });
+    if (!assignment) {
+      throw new BadRequestException('This vendor is not assigned to this project');
+    }
+    return this.prisma.dispute.create({
+      data: {
+        projectId: dto.projectId,
+        raisedByAccountId: vendorAccountId,
+        milestoneId: dto.milestoneId,
+        paymentId: dto.paymentId,
+        payoutId: dto.payoutId,
+        reason: dto.reason,
+      },
+    });
+  }
+
+  async findDisputesForVendor(vendorAccountId: string) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { accountId: vendorAccountId } });
+    if (!vendor) return [];
+    const assignments = await this.prisma.projectVendorAssignment.findMany({
+      where: { vendorId: vendor.id },
+      select: { projectId: true },
+    });
+    const projectIds = assignments.map((a: { projectId: string }) => a.projectId);
+    if (projectIds.length === 0) return [];
+    return this.prisma.dispute.findMany({
+      where: { projectId: { in: projectIds } },
+      include: { project: { select: { id: true, title: true } } },
+      orderBy: { createdAt: 'desc' },
     });
   }
 }
