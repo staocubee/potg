@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Dispute, Payout, Vendor, VendorQuote } from "../../lib/api";
+import { ApiError, Dispute, Payout, Vendor, VendorQuote, VendorReview } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 const SERVICE_CATEGORIES = [
@@ -106,6 +106,18 @@ export default function VendorDashboardPage() {
                 </p>
               </div>
               <span className="potg-badge">{vendor.verificationStatus.replace(/_/g, " ")}</span>
+            </div>
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <h3 style={{ fontSize: 14, marginBottom: 10 }}>Reviews</h3>
+            {(!vendor.reviews || vendor.reviews.length === 0) && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>No reviews yet.</p>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {vendor.reviews?.map((r) => (
+                <VendorReviewReplyRow key={r.id} review={r} onReplied={load} />
+              ))}
             </div>
           </div>
 
@@ -242,6 +254,69 @@ function QuoteRow({ quote, onSubmitted }: { quote: VendorQuote; onSubmitted: () 
           <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ flexShrink: 0 }}>
             {busy ? "…" : "Submit"}
           </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+// A review left on this vendor's own profile, with a reply box if it
+// hasn't been replied to yet — the other half of the reviewer's own
+// edit/delete controls on the project page. One reply per review: replying
+// again overwrites the last one rather than threading.
+function VendorReviewReplyRow({ review, onReplied }: { review: VendorReview; onReplied: () => void }) {
+  const auth = useAuth();
+  const [replying, setReplying] = useState(false);
+  const [response, setResponse] = useState(review.response ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.replyToVendorReview(review.id, { response });
+      setReplying(false);
+      onReplied();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't post that reply.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ fontSize: 13, borderBottom: "1px solid var(--potg-border)", paddingBottom: 10 }}>
+      <div style={{ fontWeight: 700 }}>
+        {"★".repeat(review.rating)}
+        {"☆".repeat(5 - review.rating)}
+      </div>
+      {review.comment && <div style={{ marginTop: 2 }}>{review.comment}</div>}
+      <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
+        {new Date(review.createdAt).toLocaleDateString()}
+      </div>
+      {review.response && !replying && (
+        <div className="potg-muted" style={{ marginTop: 6, fontSize: 12, borderLeft: "2px solid var(--potg-border)", paddingLeft: 8 }}>
+          Your reply: {review.response}
+        </div>
+      )}
+      {!replying ? (
+        <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11, marginTop: 6 }} onClick={() => setReplying(true)}>
+          {review.response ? "Edit reply" : "Reply"}
+        </button>
+      ) : (
+        <form onSubmit={onSubmit} style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+          {error && <div className="potg-error">{error}</div>}
+          <textarea className="potg-input" rows={2} value={response} onChange={(e) => setResponse(e.target.value)} />
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
+              {busy ? "Posting…" : "Post reply"}
+            </button>
+            <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setReplying(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
+              Cancel
+            </button>
+          </div>
         </form>
       )}
     </div>

@@ -485,13 +485,16 @@ model ProjectVendorAssignment {
 // (VendorsService.createReview) — one review per vendor per project, same
 // shape SupplierReview uses for orders below.
 model VendorReview {
-  id        String   @id @default(uuid())
-  vendorId  String
-  projectId String
-  accountId String // who left the review, for tenant-isolation checks
-  rating    Int // 1-5
-  comment   String?
-  createdAt DateTime @default(now())
+  id          String    @id @default(uuid())
+  vendorId    String
+  projectId   String
+  accountId   String // who left the review, for tenant-isolation checks
+  rating      Int // 1-5
+  comment     String?
+  response    String? // the reviewed vendor's own reply, if any
+  respondedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   vendor  Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -786,13 +789,16 @@ model Order {
 // above), with the same one-review-per-transaction shape (@@unique via
 // Order.review's implicit @unique on orderId below).
 model SupplierReview {
-  id         String   @id @default(uuid())
-  supplierId String
-  orderId    String   @unique
-  accountId  String // who left the review, for tenant-isolation checks
-  rating     Int // 1-5
-  comment    String?
-  createdAt  DateTime @default(now())
+  id          String    @id @default(uuid())
+  supplierId  String
+  orderId     String    @unique
+  accountId   String // who left the review, for tenant-isolation checks
+  rating      Int // 1-5
+  comment     String?
+  response    String? // the reviewed supplier's own reply, if any
+  respondedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
   order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)

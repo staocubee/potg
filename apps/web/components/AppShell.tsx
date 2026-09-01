@@ -46,7 +46,7 @@ export default function AppShell({
   return (
     <>
       <Head>
-        <title>{title} · PropertyOnTheGo</title>
+        <title>{`${title} · PropertyOnTheGo`}</title>
       </Head>
       <div style={{ display: "flex", minHeight: "100vh" }}>
         <aside

@@ -10,6 +10,7 @@ import { CreateVendorDto } from './dto/create-vendor.dto';
 import { SubmitQuoteDto } from './dto/submit-quote.dto';
 import { RaiseDisputeAsVendorDto } from './dto/raise-dispute-as-vendor.dto';
 import { ResolveDisputeDto } from '../payments/dto/resolve-dispute.dto';
+import { ReplyToReviewDto } from './dto/reply-to-review.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -87,6 +88,21 @@ export class VendorsController {
     @Body() dto: ResolveDisputeDto,
   ) {
     return this.payments.resolveDisputeAsVendor(member.accountId, disputeId, dto);
+  }
+
+  // The vendor's own reply to a review on its profile — see the comment on
+  // VendorsService.replyToReview. review:respond is separate from
+  // review:write (which only ever gated *leaving* a review) since this is
+  // the other party to the review, granted to the vendor/supplier roles
+  // instead of the account-admin roles.
+  @RequirePermissions('review:respond')
+  @Post('me/reviews/:reviewId/reply')
+  replyToReview(
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Param('reviewId') reviewId: string,
+    @Body() dto: ReplyToReviewDto,
+  ) {
+    return this.vendors.replyToReview(member.accountId, reviewId, dto);
   }
 
   @RequirePermissions('vendor:read')

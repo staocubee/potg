@@ -941,6 +941,48 @@ Two small, unrelated fixes bundled together since both were the same
   to reconcile stock/price drift against a shared account, which is a
   materially bigger feature than "stop losing it on refresh."
 
+## Review editing, replies, and the "me" dashboards (this pass)
+
+Closes two of the three "Reviews are one-shot and unmoderated" gaps —
+editing/deleting a review and a reply from the reviewed party. The third
+(a real admin/moderator) stays open, same "no neutral third party in this
+scaffold's RBAC" limitation as document verification and dispute
+resolution.
+
+- **The reviewer can edit or delete their own review.**
+  `PATCH`/`DELETE /projects/:projectId/reviews/:reviewId` (vendor
+  reviews) and `PATCH`/`DELETE /orders/:orderId/reviews/:reviewId`
+  (supplier reviews), gated by the existing `review:write` permission and
+  an explicit check that `review.accountId` matches the caller — not just
+  "this account owns the project/order," since those aren't quite the
+  same claim. Editing the rating recomputes the vendor's/supplier's
+  `ratingAverage`; deleting does too.
+- **The reviewed vendor/supplier can reply.** New permission
+  `review:respond` (separate from `review:write` — replying is the other
+  party to the review, not a variant of leaving one), granted to the
+  `vendor` and `supplier` roles only. New
+  **`POST /vendors/me/reviews/:reviewId/reply`** and
+  **`POST /suppliers/me/reviews/:reviewId/reply`** — vendor/supplier-
+  initiated, so (same reasoning as `submitQuote`/`raiseDisputeAsVendor`)
+  they check `Vendor.accountId`/`Supplier.accountId` themselves rather
+  than leaning on `PermissionsGuard`'s ABAC. One reply per review —
+  replying again overwrites the last one rather than threading. New
+  `VendorReview.response`/`respondedAt` and
+  `SupplierReview.response`/`respondedAt` columns; the reply shows
+  wherever the review already did (the project page, the order page, and
+  both public profile pages).
+- **The "me" dashboards now show received reviews.** `GET /vendors/me`
+  and `GET /suppliers/me` already `include`d `reviews` — the gap was
+  purely that `pages/vendors/me.tsx` and
+  `pages/marketplace/materials/me.tsx` never rendered them. Both now have
+  a Reviews section with the reply control described above.
+- **Unrelated fix found along the way:** `AppShell`/`AuthLayout` built
+  `<title>` as `<title>{title} · PropertyOnTheGo</title>` — two JSX
+  children (`{title}` and the literal `" · PropertyOnTheGo"`), which
+  React warns is invalid (`<title>` can only take a single text node) and
+  falls back to client-only rendering to recover. Every page hit this.
+  Fixed to a single interpolated string.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -995,15 +1037,15 @@ blueprint, or explicitly cut from it:
   but there's still no `Cart`/`CartItem` model, so it doesn't follow the
   account across devices or reconcile against a product's price/stock
   changing while it sits in the cart.
-- **Reviews are one-shot and unmoderated.** No editing or deleting a review
-  once submitted (by the reviewer or an admin), no reply from the
-  vendor/supplier being reviewed, and no surfacing of a vendor's/supplier's
-  *own* received reviews on their "me" dashboard (only on their public
-  profile/storefront page — matches the pre-existing gap on the vendor
-  dashboard, not a new one). `compare_vendor_quotes` and `boq_to_order` now
-  read reviews (see "AI skills read reviews" below) — `assess_listing_risk`
-  still doesn't, but that's because listings have no vendor/supplier
-  relationship to read in the first place, not because it was skipped.
+- **Reviews still have no moderation.** See "Review editing, replies, and
+  the 'me' dashboards" above for what changed — the reviewer can now edit
+  or delete their own review and the vendor/supplier can reply, but
+  there's still no admin/moderator who can act on a review that isn't
+  theirs, and no report/flag mechanism. `compare_vendor_quotes` and
+  `boq_to_order` now read reviews (see "AI skills read reviews" below) —
+  `assess_listing_risk` still doesn't, but that's because listings have no
+  vendor/supplier relationship to read in the first place, not because it
+  was skipped.
 - **Auth hardening that's still open.** The access token lives in
   `localStorage` (XSS-exposed) rather than an httpOnly cookie — a
   deliberate tradeoff, see "Web app auth hardening" above, not an

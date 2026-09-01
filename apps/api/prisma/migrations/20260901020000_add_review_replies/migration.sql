@@ -1,0 +1,11 @@
+-- AlterTable
+ALTER TABLE "vendor_reviews"
+  ADD COLUMN "response" TEXT,
+  ADD COLUMN "respondedAt" TIMESTAMP(3),
+  ADD COLUMN "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+-- AlterTable
+ALTER TABLE "supplier_reviews"
+  ADD COLUMN "response" TEXT,
+  ADD COLUMN "respondedAt" TIMESTAMP(3),
+  ADD COLUMN "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;

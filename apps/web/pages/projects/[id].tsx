@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Dispute, EscrowAccount, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, Receipt, Vendor } from "../../lib/api";
+import { ApiError, Dispute, EscrowAccount, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, Receipt, Vendor, VendorReview } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -731,20 +731,25 @@ function ReviewsCard({
 }: {
   projectId: string;
   assignments: ProjectVendorAssignment[];
-  reviews: { vendorId: string }[];
+  reviews: VendorReview[];
   onReviewed: () => void;
 }) {
-  const reviewedVendorIds = new Set(reviews.map((r) => r.vendorId));
+  const reviewByVendorId = new Map(reviews.map((r) => [r.vendorId, r]));
 
   return (
     <div className="potg-card" style={{ padding: 18 }}>
       <h3 style={{ fontSize: 14, marginBottom: 10 }}>Reviews</h3>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {assignments.map((a) =>
-          reviewedVendorIds.has(a.vendorId) ? (
-            <div key={a.id} style={{ fontSize: 13 }}>
-              <span className="potg-badge">Reviewed</span> {a.vendor?.businessName ?? "Vendor"}
-            </div>
+        {assignments.map((a) => {
+          const review = reviewByVendorId.get(a.vendorId);
+          return review ? (
+            <VendorReviewRow
+              key={a.id}
+              projectId={projectId}
+              vendorName={a.vendor?.businessName ?? "Vendor"}
+              review={review}
+              onChanged={onReviewed}
+            />
           ) : (
             <LeaveVendorReviewForm
               key={a.id}
@@ -753,9 +758,107 @@ function ReviewsCard({
               vendorName={a.vendor?.businessName ?? "this vendor"}
               onReviewed={onReviewed}
             />
-          ),
-        )}
+          );
+        })}
       </div>
+    </div>
+  );
+}
+
+function VendorReviewRow({
+  projectId,
+  vendorName,
+  review,
+  onChanged,
+}: {
+  projectId: string;
+  vendorName: string;
+  review: VendorReview;
+  onChanged: () => void;
+}) {
+  const auth = useAuth();
+  const [editing, setEditing] = useState(false);
+  const [rating, setRating] = useState(review.rating);
+  const [comment, setComment] = useState(review.comment ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"save" | "delete" | null>(null);
+
+  async function onSave(e: FormEvent) {
+    e.preventDefault();
+    setBusy("save");
+    setError(null);
+    try {
+      await auth.api.updateVendorReview(projectId, review.id, { rating, comment: comment || undefined });
+      setEditing(false);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update that review.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onDelete() {
+    setBusy("delete");
+    setError(null);
+    try {
+      await auth.api.deleteVendorReview(projectId, review.id);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't delete that review.");
+      setBusy(null);
+    }
+  }
+
+  if (editing) {
+    return (
+      <form onSubmit={onSave} style={{ display: "flex", flexDirection: "column", gap: 6, borderTop: "1px solid var(--potg-border)", paddingTop: 10 }}>
+        <div style={{ fontSize: 13, fontWeight: 600 }}>Edit review — {vendorName}</div>
+        {error && <div className="potg-error">{error}</div>}
+        <select className="potg-input" style={{ width: 120 }} value={rating} onChange={(e) => setRating(Number(e.target.value))}>
+          {[5, 4, 3, 2, 1].map((n) => (
+            <option key={n} value={n}>
+              {"★".repeat(n)}
+              {"☆".repeat(5 - n)}
+            </option>
+          ))}
+        </select>
+        <textarea className="potg-input" rows={2} value={comment} onChange={(e) => setComment(e.target.value)} />
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 12 }}>
+            {busy === "save" ? "Saving…" : "Save"}
+          </button>
+          <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setEditing(false)} style={{ padding: "4px 9px", fontSize: 12 }}>
+            Cancel
+          </button>
+        </div>
+      </form>
+    );
+  }
+
+  return (
+    <div style={{ fontSize: 13, borderTop: "1px solid var(--potg-border)", paddingTop: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontWeight: 600 }}>{vendorName}</div>
+          <div>{"★".repeat(review.rating)}{"☆".repeat(5 - review.rating)}</div>
+          {review.comment && <div style={{ marginTop: 2 }}>{review.comment}</div>}
+          {review.response && (
+            <div className="potg-muted" style={{ marginTop: 6, fontSize: 12, borderLeft: "2px solid var(--potg-border)", paddingLeft: 8 }}>
+              {vendorName}'s reply: {review.response}
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          <button className="potg-btn potg-btn-secondary" onClick={() => setEditing(true)} style={{ padding: "3px 8px", fontSize: 11 }}>
+            Edit
+          </button>
+          <button className="potg-btn potg-btn-danger" disabled={busy !== null} onClick={onDelete} style={{ padding: "3px 8px", fontSize: 11 }}>
+            {busy === "delete" ? "…" : "Delete"}
+          </button>
+        </div>
+      </div>
+      {error && <div className="potg-error" style={{ marginTop: 4 }}>{error}</div>}
     </div>
   );
 }

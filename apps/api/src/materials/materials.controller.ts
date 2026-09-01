@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -12,6 +12,8 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { UpdateDeliveryDto } from './dto/update-delivery.dto';
 import { CreateOrderReviewDto } from './dto/create-order-review.dto';
+import { UpdateOrderReviewDto } from './dto/update-order-review.dto';
+import { ReplyToReviewDto } from '../vendors/dto/reply-to-review.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -131,5 +133,38 @@ export class MaterialsController {
     @Body() dto: CreateOrderReviewDto,
   ) {
     return this.materials.createOrderReview(orderId, member.accountId, dto);
+  }
+
+  @RequirePermissions('review:write')
+  @Patch('orders/:orderId/reviews/:reviewId')
+  updateOrderReview(
+    @Param('orderId') orderId: string,
+    @Param('reviewId') reviewId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Body() dto: UpdateOrderReviewDto,
+  ) {
+    return this.materials.updateOrderReview(orderId, reviewId, member.accountId, dto);
+  }
+
+  @RequirePermissions('review:write')
+  @Delete('orders/:orderId/reviews/:reviewId')
+  deleteOrderReview(
+    @Param('orderId') orderId: string,
+    @Param('reviewId') reviewId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+  ) {
+    return this.materials.deleteOrderReview(orderId, reviewId, member.accountId);
+  }
+
+  // The supplier's own reply — same reasoning as VendorsController's
+  // me/reviews/:reviewId/reply.
+  @RequirePermissions('review:respond')
+  @Post('suppliers/me/reviews/:reviewId/reply')
+  replyToOrderReview(
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Param('reviewId') reviewId: string,
+    @Body() dto: ReplyToReviewDto,
+  ) {
+    return this.materials.replyToOrderReview(member.accountId, reviewId, dto);
   }
 }

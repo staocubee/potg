@@ -1,8 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { SubmitQuoteDto } from './dto/submit-quote.dto';
 import { CreateVendorReviewDto } from './dto/create-vendor-review.dto';
+import { UpdateVendorReviewDto } from './dto/update-vendor-review.dto';
+import { ReplyToReviewDto } from './dto/reply-to-review.dto';
 
 @Injectable()
 export class VendorsService {
@@ -139,6 +141,54 @@ export class VendorsService {
     await this.prisma.vendor.update({
       where: { id: vendorId },
       data: { ratingAverage: _avg.rating ?? null },
+    });
+  }
+
+  // Reviewer-side edit — same ABAC-via-:projectId shape as createReview
+  // (called from ProjectsController), plus an explicit accountId check
+  // since a review's own accountId is the source of truth for who left it,
+  // not just "whoever currently owns this project." Recomputes the
+  // vendor's ratingAverage since the rating itself can change.
+  async updateReview(projectId: string, reviewId: string, accountId: string, dto: UpdateVendorReviewDto) {
+    const review = await this.prisma.vendorReview.findFirst({ where: { id: reviewId, projectId } });
+    if (!review) throw new NotFoundException('Review not found on this project');
+    if (review.accountId !== accountId) {
+      throw new ForbiddenException('Only the account that left this review can edit it');
+    }
+    const updated = await this.prisma.vendorReview.update({
+      where: { id: reviewId },
+      data: { rating: dto.rating ?? review.rating, comment: dto.comment !== undefined ? dto.comment : review.comment },
+    });
+    if (dto.rating !== undefined) await this.recomputeRating(review.vendorId);
+    return updated;
+  }
+
+  async deleteReview(projectId: string, reviewId: string, accountId: string) {
+    const review = await this.prisma.vendorReview.findFirst({ where: { id: reviewId, projectId } });
+    if (!review) throw new NotFoundException('Review not found on this project');
+    if (review.accountId !== accountId) {
+      throw new ForbiddenException('Only the account that left this review can delete it');
+    }
+    await this.prisma.vendorReview.delete({ where: { id: reviewId } });
+    await this.recomputeRating(review.vendorId);
+    return { deleted: true };
+  }
+
+  // The vendor's own reply to a review left on its profile — deliberately
+  // not the reviewer editing anything, this is the other side of the
+  // conversation. Vendor-initiated (/vendors/me/...), so it checks a
+  // Vendor.accountId match itself rather than leaning on :projectId ABAC.
+  // One reply per review: a second call overwrites the first rather than
+  // threading, matching the reviews model's "one review per project"
+  // simplicity elsewhere in this module.
+  async replyToReview(vendorAccountId: string, reviewId: string, dto: ReplyToReviewDto) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { accountId: vendorAccountId } });
+    if (!vendor) throw new NotFoundException('Review not found');
+    const review = await this.prisma.vendorReview.findUnique({ where: { id: reviewId } });
+    if (!review || review.vendorId !== vendor.id) throw new NotFoundException('Review not found');
+    return this.prisma.vendorReview.update({
+      where: { id: reviewId },
+      data: { response: dto.response, respondedAt: new Date() },
     });
   }
 }

@@ -299,9 +299,13 @@ export type VendorReview = {
   id: string;
   vendorId: string;
   projectId: string;
+  accountId: string;
   rating: number;
   comment?: string | null;
+  response?: string | null;
+  respondedAt?: string | null;
   createdAt: string;
+  updatedAt: string;
 };
 
 export type VendorQuote = {
@@ -525,9 +529,13 @@ export type SupplierReview = {
   id: string;
   supplierId: string;
   orderId: string;
+  accountId: string;
   rating: number;
   comment?: string | null;
+  response?: string | null;
+  respondedAt?: string | null;
   createdAt: string;
+  updatedAt: string;
 };
 
 export type Product = {
@@ -856,6 +864,29 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  updateVendorReview(projectId: string, reviewId: string, input: { rating?: number; comment?: string }) {
+    return request<VendorReview>(`/projects/${projectId}/reviews/${reviewId}`, {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  deleteVendorReview(projectId: string, reviewId: string) {
+    return request<{ deleted: boolean }>(`/projects/${projectId}/reviews/${reviewId}`, {
+      method: "DELETE",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  replyToVendorReview(reviewId: string, input: { response: string }) {
+    return request<VendorReview>(`/vendors/me/reviews/${reviewId}/reply`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
 
   // --- Property marketplace (listings) ---
   createListing(input: { propertyId: string; listingType: string; askingPrice: number; currency?: string; title: string; description?: string; photoUrls?: string[] }) {
@@ -994,6 +1025,29 @@ export class ApiClient {
   }
   reviewOrder(orderId: string, input: { rating: number; comment?: string }) {
     return request<SupplierReview>(`/orders/${orderId}/reviews`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  updateOrderReview(orderId: string, reviewId: string, input: { rating?: number; comment?: string }) {
+    return request<SupplierReview>(`/orders/${orderId}/reviews/${reviewId}`, {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  deleteOrderReview(orderId: string, reviewId: string) {
+    return request<{ deleted: boolean }>(`/orders/${orderId}/reviews/${reviewId}`, {
+      method: "DELETE",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  replyToOrderReview(reviewId: string, input: { response: string }) {
+    return request<SupplierReview>(`/suppliers/me/reviews/${reviewId}/reply`, {
       method: "POST",
       body: input,
       token: this.token,

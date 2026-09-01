@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../../lib/auth";
-import { ApiError, MaterialOrder, Product, Supplier } from "../../../lib/api";
+import { ApiError, MaterialOrder, Product, Supplier, SupplierReview } from "../../../lib/api";
 import AppShell from "../../../components/AppShell";
 
 const SUPPLIER_CATEGORIES = ["materials", "tools", "equipment"];
@@ -64,6 +64,18 @@ export default function SupplierDashboardPage() {
                 </p>
               </div>
               <span className="potg-badge">{supplier.verificationStatus.replace(/_/g, " ")}</span>
+            </div>
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <h3 style={{ fontSize: 14, marginBottom: 10 }}>Reviews</h3>
+            {(!supplier.reviews || supplier.reviews.length === 0) && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>No reviews yet.</p>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {supplier.reviews?.map((r) => (
+                <SupplierReviewReplyRow key={r.id} review={r} onReplied={load} />
+              ))}
             </div>
           </div>
 
@@ -291,6 +303,67 @@ function ProductRow({ product, onUpdated }: { product: Product; onUpdated: (p: P
             Edit
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+// The supplier side of review replies — same shape as vendors/me.tsx's
+// VendorReviewReplyRow.
+function SupplierReviewReplyRow({ review, onReplied }: { review: SupplierReview; onReplied: () => void }) {
+  const auth = useAuth();
+  const [replying, setReplying] = useState(false);
+  const [response, setResponse] = useState(review.response ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.replyToOrderReview(review.id, { response });
+      setReplying(false);
+      onReplied();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't post that reply.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ fontSize: 13, borderBottom: "1px solid var(--potg-border)", paddingBottom: 10 }}>
+      <div style={{ fontWeight: 700 }}>
+        {"★".repeat(review.rating)}
+        {"☆".repeat(5 - review.rating)}
+      </div>
+      {review.comment && <div style={{ marginTop: 2 }}>{review.comment}</div>}
+      <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
+        {new Date(review.createdAt).toLocaleDateString()}
+      </div>
+      {review.response && !replying && (
+        <div className="potg-muted" style={{ marginTop: 6, fontSize: 12, borderLeft: "2px solid var(--potg-border)", paddingLeft: 8 }}>
+          Your reply: {review.response}
+        </div>
+      )}
+      {!replying ? (
+        <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11, marginTop: 6 }} onClick={() => setReplying(true)}>
+          {review.response ? "Edit reply" : "Reply"}
+        </button>
+      ) : (
+        <form onSubmit={onSubmit} style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+          {error && <div className="potg-error">{error}</div>}
+          <textarea className="potg-input" rows={2} value={response} onChange={(e) => setResponse(e.target.value)} />
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
+              {busy ? "Posting…" : "Post reply"}
+            </button>
+            <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setReplying(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
+              Cancel
+            </button>
+          </div>
+        </form>
       )}
     </div>
   );

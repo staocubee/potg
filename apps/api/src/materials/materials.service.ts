@@ -7,6 +7,8 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { UpdateDeliveryDto } from './dto/update-delivery.dto';
 import { CreateOrderReviewDto } from './dto/create-order-review.dto';
+import { UpdateOrderReviewDto } from './dto/update-order-review.dto';
+import { ReplyToReviewDto } from '../vendors/dto/reply-to-review.dto';
 
 @Injectable()
 export class MaterialsService {
@@ -251,6 +253,48 @@ export class MaterialsService {
     await this.prisma.supplier.update({
       where: { id: supplierId },
       data: { ratingAverage: _avg.rating ?? null },
+    });
+  }
+
+  // Reviewer-side edit/delete — same "accountId on the review is the
+  // source of truth" check as VendorsService's counterpart, since orders
+  // (unlike projects) have no :orderId ABAC convention to lean on at all.
+  async updateOrderReview(orderId: string, reviewId: string, accountId: string, dto: UpdateOrderReviewDto) {
+    const review = await this.prisma.supplierReview.findFirst({ where: { id: reviewId, orderId } });
+    if (!review) throw new NotFoundException('Review not found on this order');
+    if (review.accountId !== accountId) {
+      throw new ForbiddenException('Only the account that left this review can edit it');
+    }
+    const updated = await this.prisma.supplierReview.update({
+      where: { id: reviewId },
+      data: { rating: dto.rating ?? review.rating, comment: dto.comment !== undefined ? dto.comment : review.comment },
+    });
+    if (dto.rating !== undefined) await this.recomputeRating(review.supplierId);
+    return updated;
+  }
+
+  async deleteOrderReview(orderId: string, reviewId: string, accountId: string) {
+    const review = await this.prisma.supplierReview.findFirst({ where: { id: reviewId, orderId } });
+    if (!review) throw new NotFoundException('Review not found on this order');
+    if (review.accountId !== accountId) {
+      throw new ForbiddenException('Only the account that left this review can delete it');
+    }
+    await this.prisma.supplierReview.delete({ where: { id: reviewId } });
+    await this.recomputeRating(review.supplierId);
+    return { deleted: true };
+  }
+
+  // The supplier's own reply — the materials-marketplace counterpart to
+  // VendorsService.replyToReview, same one-reply-overwrites-the-last-one
+  // shape.
+  async replyToOrderReview(supplierAccountId: string, reviewId: string, dto: ReplyToReviewDto) {
+    const supplier = await this.prisma.supplier.findUnique({ where: { accountId: supplierAccountId } });
+    if (!supplier) throw new NotFoundException('Review not found');
+    const review = await this.prisma.supplierReview.findUnique({ where: { id: reviewId } });
+    if (!review || review.supplierId !== supplier.id) throw new NotFoundException('Review not found');
+    return this.prisma.supplierReview.update({
+      where: { id: reviewId },
+      data: { response: dto.response, respondedAt: new Date() },
     });
   }
 }

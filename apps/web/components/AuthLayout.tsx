@@ -15,7 +15,7 @@ export default function AuthLayout({
   return (
     <>
       <Head>
-        <title>{title} · PropertyOnTheGo</title>
+        <title>{`${title} · PropertyOnTheGo`}</title>
       </Head>
       <div
         style={{

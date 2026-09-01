@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -11,6 +11,7 @@ import { AddMilestoneDto } from './dto/add-milestone.dto';
 import { AddProjectUpdateDto } from './dto/add-project-update.dto';
 import { RequestQuoteDto } from './dto/request-quote.dto';
 import { CreateVendorReviewDto } from '../vendors/dto/create-vendor-review.dto';
+import { UpdateVendorReviewDto } from '../vendors/dto/update-vendor-review.dto';
 
 type AccountMemberCtx = { accountId: string };
 type UserCtx = { id: string };
@@ -89,5 +90,26 @@ export class ProjectsController {
     @Body() dto: CreateVendorReviewDto,
   ) {
     return this.vendors.createReview(projectId, member.accountId, dto);
+  }
+
+  @RequirePermissions('review:write')
+  @Patch(':projectId/reviews/:reviewId')
+  updateReview(
+    @Param('projectId') projectId: string,
+    @Param('reviewId') reviewId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Body() dto: UpdateVendorReviewDto,
+  ) {
+    return this.vendors.updateReview(projectId, reviewId, member.accountId, dto);
+  }
+
+  @RequirePermissions('review:write')
+  @Delete(':projectId/reviews/:reviewId')
+  deleteReview(
+    @Param('projectId') projectId: string,
+    @Param('reviewId') reviewId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+  ) {
+    return this.vendors.deleteReview(projectId, reviewId, member.accountId);
   }
 }

@@ -75,6 +75,11 @@ export default function VendorDetailPage() {
                   <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
                     {new Date(r.createdAt).toLocaleDateString()}
                   </div>
+                  {r.response && (
+                    <div className="potg-muted" style={{ marginTop: 6, fontSize: 12, borderLeft: "2px solid var(--potg-border)", paddingLeft: 8 }}>
+                      {vendor.businessName}'s reply: {r.response}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

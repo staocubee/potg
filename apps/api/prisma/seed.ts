@@ -46,6 +46,7 @@ const PERMISSIONS = [
   // rides along with vendor:read/supplier:read since findOne/findSupplier
   // already include it.
   { key: 'review:write', label: 'Leave a review after a completed project or delivered order' },
+  { key: 'review:respond', label: "Reply to a review left on your own vendor/supplier profile" },
 ];
 
 // Section 8's core roles, narrowed to the ones DEFAULT_OWNER_ROLE_BY_ACCOUNT_TYPE
@@ -157,6 +158,7 @@ const ROLES: Record<string, string[]> = {
     'payout:read',
     'dispute:read',
     'dispute:write',
+    'review:respond',
     // Browsing materials while assessing or pricing a job — never
     // supplier:write/product:write, a vendor isn't a supplier.
     'supplier:read',
@@ -166,7 +168,16 @@ const ROLES: Record<string, string[]> = {
   // catalog, and fulfills the orders placed against it — it never gets
   // listing/offer/vendor/project permissions, those belong to the other
   // two marketplaces.
-  supplier: ['ai:act', 'supplier:read', 'supplier:write', 'product:read', 'product:write', 'order:read', 'order:write'],
+  supplier: [
+    'ai:act',
+    'supplier:read',
+    'supplier:write',
+    'product:read',
+    'product:write',
+    'order:read',
+    'order:write',
+    'review:respond',
+  ],
   // Section 8's own example role: "a family member can view documents but
   // not approve payments" — a read-only member of a family/company account.
   // Notably excludes payment:approve and dispute:write for the same reason.
