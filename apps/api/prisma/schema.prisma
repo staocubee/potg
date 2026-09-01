@@ -75,6 +75,7 @@ model User {
 
   memberships         AccountMember[]
   passwordResetTokens PasswordResetToken[]
+  refreshTokens       RefreshToken[]
 
   @@map("users")
 }
@@ -96,6 +97,27 @@ model PasswordResetToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("password_reset_tokens")
+}
+
+// One row per issued refresh token, keyed by the `jti` claim embedded in
+// that token's JWT — the JWT signature is still what proves possession,
+// this row is only what makes early revocation possible (logout, password
+// reset) instead of every refresh token being valid until its own 30-day
+// expiry no matter what. AuthService.refresh() rotates: it revokes the
+// token being redeemed and inserts a fresh row for the one it issues, so a
+// stolen-and-replayed old refresh token is rejected even if it hasn't
+// expired yet.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  jti       String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
 }
 
 // Roles are account-scoped assignments; permissions are a fixed, seedable

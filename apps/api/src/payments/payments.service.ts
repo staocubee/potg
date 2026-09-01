@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { DepositDto } from './dto/deposit.dto';
 import { RaiseDisputeDto } from './dto/raise-dispute.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
+import { RefundPaymentDto } from './dto/refund-payment.dto';
 
 function receiptNumber(): string {
   // Not sequential/invoice-grade (a real one would need a per-account
@@ -86,6 +87,53 @@ export class PaymentsService {
 
   findPayments(projectId: string) {
     return this.prisma.payment.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' } });
+  }
+
+  // Refunds a completed deposit back out of escrow — the counterpart to
+  // deposit() above, gated by "payment:approve" for the same reason
+  // releaseMilestone is: it moves money out of escrow, so it deserves more
+  // than the plain "payment:write" a deposit needs. Only refundable while
+  // the deposit's own amount is still sitting in escrow — once enough of
+  // it has been released to a vendor via milestones, there's nothing left
+  // to give back and this fails with the same "insufficient balance" shape
+  // releaseMilestone already uses, rather than allowing a refund that
+  // would take the balance negative.
+  async refundPayment(projectId: string, paymentId: string, dto: RefundPaymentDto) {
+    const payment = await this.prisma.payment.findFirst({ where: { id: paymentId, projectId } });
+    if (!payment) throw new NotFoundException('Payment not found on this project');
+    if (payment.status !== 'completed') {
+      throw new BadRequestException('Only a completed payment can be refunded');
+    }
+
+    const escrowAccount = await this.prisma.escrowAccount.findUnique({ where: { id: payment.escrowAccountId } });
+    if (!escrowAccount) {
+      throw new BadRequestException('This payment has no escrow account to refund from');
+    }
+    const amount = Number(payment.amount);
+    if (Number(escrowAccount.balance) < amount) {
+      throw new BadRequestException(
+        'Insufficient escrow balance to refund this payment — some of it has already been released',
+      );
+    }
+
+    const newBalance = Number(escrowAccount.balance) - amount;
+    const [, updatedPayment] = await this.prisma.$transaction([
+      this.prisma.escrowAccount.update({ where: { id: escrowAccount.id }, data: { balance: newBalance } }),
+      this.prisma.payment.update({ where: { id: paymentId }, data: { status: 'refunded' } }),
+    ]);
+
+    const ledgerEntry = await this.prisma.escrowLedgerEntry.create({
+      data: {
+        escrowAccountId: escrowAccount.id,
+        entryType: 'refund',
+        amount,
+        balanceAfter: newBalance,
+        relatedPaymentId: paymentId,
+        notes: dto.reason ?? `Refund of deposit ${paymentId}`,
+      },
+    });
+
+    return { payment: updatedPayment, ledgerEntry };
   }
 
   // Owner marks a milestone's submitted evidence as approved — the

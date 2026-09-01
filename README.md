@@ -778,6 +778,57 @@ real counterpart to what `compare_vendor_quotes` does for vendors.
   project exercises the new reputation text and comment-surfacing with real
   rows, not just the empty-state branches.
 
+## Auth hardening: rate limiting, refresh-token revocation, refunds (this pass)
+
+Three of the gaps the "Auth hardening that's still open" and "Refunds"
+bullets below used to flag — picked as the highest-value, lowest-risk slice
+of the backlog to close first, ahead of any new module.
+
+- **Rate limiting.** `@nestjs/throttler` is wired up globally in
+  `AppModule` (100 req/min/IP baseline for every route) with a much
+  tighter `@Throttle({ default: { limit: 5, ttl: 60_000 } })` on
+  `POST /auth/login`, `/auth/forgot-password`, and `/auth/reset-password`
+  specifically — the three endpoints the "not built yet" list called out
+  by name as unlimited-attempt. `/auth/register` and `/auth/refresh` still
+  only get the module-wide default, which is already a real change from
+  "no limit anywhere."
+- **Refresh-token revocation.** Refresh tokens were stateless — valid
+  until their own 30-day expiry no matter what, per the comment that used
+  to sit at the top of `auth.service.ts`. They're now tracked one row per
+  token in a new `RefreshToken` model (`userId`, `jti`, `expiresAt`,
+  `revokedAt`), keyed by a `jti` claim embedded in the JWT itself; the JWT
+  signature still proves possession, the row is only what makes early
+  revocation possible.
+  - `POST /auth/refresh` now **rotates**: it revokes the row for the token
+    just redeemed before issuing a new pair, so replaying an
+    already-refreshed token is rejected even though it hasn't expired.
+  - **`POST /auth/logout`** (new) revokes one refresh token on demand —
+    unauthenticated, same reasoning as `/refresh`: the refresh token itself
+    is the credential being acted on. Same "don't confirm anything to the
+    caller" shape as `forgotPassword` — an already-invalid or unrecognized
+    token still returns a plain success.
+  - `resetPassword` now revokes every outstanding refresh token for that
+    user in the same transaction as the password change, so a session
+    started before whatever prompted the reset doesn't just keep working
+    for up to 30 more days.
+  - Still open: this closes early revocation, not the `localStorage`
+    access-token-storage tradeoff — see "Web app auth hardening" above and
+    the remaining bullet below.
+- **Refunds.** `EscrowLedgerEntry.entryType` and `Payment.status` already
+  had a `"refund"` state in the schema; there was just no endpoint. New:
+  **`POST /projects/:projectId/payments/:paymentId/refund`**
+  (`PaymentsService.refundPayment`), gated by `payment:approve` — the same
+  permission `releaseMilestone` uses, for the same reason: moving money
+  out of escrow deserves more than the plain `payment:write` a deposit
+  needs. Only refundable while that deposit's own amount is still sitting
+  in the escrow balance; if enough of it has already gone out via a
+  milestone release, it fails with the same "insufficient balance" shape
+  `releaseMilestone` already uses rather than taking the balance negative.
+  Optional `reason` in the request body becomes the ledger entry's note.
+  No receipt is issued for a refund (`Receipt` only models paying in or
+  paying out, not giving back) — the updated `Payment.status` and the new
+  `EscrowLedgerEntry` row are the record of it.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -807,9 +858,6 @@ blueprint, or explicitly cut from it:
   payout instantly — Paystack/Flutterwave/Stripe/PayPal integration
   (Section 16), and the licensing/compliance workstream the blueprint says
   to run in parallel with it (Section 15), are both still open.
-- **Refunds.** `EscrowLedgerEntry.entryType` already allows `"refund"` and
-  `Payment.status` already allows `"refunded"` — there's just no endpoint
-  that creates one yet.
 - **A real dispute-resolution workflow.** Right now any account member with
   `dispute:write` can both raise and resolve a dispute — no neutral
   reviewer, evidence request, or payment hold tied to an open dispute.
@@ -845,14 +893,11 @@ blueprint, or explicitly cut from it:
 - **Auth hardening that's still open.** The access token lives in
   `localStorage` (XSS-exposed) rather than an httpOnly cookie — a
   deliberate tradeoff, see "Web app auth hardening" above, not an
-  oversight. Refresh tokens are stateless and can't be revoked early (no
-  session store — logging out or changing a password doesn't invalidate
-  a refresh token already issued, it just expires on its own 30-day
-  clock). The password-reset email is logged/returned instead of actually
-  emailed (no provider wired up). No client-side validation beyond native
-  HTML `required`/`minLength`/`type="email"`. No rate limiting anywhere —
-  `/auth/login`, `/forgot-password`, and `/reset-password` are all
-  unlimited-attempt.
+  oversight. The password-reset email is logged/returned instead of
+  actually emailed (no provider wired up). No client-side validation
+  beyond native HTML `required`/`minLength`/`type="email"`. Rate limiting
+  and refresh-token revocation are no longer on this list — see "Auth
+  hardening: rate limiting, refresh-token revocation, refunds" above.
 - **Ask AI panel input forms.** Quick actions always call `POST /ai/actions`
   with an empty `input: {}` — fine today since every skill either ignores
   `input` or has sensible defaults, but ties directly to the "per-skill

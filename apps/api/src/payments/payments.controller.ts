@@ -8,6 +8,7 @@ import { PaymentsService } from './payments.service';
 import { DepositDto } from './dto/deposit.dto';
 import { RaiseDisputeDto } from './dto/raise-dispute.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
+import { RefundPaymentDto } from './dto/refund-payment.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -40,6 +41,16 @@ export class PaymentsController {
   @Get('escrow')
   getEscrow(@Param('projectId') projectId: string) {
     return this.payments.getEscrow(projectId);
+  }
+
+  @RequirePermissions('payment:approve')
+  @Post('payments/:paymentId/refund')
+  refundPayment(
+    @Param('projectId') projectId: string,
+    @Param('paymentId') paymentId: string,
+    @Body() dto: RefundPaymentDto,
+  ) {
+    return this.payments.refundPayment(projectId, paymentId, dto);
   }
 
   @RequirePermissions('milestone:write')
