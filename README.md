@@ -1018,6 +1018,64 @@ should perform the real action" needs to mean something.
 - Every other skill's Accept is unchanged — still records the decision
   only. See "Not built yet" below for which ones and why.
 
+## Real invite/accept flow (this pass)
+
+Closes the gap `AddMemberDto`'s own comment used to flag: `POST
+/accounts/:accountId/members` only ever worked for an email that already
+had a User on the platform. Building this surfaced a critical,
+independently-fixed IDOR in the same endpoint — see below.
+
+- **`AccountInvite`** — same `tokenHash` pattern as `PasswordResetToken`
+  (only the hash is stored; the raw token is a one-time bearer
+  credential). `AccountsService.addMember` now branches on whether
+  `email` already has a `User`: existing → added immediately, exactly as
+  before; new → creates (or, on a re-invite, refreshes) a pending invite
+  instead of failing. `WEB_APP_URL` isn't set in this scaffold, so the
+  link is only ever logged server-side and returned raw in the
+  response — same no-real-email-provider tradeoff as
+  `forgotPassword`'s `resetToken`.
+- **Two ways to accept**, because the recipient might already be
+  registered or might not be:
+  - **`GET /invites/:token`** (public — no guard at all, since the
+    recipient may not be signed in yet) previews what the invite leads
+    to, including whether the email already has a `User`, so the client
+    knows whether to route to login or register.
+  - **`POST /invites/:token/accept`** (`JwtAuthGuard` only, no account
+    context — accepting is how you *get* account context for that
+    account) — for someone already signed in. Rejects an invite/user
+    email mismatch with 403, and an already-accepted/expired one with
+    400.
+  - **`RegisterDto.inviteToken`** — for someone brand new. Validated
+    *before* the `User` is created (a bad token fails registration
+    cleanly rather than leaving a signed-up user whose invite silently
+    didn't take), then the membership is created in the same call.
+    Deliberately not implemented by calling `AccountsService.acceptInvite`
+    — that path already has a signed-in user; this one is still creating
+    one, so it keeps its own copy of the same validate-then-consume
+    logic rather than manufacturing a cross-module dependency for it.
+- **New `GET /accounts/:accountId/members`** and **`pages/accounts/
+  members.tsx`** — there was no way to even see who was already in an
+  account before this pass, let alone invite someone; the page lists
+  current members, pending invites, and the invite form (which surfaces
+  the raw link for the "no email provider" reason above).
+  **`pages/accept-invite.tsx`** is the recipient's landing page; `/login`
+  gained a `redirect` query param (validated to an in-app path only) so
+  it can send an already-registered recipient there after signing in.
+- **Found and fixed separately: a critical IDOR in this same endpoint.**
+  `PermissionsGuard` checked that the caller had `account:manage_members`
+  *somewhere*, never that it applied to the `:accountId` in the URL —
+  since `addMember` used that URL param directly, any account owner
+  could add themselves (or anyone, with any role) to *any other account
+  on the platform* by putting a different id in the URL. Confirmed
+  exploitable against live seed data, then fixed by extending
+  `PermissionsGuard`'s existing `:propertyId`/`:projectId` ABAC pattern
+  to `:accountId` — see that guard's own comment. Shipped as its own
+  commit, independent of the invite work that surfaced it.
+- **Not built:** revoking or resending a pending invite (re-inviting the
+  same email regenerates its token, which works as an implicit revoke +
+  resend, but there's no way to kill one without replacing it), and no
+  invite listing beyond one account's own Members page.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -1096,9 +1154,13 @@ blueprint, or explicitly cut from it:
 - **Payment/escrow licensing, market-specific verification mechanisms,
   and data residency** — the compliance work the blueprint review flagged
   needs to run in parallel with engineering, not be solved by this code.
-- **A real invite/accept flow.** `POST /accounts/:accountId/members` only
-  adds an *existing* user by email; inviting someone who doesn't have an
-  account yet is future work.
+- **Invite/accept exists now, with real gaps left in it.** See "Real
+  invite/accept flow" above for what's there. Still open: no way to revoke
+  or resend a pending invite (only re-inviting the same email, which
+  regenerates the token), no invite listing beyond the account's own
+  Members page, and email delivery is the same "logged + returned raw"
+  scaffold-depth tradeoff as password reset — a real deployment must
+  drop `inviteToken` from the response and actually send it.
 - **Chaining an AI Accept into its drafted action — mostly still open.**
   See "Accepting a status-update draft now posts it" above for the one
   skill this closed. Every other skill's Accept still only records the

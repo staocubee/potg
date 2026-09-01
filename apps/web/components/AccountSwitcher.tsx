@@ -65,6 +65,13 @@ export default function AccountSwitcher() {
             ))}
             <div style={{ borderTop: "1px solid var(--potg-border)", margin: "6px 0" }} />
             <Link
+              href="/accounts/members"
+              onClick={() => setOpen(false)}
+              style={{ display: "block", padding: "8px 10px", fontSize: 13, fontWeight: 600, color: "var(--potg-teal)" }}
+            >
+              Manage members
+            </Link>
+            <Link
               href="/accounts/new"
               onClick={() => setOpen(false)}
               style={{ display: "block", padding: "8px 10px", fontSize: 13, fontWeight: 600, color: "var(--potg-teal)" }}

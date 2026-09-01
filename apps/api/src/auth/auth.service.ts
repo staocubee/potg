@@ -34,6 +34,27 @@ export class AuthService {
     if (existing) {
       throw new ConflictException('An account with this email already exists');
     }
+
+    // Validated before the User is created, not after: a bad/expired/
+    // mismatched invite token should fail registration cleanly rather than
+    // leaving a signed-up user whose invite silently didn't take.
+    // AccountsService.acceptInvite has the same validate-then-consume
+    // shape for the already-registered case (InvitesController) — kept
+    // separate rather than shared because that path already has a
+    // signed-in user and this one is still creating one.
+    let invite: { id: string; accountId: string; roleId: string } | null = null;
+    if (input.inviteToken) {
+      const tokenHash = createHash('sha256').update(input.inviteToken).digest('hex');
+      const found = await this.prisma.accountInvite.findUnique({ where: { tokenHash } });
+      if (!found || found.status !== 'pending' || found.expiresAt < new Date()) {
+        throw new BadRequestException('This invite is invalid or has expired');
+      }
+      if (found.email.toLowerCase() !== input.email.toLowerCase()) {
+        throw new BadRequestException('This invite was sent to a different email address');
+      }
+      invite = found;
+    }
+
     const passwordHash = await bcrypt.hash(input.password, 10);
     const user = await this.prisma.user.create({
       data: {
@@ -43,6 +64,14 @@ export class AuthService {
         passwordHash,
       },
     });
+
+    if (invite) {
+      await this.prisma.$transaction([
+        this.prisma.accountMember.create({ data: { accountId: invite.accountId, userId: user.id, roleId: invite.roleId } }),
+        this.prisma.accountInvite.update({ where: { id: invite.id }, data: { status: 'accepted', acceptedAt: new Date() } }),
+      ]);
+    }
+
     return this.issueTokenPair(user.id, user.email);
   }
 

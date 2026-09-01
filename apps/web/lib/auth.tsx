@@ -26,12 +26,26 @@ function isExpired(token: string): boolean {
   return exp !== null && exp < Date.now();
 }
 
+// Same "read the claim, don't verify" caveat as decodeExpiryMs — this is
+// only ever used for the accept-invite page's "does this match who you're
+// signed in as" UX check, never as a substitute for a real server-side
+// check (AccountsService.acceptInvite does its own email comparison).
+function decodeEmail(token: string): string | null {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof payload.email === "string" ? payload.email : null;
+  } catch {
+    return null;
+  }
+}
+
 type AuthContextValue = {
   // `hydrated` is true once we've checked localStorage on the client — pages
   // should wait for it before deciding to redirect to /login, otherwise a
   // logged-in user briefly bounces to the login page on every hard refresh.
   hydrated: boolean;
   token: string | null;
+  currentUserEmail: string | null;
   accounts: AccountSummary[];
   accountsLoaded: boolean;
   currentAccountId: string | null;
@@ -147,10 +161,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const currentAccount = accounts.find((a) => a.accountId === currentAccountId) ?? null;
+  const currentUserEmail = useMemo(() => (token ? decodeEmail(token) : null), [token]);
 
   const value: AuthContextValue = {
     hydrated,
     token,
+    currentUserEmail,
     accounts,
     accountsLoaded,
     currentAccountId,

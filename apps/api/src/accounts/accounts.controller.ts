@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -23,11 +23,20 @@ export class AccountsController {
   }
 
   // Adding a member DOES need account context — the caller must be acting
-  // as this account and hold "account:manage_members".
+  // as this account and hold "account:manage_members". PermissionsGuard
+  // also checks :accountId itself matches the caller's own account (see
+  // its comment — this route used to be a real IDOR without that check).
   @UseGuards(JwtAuthGuard, AccountContextGuard, PermissionsGuard)
   @RequirePermissions('account:manage_members')
   @Post(':accountId/members')
-  addMember(@Param('accountId') accountId: string, @Body() dto: AddMemberDto) {
-    return this.accounts.addMember(accountId, dto);
+  addMember(@Param('accountId') accountId: string, @CurrentUser() user: UserCtx, @Body() dto: AddMemberDto) {
+    return this.accounts.addMember(accountId, user.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, AccountContextGuard, PermissionsGuard)
+  @RequirePermissions('account:manage_members')
+  @Get(':accountId/members')
+  listMembers(@Param('accountId') accountId: string) {
+    return this.accounts.listMembers(accountId);
   }
 }

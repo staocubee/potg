@@ -1,8 +1,8 @@
 import { IsEmail, IsString } from 'class-validator';
 
-// Scaffold-level: adds an EXISTING user to an account with a role. A real
-// invite/accept-by-email flow (Module 1's "Vendor onboarding" /
-// family-representative access) is future work — see README.
+// If `email` already has a User, this adds them immediately. If not,
+// AccountsService.addMember now creates a pending AccountInvite instead
+// of failing — see that method and InvitesController.
 export class AddMemberDto {
   @IsEmail()
   email!: string;

@@ -59,6 +59,7 @@ model Account {
   supplier        Supplier?
   orders          Order[]
   aiConversations AiConversation[]
+  invites         AccountInvite[]
 
   @@map("accounts")
 }
@@ -76,6 +77,7 @@ model User {
   memberships         AccountMember[]
   passwordResetTokens PasswordResetToken[]
   refreshTokens       RefreshToken[]
+  sentInvites         AccountInvite[]
 
   @@map("users")
 }
@@ -130,6 +132,7 @@ model Role {
 
   permissions RolePermission[]
   members     AccountMember[]
+  invites     AccountInvite[]
 
   @@map("roles")
 }
@@ -175,6 +178,35 @@ model AccountMember {
 
   @@unique([accountId, userId])
   @@map("account_members")
+}
+
+// Closes the gap AddMemberDto's own comment used to flag: POST
+// /accounts/:accountId/members only ever worked for an email that already
+// had a User. Same tokenHash pattern as PasswordResetToken — the raw
+// token is a one-time bearer credential, only its hash is ever stored.
+// AccountsService.addMember creates one of these instead of failing when
+// the email has no User yet; GET /invites/:token lets the recipient see
+// what they're being invited into before deciding whether to log in
+// (AccountsService.acceptInvite) or register (AuthService.register's
+// optional inviteToken, which does the same thing in the same call that
+// creates their User).
+model AccountInvite {
+  id              String    @id @default(uuid())
+  accountId       String
+  email           String
+  roleId          String
+  tokenHash       String    @unique
+  invitedByUserId String
+  status          String    @default("pending") // pending | accepted | revoked
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  role      Role    @relation(fields: [roleId], references: [id])
+  invitedBy User    @relation(fields: [invitedByUserId], references: [id], onDelete: Cascade)
+
+  @@map("account_invites")
 }
 
 model KycVerification {

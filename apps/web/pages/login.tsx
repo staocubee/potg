@@ -13,6 +13,11 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Lets a page like /accept-invite send someone here to sign in and come
+  // straight back — only ever an in-app path (never an absolute URL), so
+  // this can't be used to redirect off the site.
+  const redirect = typeof router.query.redirect === "string" && router.query.redirect.startsWith("/") ? router.query.redirect : "/";
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -20,7 +25,7 @@ export default function LoginPage() {
     try {
       const { accessToken, refreshToken } = await auth.api.login(email, password);
       auth.setTokens(accessToken, refreshToken);
-      router.push("/");
+      router.push(redirect);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't sign in — check your details and try again.");
     } finally {

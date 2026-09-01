@@ -131,6 +131,32 @@ export type AccountSummary = {
   role: string;
 };
 
+export type AccountMemberSummary = {
+  id: string;
+  status: string;
+  createdAt: string;
+  user: { id: string; name: string; email: string };
+  role: { key: string; name: string };
+};
+
+export type AccountInviteSummary = {
+  id: string;
+  email: string;
+  status: string;
+  expiresAt: string;
+  createdAt: string;
+  role: { key: string; name: string };
+};
+
+export type InvitePreview = {
+  accountName: string;
+  accountType: string;
+  roleName: string;
+  email: string;
+  expiresAt: string;
+  hasAccount: boolean;
+};
+
 export type Property = {
   id: string;
   accountId: string;
@@ -601,7 +627,7 @@ export class ApiClient {
   ) {}
 
   // --- Auth (no account context needed) ---
-  register(input: { name: string; email: string; phone?: string; password: string }) {
+  register(input: { name: string; email: string; phone?: string; password: string; inviteToken?: string }) {
     return request<AuthResponse>("/auth/register", { method: "POST", body: input });
   }
   login(email: string, password: string) {
@@ -623,6 +649,32 @@ export class ApiClient {
   // --- Accounts ---
   createAccount(input: { accountType: string; name: string; country: string; currency: string; timezone: string }) {
     return request<{ id: string }>("/accounts", { method: "POST", body: input, token: this.token });
+  }
+  listAccountMembers(accountId: string) {
+    return request<{ members: AccountMemberSummary[]; invites: AccountInviteSummary[] }>(
+      `/accounts/${accountId}/members`,
+      { token: this.token, accountId: this.accountId },
+    );
+  }
+  // Existing email -> added immediately ({type:"member"}); new email ->
+  // a pending invite is created ({type:"invite", inviteToken}) — see
+  // AccountsService.addMember. inviteToken is only ever present because
+  // there's no real email provider wired up (same tradeoff as
+  // forgotPassword's resetToken); a real deployment would drop it and
+  // rely on the email actually sent.
+  addAccountMember(accountId: string, input: { email: string; roleKey: string }) {
+    return request<
+      | { type: "member"; member: AccountMemberSummary }
+      | { type: "invite"; invite: AccountInviteSummary; inviteToken: string }
+    >(`/accounts/${accountId}/members`, { method: "POST", body: input, token: this.token, accountId: this.accountId });
+  }
+
+  // --- Invites (no account context — the recipient isn't a member yet) ---
+  getInvite(token: string) {
+    return request<InvitePreview>(`/invites/${token}`);
+  }
+  acceptInvite(token: string) {
+    return request<AccountMemberSummary>(`/invites/${token}/accept`, { method: "POST", token: this.token });
   }
 
   // --- Properties (account-scoped) ---

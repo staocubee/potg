@@ -1,13 +1,15 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../lib/auth";
-import { ApiError } from "../lib/api";
+import { ApiError, InvitePreview } from "../lib/api";
 import AuthLayout from "../components/AuthLayout";
 
 export default function RegisterPage() {
   const auth = useAuth();
   const router = useRouter();
+  const inviteToken = typeof router.query.inviteToken === "string" ? router.query.inviteToken : undefined;
+
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -15,16 +17,40 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // If this registration came from an invite link, pre-fill (and lock)
+  // the email to whatever the invite was actually sent to — accepting one
+  // requires an exact match server-side (AuthService.register), so a typo
+  // here would just fail at submit instead of never being possible.
+  const [invite, setInvite] = useState<InvitePreview | null | undefined>(inviteToken ? undefined : null);
+
+  useEffect(() => {
+    if (!inviteToken) return;
+    auth.api
+      .getInvite(inviteToken)
+      .then((preview) => {
+        setInvite(preview);
+        setEmail(preview.email);
+      })
+      .catch(() => setInvite(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inviteToken]);
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      const { accessToken, refreshToken } = await auth.api.register({ name, email, phone: phone || undefined, password });
+      const { accessToken, refreshToken } = await auth.api.register({
+        name,
+        email,
+        phone: phone || undefined,
+        password,
+        inviteToken,
+      });
       auth.setTokens(accessToken, refreshToken);
-      // Brand-new user has zero account memberships — send them straight
-      // into account creation rather than an empty portfolio screen.
-      router.push("/accounts/new");
+      // An invited user is joining an existing account, not starting from
+      // zero — skip the "create your first account" onboarding step.
+      router.push(inviteToken ? "/properties" : "/accounts/new");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't create your account — please try again.");
     } finally {
@@ -34,6 +60,18 @@ export default function RegisterPage() {
 
   return (
     <AuthLayout title="Create your account" subtitle="Set up your PropertyOnTheGo sign-in — you'll add your first property account next.">
+      {inviteToken && invite === undefined && <p className="potg-muted" style={{ marginBottom: 12 }}>Loading invite…</p>}
+      {inviteToken && invite === null && (
+        <div className="potg-error" style={{ marginBottom: 12 }}>
+          This invite link is invalid or has expired — you can still create an account below.
+        </div>
+      )}
+      {invite && (
+        <div className="potg-card" style={{ padding: 12, marginBottom: 14, fontSize: 13 }}>
+          You've been invited to join <strong>{invite.accountName}</strong> as a{" "}
+          <strong>{invite.roleName}</strong>. Finish creating your account below to join.
+        </div>
+      )}
       <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         {error && <div className="potg-error">{error}</div>}
         <div>
@@ -46,7 +84,15 @@ export default function RegisterPage() {
           <label className="potg-label" htmlFor="email">
             Email
           </label>
-          <input id="email" className="potg-input" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input
+            id="email"
+            className="potg-input"
+            type="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={!!invite}
+          />
         </div>
         <div>
           <label className="potg-label" htmlFor="phone">
@@ -69,7 +115,7 @@ export default function RegisterPage() {
           />
         </div>
         <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ marginTop: 6 }}>
-          {busy ? "Creating…" : "Create account"}
+          {busy ? "Creating…" : invite ? "Create account & join" : "Create account"}
         </button>
       </form>
       <p className="potg-muted" style={{ marginTop: 18, fontSize: 13 }}>
