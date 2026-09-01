@@ -5,6 +5,7 @@ import { SubmitQuoteDto } from './dto/submit-quote.dto';
 import { CreateVendorReviewDto } from './dto/create-vendor-review.dto';
 import { UpdateVendorReviewDto } from './dto/update-vendor-review.dto';
 import { ReplyToReviewDto } from './dto/reply-to-review.dto';
+import { getVendorTrustScore } from './trust-score';
 
 @Injectable()
 export class VendorsService {
@@ -31,18 +32,28 @@ export class VendorsService {
     });
   }
 
-  findForAccount(accountId: string) {
-    return this.prisma.vendor.findUnique({
+  // Module 6's "trust score" — computed on read, not stored, since too many
+  // separate flows touch its inputs (review CRUD, verification status,
+  // project completion, dispute resolution) to keep a denormalized column
+  // correctly in sync the way Vendor.ratingAverage's narrower recompute
+  // hook can. Formula lives in trust-score.ts, shared with the
+  // explain_vendor_trust_score AI skill so both read the same numbers.
+  async findForAccount(accountId: string) {
+    const vendor = await this.prisma.vendor.findUnique({
       where: { accountId },
       include: { reviews: { orderBy: { createdAt: 'desc' } } },
     });
+    if (!vendor) return vendor;
+    return { ...vendor, trustScore: await getVendorTrustScore(this.prisma, vendor) };
   }
 
-  findOne(id: string) {
-    return this.prisma.vendor.findUnique({
+  async findOne(id: string) {
+    const vendor = await this.prisma.vendor.findUnique({
       where: { id },
       include: { reviews: { orderBy: { createdAt: 'desc' } } },
     });
+    if (!vendor) return vendor;
+    return { ...vendor, trustScore: await getVendorTrustScore(this.prisma, vendor) };
   }
 
   // Vendor-initiated: submitting or revising a quote on a project. This

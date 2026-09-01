@@ -22,6 +22,7 @@ import { generatePortfolioReportSkill } from './skills/generate-portfolio-report
 import { summarizeInspectionHistorySkill } from './skills/summarize-inspection-history.skill';
 import { summarizeLeaseStatusSkill } from './skills/summarize-lease-status.skill';
 import { summarizeMaintenanceBacklogSkill } from './skills/summarize-maintenance-backlog.skill';
+import { explainVendorTrustScoreSkill } from './skills/explain-vendor-trust-score.skill';
 
 @Module({
   imports: [ProjectsModule],
@@ -61,6 +62,7 @@ import { summarizeMaintenanceBacklogSkill } from './skills/summarize-maintenance
         summarizeInspectionHistorySkill,
         summarizeLeaseStatusSkill,
         summarizeMaintenanceBacklogSkill,
+        explainVendorTrustScoreSkill,
       ],
     },
   ],

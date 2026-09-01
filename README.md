@@ -1241,20 +1241,75 @@ optionally be reported against).
   Fixed by resetting `busy` in a `finally` block, matching the pattern
   `onResolve` already used correctly.
 
+## Vendor trust score — Module 6 slice (this pass)
+
+Not a new module data-wise — reuses `Vendor.verificationStatus`,
+`Vendor.ratingAverage`/`VendorReview`, `ProjectVendorAssignment`, and
+`Dispute`, all of which already existed — but the first thing in this
+scaffold that actually computes and surfaces a *trust score*, the piece
+of Module 6 ("a neutral reviewer, risk flags, trust scores") that was
+still completely missing. `assess_listing_risk` already covered risk
+flags for listings; this is its counterpart for the vendor marketplace.
+
+- **`apps/api/src/vendors/trust-score.ts`** — a new shared module (not a
+  new model or migration) exporting the deterministic formula: start at
+  50, `+20` verified / `+5` pending, `+(ratingAverage - 3) * 10`, `+3` per
+  completed project (capped at `+15`), `-8` per dispute on a project this
+  vendor was assigned to (capped at `-30`), clamped to `[0, 100]`. Banded
+  into excellent/good/fair/caution for display. Computed on read, not
+  stored — too many separate flows touch its inputs (review CRUD,
+  verification status, project completion, dispute resolution) to keep a
+  denormalized column in sync the way `Vendor.ratingAverage`'s narrower
+  recompute hook can.
+- **`GET /vendors/:vendorId` and `GET /vendors/me`** now attach a
+  `trustScore` object (`{ score, band, factors }`) to the response — not
+  `GET /vendors` (the marketplace browse list), where computing it for
+  every row would mean per-vendor extra queries on a list that's already
+  sorted by `ratingAverage` for exactly this purpose.
+- **`explain_vendor_trust_score`** (new AI skill, `vendor` context,
+  public/buyer-facing like `assess_listing_risk` — not filtered by
+  `ctx.accountId`) — imports the same `trust-score.ts` formula so it
+  never drifts from what the REST endpoint returns, and has the LLM
+  phrase one neutral paragraph over the real factor breakdown. Needed
+  its own `AskAiPanel` wiring on the vendor detail page — unlike Modules
+  8/12/13's property-context skills, no `AskAiPanel` existed there yet at
+  all.
+- **`pages/vendors/[id].tsx`** gets a trust score badge (score/100, band,
+  and the factor summary) on the vendor header card, plus the new AI
+  panel. Verified against the live dev API (`GET /vendors/:id` and
+  `/vendors/me` both return the same score, the AI skill draft matches
+  the REST numbers exactly) and in the browser (badge renders, "Explain
+  vendor trust score" appears in the panel with zero extra wiring and
+  its draft matches the page).
+- **Still not what Module 6's "neutral reviewer" calls for.** This is the
+  platform's own arithmetic over data the vendor's own marketplace
+  activity already produced — reviews come from the accounts that hired
+  it, not an independent auditor, and `verificationStatus` is still set
+  by whatever mechanism already existed (currently nothing — no
+  vendor-verification endpoint exists, same gap `PropertyListing.
+  verificationStatus` and `Document.verificationStatus` both document
+  elsewhere). Supplier profiles (Module 10's other marketplace side)
+  don't get an equivalent score this pass — vendors were picked because
+  they're the one profile type with reviews, assignments, and disputes
+  all already modeled together.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
 blueprint, or explicitly cut from it:
 
 - **Modules 6, 14, 16-24** (the full property-verification/trust
-  workflow — a neutral reviewer, risk flags, trust scores; the rest of
-  valuation beyond `PropertyValuation`, compliance, community management,
-  AR/VR, the full fixed-dashboard side of reports, admin operations,
-  ...) — this scaffold now proves the pattern for Modules 1, 2, 4, 5, 7,
-  9, 10, 11, and a slice of 8, 12, 13, 15, and 23, not the full 24.
-  Modules 8, 12, and 13 are slices, not the full modules, because there's
-  no separate Inspector, Contractor, or Tenant identity — see "Property
-  inspections", "Maintenance requests", and "Leases" above.
+  workflow — a neutral reviewer, the rest of risk flags/trust scores
+  beyond listings and vendors; the rest of valuation beyond
+  `PropertyValuation`, compliance, community management, AR/VR, the full
+  fixed-dashboard side of reports, admin operations, ...) — this
+  scaffold now proves the pattern for Modules 1, 2, 4, 5, 7, 9, 10, 11,
+  and a slice of 6, 8, 12, 13, 15, and 23, not the full 24. Modules 8, 12,
+  and 13 are slices, not the full modules, because there's no separate
+  Inspector, Contractor, or Tenant identity — see "Property inspections",
+  "Maintenance requests", and "Leases" above. Module 6 is a slice because
+  there's still no neutral-reviewer identity and no supplier-side trust
+  score — see "Vendor trust score" above.
 - **Property inspections — two gaps left in the new module.** No separate
   Inspector identity (see "Property inspections" above — `inspectorName`
   is freeform text, not an account relation), and no way to edit a
@@ -1271,6 +1326,13 @@ blueprint, or explicitly cut from it:
   "Maintenance requests" above — `assignedTo` is freeform text), and no
   way to edit a request's title/description/priority once reported —
   only start, resolve, or cancel it.
+- **Vendor trust score — no neutral reviewer, no supplier equivalent.**
+  See "Vendor trust score" above: the score is the platform's own
+  arithmetic over data the vendor's own marketplace activity already
+  produced, not an independent audit, and there's still no endpoint that
+  actually sets `Vendor.verificationStatus` to anything but its
+  `not_verified` default. Suppliers (Module 10's other marketplace side)
+  have no equivalent score at all.
 - **AI-generated renovation visualizations.** Explicitly deferred by
   Priority 6 itself, pending Module 22 (AR/VR) existing at all.
 - **Multi-turn tool use in one chat turn.** `ChatService` calls at most one

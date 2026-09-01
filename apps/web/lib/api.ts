@@ -382,6 +382,18 @@ export type ProjectUpdate = {
   createdAt: string;
 };
 
+export type VendorTrustScore = {
+  score: number;
+  band: "excellent" | "good" | "fair" | "caution" | string;
+  factors: {
+    verificationStatus: string;
+    ratingAverage: number | null;
+    reviewCount: number;
+    completedProjects: number;
+    disputeCount: number;
+  };
+};
+
 export type Vendor = {
   id: string;
   accountId: string;
@@ -392,6 +404,7 @@ export type Vendor = {
   ratingAverage?: string | null;
   createdAt: string;
   reviews?: VendorReview[];
+  trustScore?: VendorTrustScore;
 };
 
 export type VendorReview = {

@@ -4,6 +4,13 @@ import Link from "next/link";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Project, Vendor } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import AskAiPanel from "../../components/AskAiPanel";
+
+const TRUST_BAND_COLOR: Record<string, string | undefined> = {
+  excellent: "var(--potg-success)",
+  good: "var(--potg-success)",
+  caution: "var(--potg-danger)",
+};
 
 export default function VendorDetailPage() {
   const auth = useAuth();
@@ -30,7 +37,10 @@ export default function VendorDetailPage() {
   const isVendorAccount = auth.currentAccount?.accountType === "VENDOR";
 
   return (
-    <AppShell title={vendor?.businessName ?? "Vendor"}>
+    <AppShell
+      title={vendor?.businessName ?? "Vendor"}
+      aiPanel={id ? <AskAiPanel moduleContext={`vendor:${id}`} heading={`Ask AI — ${vendor?.businessName ?? "this vendor"}`} /> : undefined}
+    >
       <Link href="/vendors" className="potg-muted" style={{ fontSize: 13, display: "inline-block", marginBottom: 14 }}>
         ← Back to marketplace
       </Link>
@@ -56,6 +66,25 @@ export default function VendorDetailPage() {
                 )}
               </div>
             </div>
+            {vendor.trustScore && (
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--potg-border)" }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                  <span className="potg-label">Trust score</span>
+                  <span style={{ fontWeight: 700, fontSize: 16, color: TRUST_BAND_COLOR[vendor.trustScore.band] }}>
+                    {vendor.trustScore.score}/100
+                  </span>
+                  <span className="potg-badge" style={{ textTransform: "capitalize" }}>
+                    {vendor.trustScore.band}
+                  </span>
+                </div>
+                <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
+                  {vendor.trustScore.factors.completedProjects} completed project(s) ·{" "}
+                  {vendor.trustScore.factors.reviewCount} review(s)
+                  {vendor.trustScore.factors.disputeCount > 0 && ` · ${vendor.trustScore.factors.disputeCount} dispute(s) on record`}
+                  {" — the platform's own arithmetic over its own data, not an independent audit."}
+                </div>
+              </div>
+            )}
           </div>
 
           {!isVendorAccount && id && (
