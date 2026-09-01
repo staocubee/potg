@@ -1,0 +1,863 @@
+// PropertyOnTheGo — core data model (Priority 1 & 2 of the blueprint's
+// Engineering Implementation Priorities: multi-account foundation, property
+// portfolio, document vault, and the AI layer's request/output/approval log).
+//
+// This intentionally covers Modules 1-4 and the AI entities from Section 14
+// of the blueprint, not the full 24-module schema — later modules (projects,
+// vendors, payments/escrow, inspections, leases, etc.) extend this same
+// account/property/permission spine when they're built.
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// --- Module 1: User, Tenant, and Account Management -------------------
+
+enum AccountType {
+  INDIVIDUAL
+  FAMILY
+  COMPANY
+  VENDOR
+  SUPPLIER
+}
+
+enum SubscriptionPlan {
+  INDIVIDUAL
+  FAMILY
+  COMPANY
+  VENDOR
+  SUPPLIER
+  ENTERPRISE
+}
+
+model Account {
+  id               String           @id @default(uuid())
+  accountType      AccountType
+  name             String
+  country          String
+  currency         String
+  timezone         String
+  status           String           @default("active")
+  subscriptionPlan SubscriptionPlan @default(INDIVIDUAL)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  members    AccountMember[]
+  properties Property[]
+  documents  Document[]
+  aiRequests AiRequest[]
+  vendor     Vendor?
+  projects   Project[]
+  payments   Payment[]
+  receipts   Receipt[]
+  listings        PropertyListing[]
+  supplier        Supplier?
+  orders          Order[]
+  aiConversations AiConversation[]
+
+  @@map("accounts")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  name         String
+  email        String   @unique
+  phone        String?
+  passwordHash String
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships         AccountMember[]
+  passwordResetTokens PasswordResetToken[]
+
+  @@map("users")
+}
+
+// Auth hardening pass: backs POST /auth/forgot-password + /auth/reset-password.
+// tokenHash stores sha256(rawToken), never the raw token itself — the same
+// "don't store the secret in a form a DB leak could use directly" reasoning
+// passwordHash already follows, just with a fast hash since this token is
+// already high-entropy random bytes rather than a user-chosen password (no
+// need for bcrypt's deliberate slowness here). One-time use via usedAt.
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_reset_tokens")
+}
+
+// Roles are account-scoped assignments; permissions are a fixed, seedable
+// vocabulary (see prisma/seed.ts) matching Section 8's "Permission Areas".
+model Role {
+  id          String  @id @default(uuid())
+  key         String  @unique // e.g. "property_owner", "family_admin", "vendor"
+  name        String
+  description String?
+
+  permissions RolePermission[]
+  members     AccountMember[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id    String @id @default(uuid())
+  key   String @unique // e.g. "property:read", "payment:approve", "ai:act"
+  label String
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+// A user may belong to several accounts at once (personal, family, company,
+// vendor) — this is the multi-tenancy join the blueprint calls out as
+// something to get right on day one.
+model AccountMember {
+  id        String   @id @default(uuid())
+  accountId String
+  userId    String
+  roleId    String
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role    Role    @relation(fields: [roleId], references: [id])
+
+  propertyGrants PropertyAccessGrant[]
+  aiRequests     AiRequest[]
+
+  @@unique([accountId, userId])
+  @@map("account_members")
+}
+
+model KycVerification {
+  id          String    @id @default(uuid())
+  userId      String
+  status      String    @default("not_verified") // not_verified | submitted | verified | rejected
+  provider    String?
+  submittedAt DateTime?
+  reviewedAt  DateTime?
+  notes       String?
+
+  @@map("kyc_verifications")
+}
+
+// --- Module 2: Property Portfolio Management ---------------------------
+
+model Property {
+  id             String    @id @default(uuid())
+  accountId      String
+  propertyType   String
+  name           String
+  addressLine    String
+  city           String?
+  state          String?
+  country        String
+  latitude       Float?
+  longitude      Float?
+  status         String    @default("active")
+  currentUse     String?
+  estimatedValue Decimal?  @db.Decimal(14, 2)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  account        Account                 @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  owners         PropertyOwner[]
+  documents      Document[]
+  accessGrants   PropertyAccessGrant[]
+  timelineEvents PropertyTimelineEvent[]
+  projects       Project[]
+  listings       PropertyListing[]
+  valuations     PropertyValuation[]
+
+  @@map("properties")
+}
+
+// --- Module 3: Ownership and Governance ---------------------------------
+
+model PropertyOwner {
+  id                  String    @id @default(uuid())
+  propertyId          String
+  ownerType           String // "account" | "user" — who actually holds this share
+  ownerAccountId      String?
+  ownerUserId         String?
+  ownershipPercentage Decimal   @default(100) @db.Decimal(5, 2)
+  startDate           DateTime  @default(now())
+  endDate             DateTime?
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("property_owners")
+}
+
+// Property-level ABAC on top of role-level RBAC (Section 8's example: "a
+// family member can view documents but not approve payments").
+model PropertyAccessGrant {
+  id                 String   @id @default(uuid())
+  propertyId         String
+  accountMemberId    String
+  canView            Boolean  @default(true)
+  canEdit            Boolean  @default(false)
+  canApprovePayments Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  property      Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  accountMember AccountMember @relation(fields: [accountMemberId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, accountMemberId])
+  @@map("property_access_grants")
+}
+
+model PropertyTimelineEvent {
+  id         String   @id @default(uuid())
+  propertyId String
+  eventType  String // purchased | document_uploaded | renovation_started | inspection_completed ...
+  label      String
+  occurredAt DateTime @default(now())
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("property_timeline_events")
+}
+
+// --- Module 4: Document Vault and Legal Workflow ------------------------
+
+model Document {
+  id                 String    @id @default(uuid())
+  accountId          String
+  propertyId         String?
+  documentType       String
+  fileUrl            String
+  verificationStatus String    @default("not_verified")
+  expiryDate         DateTime?
+  uploadedByUserId   String
+  createdAt          DateTime  @default(now())
+
+  account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+
+  @@map("documents")
+}
+
+// --- Section 5 / 14: the AI Copilot Layer -------------------------------
+//
+// Every "Ask AI" panel interaction produces one AiRequest, at most one
+// AiOutput (the draft), and — only if a human accepts it — one
+// AiActionApproval. This is what makes the human-in-the-loop rule in
+// Section 5.4 enforceable rather than just documented: nothing downstream
+// should treat an AiOutput as final until an AiActionApproval exists for it.
+
+model AiRequest {
+  id              String   @id @default(uuid())
+  accountId       String
+  accountMemberId String
+  moduleContext   String // e.g. "property:<uuid>", "project:<uuid>" — what the request was scoped to
+  actionType      String // e.g. "verify_property_documents", "summarize_property"
+  input           Json
+  createdAt       DateTime @default(now())
+
+  account       Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  accountMember AccountMember @relation(fields: [accountMemberId], references: [id], onDelete: Cascade)
+  output        AiOutput?
+
+  @@map("ai_requests")
+}
+
+model AiOutput {
+  id          String   @id @default(uuid())
+  aiRequestId String   @unique
+  draftLabel  String
+  draftBody   Json
+  createdAt   DateTime @default(now())
+
+  aiRequest AiRequest         @relation(fields: [aiRequestId], references: [id], onDelete: Cascade)
+  approval  AiActionApproval?
+
+  @@map("ai_outputs")
+}
+
+model AiActionApproval {
+  id              String   @id @default(uuid())
+  aiOutputId      String   @unique
+  decidedByUserId String
+  decision        String // accepted | edited | discarded
+  decidedAt       DateTime @default(now())
+  notes           String?
+
+  aiOutput AiOutput @relation(fields: [aiOutputId], references: [id], onDelete: Cascade)
+
+  @@map("ai_action_approvals")
+}
+
+// --- Modules 7 & 9: Vendor Marketplace & Project Tracking ---------------
+//
+// Priority 3 of the Engineering Implementation Priorities. A Vendor is a
+// 1:1 extension of a VENDOR-type Account (the account is what auth/RBAC
+// already understands; the vendor row is the marketplace-facing profile on
+// top of it). A Project always belongs to the property owner's account and
+// property, and is what the wireframe's Scope -> Quote -> Materials ->
+// Work -> Handover flow tracks stage-by-stage.
+
+model Vendor {
+  id                String   @id @default(uuid())
+  accountId         String   @unique
+  businessName      String
+  serviceCategory   String // e.g. "renovation", "plumbing", "electrical", "landscaping"
+  locationCoverage  String? // freeform area/region description
+  verificationStatus String  @default("not_verified") // not_verified | pending | verified
+  ratingAverage     Decimal? @db.Decimal(3, 2)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  account     Account                   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  quotes      VendorQuote[]
+  assignments ProjectVendorAssignment[]
+  reviews     VendorReview[]
+  payouts     Payout[]
+
+  @@map("vendors")
+}
+
+model Project {
+  id                String    @id @default(uuid())
+  accountId         String
+  propertyId        String
+  projectType       String // e.g. "renovation", "new_build", "maintenance"
+  title             String
+  scopeDescription  String?
+  budget            Decimal?  @db.Decimal(14, 2)
+  currency          String    @default("USD")
+  status            String    @default("planning") // planning | in_progress | on_hold | completed | cancelled
+  startDate         DateTime?
+  expectedEndDate   DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  account       Account                   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property      Property                  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  stages        ProjectStage[]
+  milestones    ProjectMilestone[]
+  updates       ProjectUpdate[]
+  quotes        VendorQuote[]
+  assignments   ProjectVendorAssignment[]
+  reviews       VendorReview[]
+  escrowAccount EscrowAccount?
+  payments      Payment[]
+  payouts       Payout[]
+  disputes      Dispute[]
+  orders        Order[]
+
+  @@map("projects")
+}
+
+// Seeded by default on project creation, matching the wireframe exactly:
+// Scope -> Quote -> Materials -> Work -> Handover.
+model ProjectStage {
+  id        String   @id @default(uuid())
+  projectId String
+  name      String
+  sortOrder Int
+  status    String   @default("not_started") // not_started | in_progress | completed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, sortOrder])
+  @@map("project_stages")
+}
+
+model ProjectMilestone {
+  id              String    @id @default(uuid())
+  projectId       String
+  title           String
+  description     String?
+  paymentAmount   Decimal?  @db.Decimal(14, 2)
+  dueDate         DateTime?
+  status          String    @default("pending") // pending | in_progress | completed
+  approvalStatus  String    @default("not_requested") // not_requested | requested | approved | rejected
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  updates ProjectUpdate[]
+  payouts Payout[]
+
+  @@map("project_milestones")
+}
+
+model ProjectUpdate {
+  id               String   @id @default(uuid())
+  projectId        String
+  milestoneId      String?
+  submittedByUserId String
+  description      String
+  mediaUrls        String[] @default([])
+  createdAt        DateTime @default(now())
+
+  project   Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestone ProjectMilestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+
+  @@map("project_updates")
+}
+
+model VendorQuote {
+  id        String   @id @default(uuid())
+  projectId String
+  vendorId  String
+  amount    Decimal  @db.Decimal(14, 2)
+  currency  String   @default("USD")
+  notes     String?
+  status    String   @default("submitted") // requested | submitted | accepted | declined | withdrawn
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  vendor  Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@map("vendor_quotes")
+}
+
+model ProjectVendorAssignment {
+  id        String   @id @default(uuid())
+  projectId String
+  vendorId  String
+  role      String   @default("primary_contractor")
+  createdAt DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  vendor  Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, vendorId])
+  @@map("project_vendor_assignments")
+}
+
+// Gated on the project being marked "completed" (ProjectsService.complete)
+// and the vendor actually having a ProjectVendorAssignment on it
+// (VendorsService.createReview) — one review per vendor per project, same
+// shape SupplierReview uses for orders below.
+model VendorReview {
+  id        String   @id @default(uuid())
+  vendorId  String
+  projectId String
+  accountId String // who left the review, for tenant-isolation checks
+  rating    Int // 1-5
+  comment   String?
+  createdAt DateTime @default(now())
+
+  vendor  Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, vendorId])
+  @@map("vendor_reviews")
+}
+
+// --- Module 11: Payments and Escrow --------------------------------------
+//
+// Priority 4. No real payment gateway is wired up here (Section 16 lists
+// Paystack/Flutterwave/Stripe/PayPal as day-one integrations — this
+// scaffold simulates a completed payment/payout instantly instead, the
+// same way the AI layer's StubLlmProvider simulates a model). What's real
+// is the ledger: every escrow balance change is an EscrowLedgerEntry, so
+// the balance is always derivable from its history, not just a mutable
+// number — that auditability is the actual point of this module, not the
+// payment-provider integration.
+
+model EscrowAccount {
+  id        String   @id @default(uuid())
+  projectId String   @unique
+  balance   Decimal  @default(0) @db.Decimal(14, 2)
+  currency  String
+  status    String   @default("active") // active | closed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project       Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  payments      Payment[]
+  ledgerEntries EscrowLedgerEntry[]
+
+  @@map("escrow_accounts")
+}
+
+// A deposit from the project owner into the project's escrow account.
+// "provider" and "providerReference" are where a real gateway integration
+// would record its own transaction id — status is always "completed" here
+// since nothing actually calls out to one yet.
+model Payment {
+  id                String   @id @default(uuid())
+  accountId         String
+  projectId         String
+  escrowAccountId   String
+  amount            Decimal  @db.Decimal(14, 2)
+  currency          String
+  provider          String   @default("manual") // manual | paystack | flutterwave | stripe | paypal
+  providerReference String?
+  status            String   @default("completed") // pending | completed | failed | refunded
+  createdAt         DateTime @default(now())
+
+  account       Account             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  project       Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  escrowAccount EscrowAccount       @relation(fields: [escrowAccountId], references: [id], onDelete: Cascade)
+  ledgerEntries EscrowLedgerEntry[]
+  receipt       Receipt?
+  disputes      Dispute[]
+
+  @@map("payments")
+}
+
+model EscrowLedgerEntry {
+  id                 String   @id @default(uuid())
+  escrowAccountId    String
+  entryType          String // deposit | release | refund | adjustment
+  amount             Decimal  @db.Decimal(14, 2)
+  balanceAfter       Decimal  @db.Decimal(14, 2)
+  relatedPaymentId   String?
+  relatedMilestoneId String?
+  relatedPayoutId    String?
+  notes              String?
+  createdAt          DateTime @default(now())
+
+  escrowAccount EscrowAccount @relation(fields: [escrowAccountId], references: [id], onDelete: Cascade)
+  payment       Payment?      @relation(fields: [relatedPaymentId], references: [id], onDelete: SetNull)
+  payout        Payout?       @relation(fields: [relatedPayoutId], references: [id], onDelete: SetNull)
+
+  @@map("escrow_ledger_entries")
+}
+
+// Money moving out of escrow to the vendor hired on a project — created
+// only by "release a milestone" (ProjectsService... see PaymentsService),
+// never directly, so a Payout always traces back to the milestone it paid
+// for.
+model Payout {
+  id           String    @id @default(uuid())
+  vendorId     String
+  projectId    String
+  milestoneId  String?
+  amount       Decimal   @db.Decimal(14, 2)
+  currency     String
+  status       String    @default("pending") // pending | processing | paid | failed
+  payoutMethod String    @default("manual") // manual | bank_transfer | mobile_money
+  createdAt    DateTime  @default(now())
+  paidAt       DateTime?
+
+  vendor        Vendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  project       Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestone     ProjectMilestone?   @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  ledgerEntries EscrowLedgerEntry[]
+  receipt       Receipt?
+  disputes      Dispute[]
+
+  @@map("payouts")
+}
+
+// Exactly one of paymentId/payoutId is set — a receipt is always for one
+// side of a transaction, issued to whichever account was the counterparty
+// on it (the payer for a Payment, the vendor's account for a Payout).
+model Receipt {
+  id            String   @id @default(uuid())
+  accountId     String
+  receiptNumber String   @unique
+  paymentId     String?  @unique
+  payoutId      String?  @unique
+  amount        Decimal  @db.Decimal(14, 2)
+  currency      String
+  issuedAt      DateTime @default(now())
+
+  account Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  payout  Payout?  @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+
+  @@map("receipts")
+}
+
+model Dispute {
+  id                String    @id @default(uuid())
+  projectId         String
+  raisedByAccountId String
+  milestoneId       String?
+  paymentId         String?
+  payoutId          String?
+  reason            String
+  status            String    @default("open") // open | under_review | resolved | rejected
+  resolutionNotes   String?
+  createdAt         DateTime  @default(now())
+  resolvedAt        DateTime?
+
+  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  payout  Payout?  @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+
+  @@map("disputes")
+}
+
+// --- Modules 5 & 10: Property Marketplace & Materials Marketplace -------
+//
+// Priority 5. Two separate marketplaces sharing one pattern: a seller-side
+// profile (a listing is created from an owned Property; a Supplier is a
+// 1:1 profile on a SUPPLIER-type account, same shape as Vendor), a public
+// browse/search surface with no tenant isolation by design, and a
+// buyer-side action that's deliberately its own step, never automatic —
+// submitting an offer, placing an order. Module 6's full verification
+// workflow (a separate reviewer, risk flags, trust scores) is out of scope
+// here; PropertyListing.verificationStatus is a plain field with no
+// dedicated review endpoint yet, the same simplification Vendor took in
+// Priority 3.
+
+model PropertyListing {
+  id                 String   @id @default(uuid())
+  propertyId         String
+  accountId          String
+  listingType        String // sale | rent | short_let
+  askingPrice        Decimal  @db.Decimal(14, 2)
+  currency           String
+  title              String
+  description        String?
+  photoUrls          String[] @default([])
+  status             String   @default("draft") // draft | active | under_offer | sold | rented | withdrawn
+  verificationStatus String   @default("not_verified") // not_verified | submitted | verified | rejected
+  viewCount          Int      @default(0)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  property  Property          @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  account   Account           @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  inquiries ListingInquiry[]
+  offers    ListingOffer[]
+  favorites ListingFavorite[]
+
+  @@map("property_listings")
+}
+
+model ListingInquiry {
+  id           String   @id @default(uuid())
+  listingId    String
+  accountId    String // the inquiring buyer's account — soft reference, same as VendorReview.accountId
+  message      String
+  contactEmail String?
+  contactPhone String?
+  status       String   @default("new") // new | responded | closed
+  createdAt    DateTime @default(now())
+
+  listing PropertyListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@map("listing_inquiries")
+}
+
+model ListingOffer {
+  id        String   @id @default(uuid())
+  listingId String
+  accountId String // the buyer's account — soft reference
+  amount    Decimal  @db.Decimal(14, 2)
+  currency  String
+  message   String?
+  status    String   @default("submitted") // submitted | countered | accepted | rejected | withdrawn
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  listing PropertyListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@map("listing_offers")
+}
+
+model ListingFavorite {
+  id        String   @id @default(uuid())
+  listingId String
+  accountId String
+  createdAt DateTime @default(now())
+
+  listing PropertyListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([listingId, accountId])
+  @@map("listing_favorites")
+}
+
+model Supplier {
+  id                  String   @id @default(uuid())
+  accountId           String   @unique
+  businessName        String
+  category            String // materials | tools | equipment
+  locationCoverage    String?
+  verificationStatus  String   @default("not_verified") // not_verified | pending | verified
+  ratingAverage       Decimal? @db.Decimal(3, 2)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  products Product[]
+  orders   Order[]
+  reviews  SupplierReview[]
+
+  @@map("suppliers")
+}
+
+model Product {
+  id            String   @id @default(uuid())
+  supplierId    String
+  name          String
+  category      String // e.g. "cement", "tiles", "electrical", "tools" — freeform, matched by the boq_to_order AI skill
+  unit          String // e.g. "bag", "piece", "sqm", "roll"
+  unitPrice     Decimal  @db.Decimal(14, 2)
+  currency      String
+  stockQuantity Int      @default(0)
+  description   String?
+  status        String   @default("active") // active | out_of_stock | discontinued
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  supplier   Supplier    @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  orderItems OrderItem[]
+
+  @@map("products")
+}
+
+model Order {
+  id              String   @id @default(uuid())
+  accountId       String
+  supplierId      String
+  projectId       String?
+  status          String   @default("pending") // pending | confirmed | shipped | delivered | cancelled
+  totalAmount     Decimal  @db.Decimal(14, 2)
+  currency        String
+  deliveryAddress String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  account  Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  supplier Supplier    @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  project  Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  items    OrderItem[]
+  delivery Delivery?
+  review   SupplierReview?
+
+  @@map("orders")
+}
+
+// The materials-marketplace counterpart to VendorReview — gated on the
+// order actually being delivered rather than a project being "completed"
+// (an order doesn't always belong to a project at all, see projectId
+// above), with the same one-review-per-transaction shape (@@unique via
+// Order.review's implicit @unique on orderId below).
+model SupplierReview {
+  id         String   @id @default(uuid())
+  supplierId String
+  orderId    String   @unique
+  accountId  String // who left the review, for tenant-isolation checks
+  rating     Int // 1-5
+  comment    String?
+  createdAt  DateTime @default(now())
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("supplier_reviews")
+}
+
+model OrderItem {
+  id        String  @id @default(uuid())
+  orderId   String
+  productId String
+  quantity  Int
+  unitPrice Decimal @db.Decimal(14, 2)
+  lineTotal Decimal @db.Decimal(14, 2)
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@map("order_items")
+}
+
+model Delivery {
+  id                    String    @id @default(uuid())
+  orderId               String    @unique
+  status                String    @default("pending") // pending | in_transit | delivered | failed
+  trackingReference     String?
+  estimatedDeliveryDate DateTime?
+  deliveredAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("deliveries")
+}
+
+// --- Priority 6: Deeper AI and Advanced Analytics ------------------------
+//
+// Two additions. First, real multi-turn chat (Section 5.4/5.1: "every
+// feature should let the user chat", Section 16: "an LLM provider with
+// tool-calling/function-calling support") — everything before this was a
+// single quick-action button per skill; AiConversation/AiMessage back a
+// genuine back-and-forth that can call those same skills as tools mid-
+// conversation (see ChatService). Second, a slice of Module 15 (Property
+// Valuation and Investment Analytics) — just PropertyValuation, enough for
+// an appreciation history and a baseline for ROI modeling; the rest of
+// Module 15's engineering notes (market_price_records, investment_metrics
+// as their own tables) are out of scope here, computed on the fly instead.
+
+model AiConversation {
+  id              String   @id @default(uuid())
+  accountId       String
+  accountMemberId String
+  moduleContext   String? // optional — chat can be scoped ("property:<id>") or general portfolio chat
+  title           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  account  Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  messages AiMessage[]
+
+  @@map("ai_conversations")
+}
+
+model AiMessage {
+  id             String   @id @default(uuid())
+  conversationId String
+  role           String // user | assistant
+  content        String
+  toolName       String? // set when this assistant reply came from running a skill mid-chat
+  aiOutputId     String? // the AiOutput that tool call produced, if any — lets a client jump straight to Accept/Edit/Discard
+  createdAt      DateTime @default(now())
+
+  conversation AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("ai_messages")
+}
+
+model PropertyValuation {
+  id             String   @id @default(uuid())
+  propertyId     String
+  estimatedValue Decimal  @db.Decimal(14, 2)
+  currency       String
+  source         String   @default("manual") // manual | ai_estimate
+  notes          String?
+  valuedAt       DateTime @default(now())
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("property_valuations")
+}

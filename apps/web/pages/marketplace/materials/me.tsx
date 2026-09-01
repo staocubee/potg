@@ -1,0 +1,297 @@
+import { FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
+import { useAuth } from "../../../lib/auth";
+import { ApiError, MaterialOrder, Product, Supplier } from "../../../lib/api";
+import AppShell from "../../../components/AppShell";
+
+const SUPPLIER_CATEGORIES = ["materials", "tools", "equipment"];
+
+function formatMoney(value?: string | null, currency?: string) {
+  if (!value) return null;
+  const n = Number(value);
+  if (Number.isNaN(n)) return value;
+  const formatted = n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  return currency ? `${currency} ${formatted}` : formatted;
+}
+
+export default function SupplierDashboardPage() {
+  const auth = useAuth();
+  const [supplier, setSupplier] = useState<Supplier | null | undefined>(undefined);
+  const [orders, setOrders] = useState<MaterialOrder[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showProductForm, setShowProductForm] = useState(false);
+
+  function load() {
+    if (!auth.currentAccountId) return;
+    setError(null);
+    auth.api
+      .mySupplierProfile()
+      .then((s) => {
+        setSupplier(s);
+        if (s) auth.api.findOrdersForSupplier().then(setOrders).catch(() => setOrders([]));
+      })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load your supplier profile."));
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  return (
+    <AppShell title="Your supplier dashboard">
+      <Link href="/marketplace/materials" className="potg-muted" style={{ fontSize: 13, display: "inline-block", marginBottom: 14 }}>
+        ← Back to materials & tools
+      </Link>
+
+      {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
+
+      {supplier === undefined && !error && <p className="potg-muted">Loading…</p>}
+
+      {supplier === null && (
+        <CreateSupplierProfileForm onCreated={(s) => setSupplier(s)} />
+      )}
+
+      {supplier && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="potg-card" style={{ padding: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <div>
+                <h2 style={{ fontSize: 18 }}>{supplier.businessName}</h2>
+                <p className="potg-muted" style={{ margin: "4px 0 0", fontSize: 13, textTransform: "capitalize" }}>
+                  {supplier.category}
+                  {supplier.locationCoverage && ` · ${supplier.locationCoverage}`}
+                </p>
+              </div>
+              <span className="potg-badge">{supplier.verificationStatus.replace(/_/g, " ")}</span>
+            </div>
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <h3 style={{ fontSize: 14, margin: 0 }}>Your products</h3>
+              <button className="potg-btn potg-btn-secondary" onClick={() => setShowProductForm((v) => !v)}>
+                {showProductForm ? "Cancel" : "+ Add product"}
+              </button>
+            </div>
+            {showProductForm && (
+              <AddProductForm
+                onCreated={(p) => {
+                  setSupplier((prev) => (prev ? { ...prev, products: [p, ...(prev.products ?? [])] } : prev));
+                  setShowProductForm(false);
+                }}
+              />
+            )}
+            {(!supplier.products || supplier.products.length === 0) && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>No products yet.</p>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: showProductForm ? 12 : 0 }}>
+              {supplier.products?.map((p) => (
+                <ProductRow
+                  key={p.id}
+                  product={p}
+                  onUpdated={(updated) =>
+                    setSupplier((prev) =>
+                      prev ? { ...prev, products: prev.products?.map((x) => (x.id === updated.id ? updated : x)) } : prev,
+                    )
+                  }
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <h3 style={{ fontSize: 14, marginBottom: 10 }}>Incoming orders</h3>
+            {orders && orders.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No orders yet.</p>}
+            {!orders && <p className="potg-muted" style={{ fontSize: 12 }}>Loading orders…</p>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {orders?.map((o) => (
+                <Link
+                  key={o.id}
+                  href={`/marketplace/materials/orders/${o.id}`}
+                  className="potg-card"
+                  style={{ padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}
+                >
+                  <div style={{ fontSize: 13 }}>
+                    <div style={{ fontWeight: 700 }}>{formatMoney(o.totalAmount, o.currency)}</div>
+                    <div className="potg-muted" style={{ fontSize: 12 }}>
+                      {o.items.length} item{o.items.length === 1 ? "" : "s"} · {new Date(o.createdAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <span className="potg-badge">{o.status.replace(/_/g, " ")}</span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </AppShell>
+  );
+}
+
+function CreateSupplierProfileForm({ onCreated }: { onCreated: (s: Supplier) => void }) {
+  const auth = useAuth();
+  const [businessName, setBusinessName] = useState("");
+  const [category, setCategory] = useState(SUPPLIER_CATEGORIES[0]);
+  const [locationCoverage, setLocationCoverage] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const supplier = await auth.api.createSupplierProfile({ businessName, category, locationCoverage: locationCoverage || undefined });
+      onCreated(supplier);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't create your supplier profile.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="potg-card" style={{ padding: 18, maxWidth: 480, display: "flex", flexDirection: "column", gap: 10 }}>
+      <p className="potg-muted" style={{ fontSize: 13, marginTop: 0 }}>
+        Sell materials, tools, or equipment through PropertyOnTheGo — set up your supplier profile to get started.
+      </p>
+      {error && <div className="potg-error">{error}</div>}
+      <div>
+        <label className="potg-label">Business name</label>
+        <input className="potg-input" required autoFocus value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+      </div>
+      <div>
+        <label className="potg-label">Category</label>
+        <select className="potg-input" value={category} onChange={(e) => setCategory(e.target.value)}>
+          {SUPPLIER_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="potg-label">Location coverage (optional)</label>
+        <input className="potg-input" value={locationCoverage} onChange={(e) => setLocationCoverage(e.target.value)} />
+      </div>
+      <div>
+        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+          {busy ? "Creating…" : "Create supplier profile"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function AddProductForm({ onCreated }: { onCreated: (p: Product) => void }) {
+  const auth = useAuth();
+  const [name, setName] = useState("");
+  const [category, setCategory] = useState("");
+  const [unit, setUnit] = useState("");
+  const [unitPrice, setUnitPrice] = useState("");
+  const [stockQuantity, setStockQuantity] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const product = await auth.api.createProduct({
+        name,
+        category,
+        unit,
+        unitPrice: Number(unitPrice),
+        stockQuantity: stockQuantity ? Number(stockQuantity) : undefined,
+      });
+      onCreated(product);
+      setName("");
+      setCategory("");
+      setUnit("");
+      setUnitPrice("");
+      setStockQuantity("");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't add that product.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="potg-card" style={{ padding: 14, marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+      {error && <div className="potg-error">{error}</div>}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <input className="potg-input" required placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input className="potg-input" required placeholder="Category (e.g. cement)" value={category} onChange={(e) => setCategory(e.target.value)} />
+        <input className="potg-input" required placeholder="Unit (e.g. bag)" value={unit} onChange={(e) => setUnit(e.target.value)} />
+        <input className="potg-input" required type="number" min={0} placeholder="Unit price" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} />
+        <input
+          className="potg-input"
+          type="number"
+          min={0}
+          placeholder="Stock quantity"
+          value={stockQuantity}
+          onChange={(e) => setStockQuantity(e.target.value)}
+        />
+      </div>
+      <div>
+        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+          {busy ? "Adding…" : "Add product"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function ProductRow({ product, onUpdated }: { product: Product; onUpdated: (p: Product) => void }) {
+  const auth = useAuth();
+  const [editing, setEditing] = useState(false);
+  const [unitPrice, setUnitPrice] = useState(product.unitPrice);
+  const [stockQuantity, setStockQuantity] = useState(String(product.stockQuantity));
+  const [busy, setBusy] = useState(false);
+
+  async function onSave() {
+    setBusy(true);
+    try {
+      const updated = await auth.api.updateProduct(product.id, { unitPrice: Number(unitPrice), stockQuantity: Number(stockQuantity) });
+      onUpdated(updated);
+      setEditing(false);
+    } catch {
+      // inline row — keep it lightweight, no error banner
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 13 }}>
+      <div>
+        <div style={{ fontWeight: 700 }}>{product.name}</div>
+        <div className="potg-muted" style={{ fontSize: 12 }}>
+          {product.category} · {product.unit} · <span className="potg-badge">{product.status.replace(/_/g, " ")}</span>
+        </div>
+      </div>
+      {editing ? (
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <input className="potg-input" style={{ width: 90 }} type="number" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} />
+          <input className="potg-input" style={{ width: 70 }} type="number" value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} />
+          <button className="potg-btn potg-btn-primary" onClick={onSave} disabled={busy}>
+            {busy ? "…" : "Save"}
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontWeight: 700 }}>{formatMoney(product.unitPrice, product.currency)}</div>
+            <div className="potg-muted" style={{ fontSize: 11 }}>{product.stockQuantity} in stock</div>
+          </div>
+          <button className="potg-btn potg-btn-secondary" onClick={() => setEditing(true)}>
+            Edit
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

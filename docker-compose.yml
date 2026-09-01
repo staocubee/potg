@@ -1,0 +1,27 @@
+version: "3.9"
+
+# Local dev infrastructure only. Matches the blueprint's Technical Architecture
+# section: PostgreSQL for core transactional data, Redis for cache/sessions/queues.
+# Search (Elasticsearch/OpenSearch), object storage, and a vector DB for the AI
+# layer's context retrieval are not wired up yet — see README "Not built yet".
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: potg
+      POSTGRES_PASSWORD: potg
+      POSTGRES_DB: potg
+    ports:
+      - "5432:5432"
+    volumes:
+      - potg_postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+volumes:
+  potg_postgres_data:
