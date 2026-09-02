@@ -1972,6 +1972,26 @@ has to survive a real bank's own OTP confirmation step.
   an activated key is available needs no further code changes, only a
   live OTP (or a dashboard "disable OTP for transfers" toggle) to watch
   the `"success"` branch actually fire.
+- **Rechecked later the same session: the `disabled_merchant` block is
+  gone, replaced by a narrower one.** Calling Paystack directly again
+  with the project-specific key — `/transaction/initialize`, `/balance`,
+  `/bank/resolve`, `/transferrecipient` — all now succeed where
+  `/transaction/initialize` previously came back `"Integration has been
+  deactivated"`, so the account-activation step the user was waiting on
+  has completed. Initiating a fresh transfer now gets past that and fails
+  one step later instead: Paystack's own `/balance` reports `₦0`, and
+  `/transfer` refuses with `"code":"insufficient_balance"` — a test-mode
+  transfer normally doesn't require real funds, but this particular test
+  account currently does, which is Paystack's own account-level setting,
+  not this integration's. The stale `TRF_…` reference from the earlier
+  (differently-keyed) attempt is also gone —
+  `GET /transfer/:code` now 400s `"Transfer ID/code specified is
+  invalid"` for it, confirming it belonged to the account under the old
+  key, not this one. Next step is funding this Paystack account's test
+  balance (Paystack dashboard, test mode) — once that's done, a fresh
+  `POST /projects/:projectId/milestones/:milestoneId/release` should
+  reach the `"otp"` state this section already handles, with nothing
+  left to change in this codebase.
 
 ## Accepting a listing-description draft now saves it (this pass)
 
