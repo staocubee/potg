@@ -89,7 +89,7 @@ export default function VendorDetailPage() {
           </div>
 
           {isPlatformReviewer && id && (
-            <PlatformReviewPanel vendorId={id} status={vendor.verificationStatus} onChanged={load} />
+            <PlatformReviewPanel vendorId={id} status={vendor.verificationStatus} notes={vendor.verificationNotes} onChanged={load} />
           )}
 
           {!isVendorAccount && id && (
@@ -198,8 +198,22 @@ const VERIFICATION_STATUSES = ["not_verified", "pending", "verified"];
 // self-verify. Mirrors the shape of the Documents page's Verify/Reject
 // controls without the client-side permission check that page's own note
 // explains skipping — here the panel's visibility already is the check.
-function PlatformReviewPanel({ vendorId, status, onChanged }: { vendorId: string; status: string; onChanged: () => void }) {
+function PlatformReviewPanel({
+  vendorId,
+  status,
+  notes,
+  onChanged,
+}: {
+  vendorId: string;
+  status: string;
+  notes?: string | null;
+  onChanged: () => void;
+}) {
   const auth = useAuth();
+  // Seeded from the vendor's current note so re-opening this panel after
+  // a page reload doesn't start blank — a reviewer picking this back up
+  // sees what they (or someone else) already wrote.
+  const [draftNotes, setDraftNotes] = useState(notes ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -207,7 +221,7 @@ function PlatformReviewPanel({ vendorId, status, onChanged }: { vendorId: string
     setBusy(true);
     setError(null);
     try {
-      await auth.api.setVendorVerification(vendorId, newStatus);
+      await auth.api.setVendorVerification(vendorId, newStatus, draftNotes || undefined);
       onChanged();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't update verification status.");
@@ -223,12 +237,20 @@ function PlatformReviewPanel({ vendorId, status, onChanged }: { vendorId: string
         Set this vendor's platform verification status. Visible only to the platform reviewer role.
       </p>
       {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+      <textarea
+        className="potg-input"
+        rows={2}
+        placeholder='Notes — e.g. what "pending" is waiting on, or the reason for a decision (optional)'
+        value={draftNotes}
+        onChange={(e) => setDraftNotes(e.target.value)}
+        style={{ marginBottom: 8 }}
+      />
       <div style={{ display: "flex", gap: 6 }}>
         {VERIFICATION_STATUSES.map((s) => (
           <button
             key={s}
             className={s === status ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
-            disabled={busy || s === status}
+            disabled={busy}
             onClick={() => onSetStatus(s)}
             style={{ padding: "4px 9px", fontSize: 11, textTransform: "capitalize" }}
           >

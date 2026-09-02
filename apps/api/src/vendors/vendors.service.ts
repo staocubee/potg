@@ -105,7 +105,10 @@ export class VendorsService {
   async setVerificationStatus(vendorId: string, dto: SetVendorVerificationDto) {
     const vendor = await this.prisma.vendor.findUnique({ where: { id: vendorId } });
     if (!vendor) throw new NotFoundException('Vendor not found');
-    return this.prisma.vendor.update({ where: { id: vendorId }, data: { verificationStatus: dto.status } });
+    return this.prisma.vendor.update({
+      where: { id: vendorId },
+      data: { verificationStatus: dto.status, verificationNotes: dto.notes ?? null },
+    });
   }
 
   // Vendor-initiated: submitting or revising a quote on a project. This

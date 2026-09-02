@@ -107,6 +107,11 @@ export default function VendorDashboardPage() {
               </div>
               <span className="potg-badge">{vendor.verificationStatus.replace(/_/g, " ")}</span>
             </div>
+            {vendor.verificationNotes && (
+              <p className="potg-muted" style={{ fontSize: 12, marginTop: 10, borderLeft: "2px solid var(--potg-border)", paddingLeft: 8 }}>
+                Platform reviewer's note: {vendor.verificationNotes}
+              </p>
+            )}
           </div>
 
           <div className="potg-card" style={{ padding: 18 }}>

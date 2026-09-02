@@ -130,7 +130,7 @@ export default function SupplierDetailPage() {
           </div>
 
           {isPlatformReviewer && id && (
-            <PlatformReviewPanel supplierId={id} status={supplier.verificationStatus} onChanged={load} />
+            <PlatformReviewPanel supplierId={id} status={supplier.verificationStatus} notes={supplier.verificationNotes} onChanged={load} />
           )}
 
           <div className="potg-card" style={{ padding: 18 }}>
@@ -361,8 +361,21 @@ const VERIFICATION_STATUSES = ["not_verified", "pending", "verified"];
 // materials-marketplace counterpart to the vendor page's PlatformReviewPanel.
 // Only rendered for the platform_reviewer role, never granted to a
 // supplier's own account, so this can't be used to self-verify.
-function PlatformReviewPanel({ supplierId, status, onChanged }: { supplierId: string; status: string; onChanged: () => void }) {
+function PlatformReviewPanel({
+  supplierId,
+  status,
+  notes,
+  onChanged,
+}: {
+  supplierId: string;
+  status: string;
+  notes?: string | null;
+  onChanged: () => void;
+}) {
   const auth = useAuth();
+  // Seeded from the supplier's current note so re-opening this panel
+  // after a page reload doesn't start blank.
+  const [draftNotes, setDraftNotes] = useState(notes ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -370,7 +383,7 @@ function PlatformReviewPanel({ supplierId, status, onChanged }: { supplierId: st
     setBusy(true);
     setError(null);
     try {
-      await auth.api.setSupplierVerification(supplierId, newStatus);
+      await auth.api.setSupplierVerification(supplierId, newStatus, draftNotes || undefined);
       onChanged();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't update verification status.");
@@ -386,12 +399,20 @@ function PlatformReviewPanel({ supplierId, status, onChanged }: { supplierId: st
         Set this supplier's platform verification status. Visible only to the platform reviewer role.
       </p>
       {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+      <textarea
+        className="potg-input"
+        rows={2}
+        placeholder='Notes — e.g. what "pending" is waiting on, or the reason for a decision (optional)'
+        value={draftNotes}
+        onChange={(e) => setDraftNotes(e.target.value)}
+        style={{ marginBottom: 8 }}
+      />
       <div style={{ display: "flex", gap: 6 }}>
         {VERIFICATION_STATUSES.map((s) => (
           <button
             key={s}
             className={s === status ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
-            disabled={busy || s === status}
+            disabled={busy}
             onClick={() => onSetStatus(s)}
             style={{ padding: "4px 9px", fontSize: 11, textTransform: "capitalize" }}
           >

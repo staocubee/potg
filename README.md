@@ -1809,6 +1809,55 @@ the queue the moment anything ever wrote it. Nothing did, until now.
   view, reloaded to confirm the row wasn't stuck busy, then verified it
   from that `submitted` state and watched it clear the queue.
 
+## Giving vendor/supplier "pending" verification actual meaning (Module 6)
+
+The narrower gap "The neutral reviewer's decisions are one-shot" kept
+flagging: `Vendor`/`Supplier.verificationStatus`'s `pending` was already
+freely settable by `platform_reviewer` (unlike `Dispute.under_review` and
+`Document.submitted`, which had no write path at all before the two
+passes above) — but nothing gave it "awaiting evidence" semantics or a
+paper trail, so setting it was indistinguishable from any other one-shot
+decision. Unlike disputes and documents, `Vendor`/`Supplier` had no spare
+notes field to reuse.
+
+- **New `verificationNotes String?` on both `Vendor` and `Supplier`**
+  (migration `20260903000000_add_verification_notes`) — the one piece
+  this pass actually needed a schema change for, since (unlike
+  `Dispute.resolutionNotes` and `Document.verificationNotes`) there was
+  nothing to repurpose.
+- **`SetVendorVerificationDto`/`SetSupplierVerificationDto`** gain an
+  optional `notes` field alongside `status` — deliberately not a
+  separate arbitrator-only DTO like `ArbitrateDisputeDto`/
+  `ArbitrateDocumentVerificationDto`, because `pending` was already
+  reachable by the same one action every other status is; there was no
+  narrower write-path gap to close here, only a missing field.
+  `VendorsService.setVerificationStatus`/`MaterialsService.
+  setSupplierVerificationStatus` write it alongside `verificationStatus`
+  on every call (`null` when omitted, clearing a stale note once a final
+  decision is made).
+- **Web UI**: `PlatformReviewPanel` (on both the vendor and supplier
+  detail pages) gains a notes textarea seeded from the profile's current
+  note, and its status buttons are no longer disabled for the
+  already-active status — clicking "pending" again now works, which
+  matters once notes carry meaning: a reviewer can update what's needed
+  without changing the status at all. The vendor/supplier's own `/me`
+  dashboard shows the note under the status badge ("Platform reviewer's
+  note: …") the same way `vendors/me.tsx` already shows a review's
+  moderator note.
+- **Verified live**: set a vendor to `pending` with a note as the
+  platform reviewer, confirmed both the status and note via a direct API
+  call, confirmed the vendor's own `/vendors/me` view (a different
+  account) showed the identical note, then repeated the same check for a
+  supplier before restoring both back to `verified` with the note
+  cleared.
+- **Closes Module 6's evidence-request gap as far as this scaffold's
+  schema allows.** Three of four `platform_reviewer` actions (dispute
+  arbitration, document verification, vendor/supplier verification) now
+  carry real reviewer context instead of a bare status flip; only review
+  `moderationStatus` doesn't fit the same pattern — "flagged" already
+  plays a similar role there, raised by the reviewed party rather than
+  the reviewer, so there's no analogous gap to close.
+
 ## Review moderation — flagging and the neutral reviewer (Module 6)
 
 Closes the "no report/flag mechanism" half of the "Reviews still have no
@@ -2138,13 +2187,15 @@ blueprint, or explicitly cut from it:
   13, 15, and 23, not the full 24. Modules 8, 12, and 13 are slices, not
   the full modules, because there's no separate Inspector, Contractor, or
   Tenant identity — see "Property inspections", "Maintenance requests",
-  and "Leases" above. Module 6 is still a slice — two of the
-  `platform_reviewer` role's four actions (vendor/supplier verification,
-  review moderation) are still one-shot status decisions with no way to
-  request more evidence first; the other two (dispute arbitration,
-  document verification) aren't anymore — see "An evidence-request step
-  for dispute arbitration" and "An evidence-request step for document
-  verification" above for where those two stand.
+  and "Leases" above. Module 6 is still a slice — only review
+  `moderationStatus` doesn't carry reviewer-context/evidence-request
+  semantics the way the other three `platform_reviewer` actions now do
+  (dispute arbitration, document verification, vendor/supplier
+  verification — see "An evidence-request step for dispute arbitration",
+  its document-verification counterpart, and "Giving vendor/supplier
+  'pending' verification actual meaning" above), and "flagged" already
+  plays a similar role for reviews, just raised by the reviewed party
+  rather than the reviewer.
 - **Property inspections — one gap left in the new module.** No separate
   Inspector identity (see "Property inspections" above — `inspectorName`
   is freeform text, not an account relation). Editing a scheduled
@@ -2166,28 +2217,28 @@ blueprint, or explicitly cut from it:
   independent audit — a real reviewer setting `verificationStatus` (see
   "A real neutral reviewer" above) only ever feeds one input into that
   formula, it doesn't audit the rest.
-- **The neutral reviewer's decisions are one-shot for two fields out of
-  four, no evidence request.** `platform_reviewer` covers `Vendor`/
-  `Supplier.verificationStatus`, dispute arbitration, `Document.
-  verificationStatus`, and review `moderationStatus` (see "A real neutral
-  reviewer", "Extending the neutral reviewer to dispute arbitration",
-  "Extending the neutral reviewer to document verification", and "Review
-  moderation" above) — dispute arbitration and document verification both
-  gained an evidence-request step (`under_review` / `submitted` — see "An
-  evidence-request step for dispute arbitration" and its document-
-  verification counterpart above); vendor/supplier verification and
-  review moderation still only ever decide now with what's already on
-  file or don't decide at all. `Vendor`/`Supplier.verificationStatus`'s
-  `pending` is a narrower gap than it looks — `SetVendorVerificationDto`/
-  `SetSupplierVerificationDto` already let the reviewer set it freely —
-  but nothing gives it "awaiting evidence" semantics or a way back to it,
-  so setting it today is indistinguishable from any other one-shot
-  decision; that'd be the closest next slice if this gets picked up
-  again. Review `moderationStatus` has no obvious third state to reuse
-  the same way — "flagged" already plays a similar "needs a decision"
+- **The neutral reviewer's decisions carry real context for three fields
+  out of four; review moderation is the one exception, by design rather
+  than oversight.** `platform_reviewer` covers `Vendor`/`Supplier.
+  verificationStatus`, dispute arbitration, `Document.verificationStatus`,
+  and review `moderationStatus` (see "A real neutral reviewer",
+  "Extending the neutral reviewer to dispute arbitration", "Extending the
+  neutral reviewer to document verification", and "Review moderation"
+  above) — dispute arbitration and document verification both gained an
+  evidence-request step (`under_review` / `submitted`), and vendor/
+  supplier verification gained a `verificationNotes` field giving
+  `pending` actual "awaiting evidence" meaning instead of being
+  indistinguishable from any other one-shot decision (see "An
+  evidence-request step for dispute arbitration", its document-
+  verification counterpart, and "Giving vendor/supplier 'pending'
+  verification actual meaning" above). Review `moderationStatus` has no
+  analogous gap — "flagged" already plays a similar "needs a decision"
   role for reviews, just raised by the reviewed party rather than the
-  reviewer. Either way, this stays a real deployment's workflow to build
-  for now, not this scaffold's.
+  reviewer, so there's nothing parallel to add there. None of the four
+  gained a structured way for the reviewed account to *submit* more
+  evidence in response beyond re-uploading/re-editing through the normal
+  tools already available to it — that stays a real deployment's
+  workflow to build for now, not this scaffold's.
 - **AI-generated renovation visualizations.** Explicitly deferred by
   Priority 6 itself, pending Module 22 (AR/VR) existing at all.
 - **Multi-turn tool use in one chat turn.** `ChatService` calls at most one

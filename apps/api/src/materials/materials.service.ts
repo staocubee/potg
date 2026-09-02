@@ -78,7 +78,10 @@ export class MaterialsService {
   async setSupplierVerificationStatus(supplierId: string, dto: SetSupplierVerificationDto) {
     const supplier = await this.prisma.supplier.findUnique({ where: { id: supplierId } });
     if (!supplier) throw new NotFoundException('Supplier not found');
-    return this.prisma.supplier.update({ where: { id: supplierId }, data: { verificationStatus: dto.status } });
+    return this.prisma.supplier.update({
+      where: { id: supplierId },
+      data: { verificationStatus: dto.status, verificationNotes: dto.notes ?? null },
+    });
   }
 
   // --- Products --------------------------------------------------------

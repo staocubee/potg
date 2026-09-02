@@ -405,6 +405,7 @@ export type Vendor = {
   serviceCategory: string;
   locationCoverage?: string | null;
   verificationStatus: string;
+  verificationNotes?: string | null;
   ratingAverage?: string | null;
   bankAccountNumber?: string | null;
   bankCode?: string | null;
@@ -660,6 +661,7 @@ export type Supplier = {
   category: "materials" | "tools" | "equipment" | string;
   locationCoverage?: string | null;
   verificationStatus: "not_verified" | "pending" | "verified" | string;
+  verificationNotes?: string | null;
   ratingAverage?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -1139,10 +1141,10 @@ export class ApiClient {
   getVendor(vendorId: string) {
     return request<Vendor>(`/vendors/${vendorId}`, { token: this.token, accountId: this.accountId });
   }
-  setVendorVerification(vendorId: string, status: string) {
+  setVendorVerification(vendorId: string, status: string, notes?: string) {
     return request<Vendor>(`/vendors/${vendorId}/verification`, {
       method: "PATCH",
-      body: { status },
+      body: { status, notes },
       token: this.token,
       accountId: this.accountId,
     });
@@ -1466,10 +1468,10 @@ export class ApiClient {
   getSupplier(supplierId: string) {
     return request<Supplier>(`/suppliers/${supplierId}`, { token: this.token, accountId: this.accountId });
   }
-  setSupplierVerification(supplierId: string, status: string) {
+  setSupplierVerification(supplierId: string, status: string, notes?: string) {
     return request<Supplier>(`/suppliers/${supplierId}/verification`, {
       method: "PATCH",
-      body: { status },
+      body: { status, notes },
       token: this.token,
       accountId: this.accountId,
     });

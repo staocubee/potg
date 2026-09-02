@@ -390,6 +390,7 @@ model Vendor {
   serviceCategory   String // e.g. "renovation", "plumbing", "electrical", "landscaping"
   locationCoverage  String? // freeform area/region description
   verificationStatus String  @default("not_verified") // not_verified | pending | verified
+  verificationNotes String? // the neutral reviewer's note — what's needed to move off "pending", or why a decision was made
   ratingAverage     Decimal? @db.Decimal(3, 2)
   // A real Paystack Transfer payout (see PaymentsService.releaseMilestone)
   // needs a bank account to pay into — all three set together or not at
@@ -787,6 +788,7 @@ model Supplier {
   category            String // materials | tools | equipment
   locationCoverage    String?
   verificationStatus  String   @default("not_verified") // not_verified | pending | verified
+  verificationNotes   String? // the neutral reviewer's note — what's needed to move off "pending", or why a decision was made
   ratingAverage       Decimal? @db.Decimal(3, 2)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
