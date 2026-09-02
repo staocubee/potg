@@ -2172,6 +2172,59 @@ way "Accepting a status-update draft now posts it" closed it for projects.
   every module's screen with no per-page refresh callback, and adding one
   is a bigger change than this slice.
 
+## A real email provider — Resend (password reset + invites)
+
+Closes the last "logged + returned raw" scaffold-depth tradeoff this
+codebase carried: password-reset and invite links now get actually
+emailed, via [Resend](https://resend.com)'s API — same "plain fetch, no
+SDK" shape `AnthropicLlmProvider`/`PaystackService` already use, and the
+same "falls back cleanly with no key configured" shape `PaystackService`
+uses too.
+
+- **New `EmailService`** (`src/notifications`) — one `send()` method,
+  `isConfigured` gated on `RESEND_API_KEY`. Returns whether the send was
+  actually accepted rather than throwing: an email provider being down is
+  never a reason to fail the request that triggered the email.
+- **`AuthService.forgotPassword`** and **`AccountsService.addMember`/
+  `resendInvite`** now call it. The raw token/link is only ever included
+  in the response when `send()` comes back `false` — that's the one case
+  still needing a manual fallback (no key configured, or a send that
+  failed for some other reason), and it's what closes the actual security
+  gap those three endpoints' comments used to flag: returning a
+  password-reset or invite token in an API response is fine for a
+  scaffold with no email provider and genuinely wrong once one exists,
+  since anyone who could call the endpoint could then also read the token
+  meant to prove receipt of the email.
+- **Web UI**: `pages/forgot-password.tsx`, `pages/accounts/members.tsx`'s
+  `InviteForm`, and its `PendingInviteRow`'s resend action all branch on
+  whether a token came back — "emailed to X" when one didn't, the old
+  copy-this-link box when one did. No page needed new API calls, only to
+  stop assuming the token field is always present.
+- **Verified live end-to-end, including the exact limitation this
+  approach carries**: with `RESEND_API_KEY` set, a real
+  `forgotPassword('staocube@gmail.com')` call correctly omitted
+  `resetToken` from the response, the server log read `(emailed)`, and
+  the user confirmed the email actually arrived and the reset link
+  worked. Inviting a fresh, non-account email
+  (`new-invitee-realtest@example.com`) hit Resend's own sandbox
+  restriction instead — `422 Invalid \`to\` field... Please use our
+  testing email address` — confirming live what the code comments already
+  said: without a verified sending domain, Resend's sandbox sender
+  (`onboarding@resend.dev`, the default `EMAIL_FROM`) only actually
+  delivers to the email address the API key's own Resend account is
+  registered with, nobody else. The endpoint correctly treated that as a
+  failed send and fell back to returning the raw `inviteToken` — caught
+  and fixed a real bug while confirming this: the fallback log line
+  originally said "no provider configured" even when a key *was*
+  configured and the send failed for an unrelated reason (this exact
+  sandbox case); `AccountsService.describeSendStatus`/the equivalent
+  inline check in `AuthService` now distinguish "not configured" from "a
+  configured send failed" instead of blaming the wrong cause.
+- **What a real deployment needs beyond this**: a verified sending domain
+  on Resend (lifts the sandbox recipient restriction — see
+  `RESEND_API_KEY`'s comment in `.env.example`), and probably a proper
+  HTML email template rather than the inline strings this pass uses.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -2295,11 +2348,12 @@ blueprint, or explicitly cut from it:
 - **Auth hardening that's still open.** The access token lives in
   `localStorage` (XSS-exposed) rather than an httpOnly cookie — a
   deliberate tradeoff, see "Web app auth hardening" above, not an
-  oversight. The password-reset email is logged/returned instead of
-  actually emailed (no provider wired up). No client-side validation
-  beyond native HTML `required`/`minLength`/`type="email"`. Rate limiting
-  and refresh-token revocation are no longer on this list — see "Auth
-  hardening: rate limiting, refresh-token revocation, refunds" above.
+  oversight. No client-side validation beyond native HTML `required`/
+  `minLength`/`type="email"`. Rate limiting and refresh-token revocation
+  are no longer on this list — see "Auth hardening: rate limiting,
+  refresh-token revocation, refunds" above — and neither is the
+  password-reset email, now actually sent — see "A real email provider —
+  Resend" above.
 - **Search, media, and vector layers** (Elasticsearch/OpenSearch, S3-
   compatible object storage, a vector DB for AI context retrieval) — the
   Technical Architecture section calls these out, none are wired up here.
@@ -2307,12 +2361,11 @@ blueprint, or explicitly cut from it:
 - **Payment/escrow licensing, market-specific verification mechanisms,
   and data residency** — the compliance work the blueprint review flagged
   needs to run in parallel with engineering, not be solved by this code.
-- **Invite/accept exists now, with real gaps left in it.** See "Real
-  invite/accept flow" and "Revoking and resending pending invites" above
-  for what's there. Still open: no invite listing beyond the account's
-  own Members page, and email delivery is the same "logged + returned
-  raw" scaffold-depth tradeoff as password reset — a real deployment must
-  drop `inviteToken` from the response and actually send it.
+- **Invite/accept exists now, with one real gap left in it.** See "Real
+  invite/accept flow", "Revoking and resending pending invites", and "A
+  real email provider — Resend" above for what's there — invites are
+  actually emailed now, same as password resets. Still open: no invite
+  listing beyond the account's own Members page.
 - **Chaining an AI Accept into its drafted action — down to one skill
   left, and it's advisory by design.** See "Accepting a status-update
   draft now posts it" and "Accepting a listing-description draft now

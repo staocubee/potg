@@ -4,6 +4,7 @@ import * as bcrypt from 'bcryptjs';
 import { randomBytes, randomUUID, createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { RegisterDto } from './dto/register.dto';
+import { EmailService } from '../notifications/email.service';
 
 // Access tokens are short-lived and carry `type: 'access'` — JwtAuthGuard
 // rejects anything else, so a leaked/stolen refresh token can't be used
@@ -27,6 +28,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly email: EmailService,
   ) {}
 
   async register(input: RegisterDto) {
@@ -156,15 +158,17 @@ export class AuthService {
     }));
   }
 
-  // No email provider is wired up anywhere in this scaffold (payments are
-  // simulated the same way — see src/payments's own comment), so this
-  // can't actually email a reset link. It logs the link server-side (where
-  // a real implementation would hand it to an email service instead) and,
-  // ONLY because there's no other channel for a developer/demo user to
-  // receive it, also returns the raw token in the response. A real
-  // deployment must delete the `resetToken` line from the return value
-  // below — returning it defeats the point of a reset flow (anyone who can
-  // call this endpoint for an email could reset that account's password).
+  // EmailService.send actually delivers this when RESEND_API_KEY is set
+  // (see that file — Resend's sandbox sender still only reaches the API
+  // key's own account without a verified domain, an external constraint,
+  // not this code's). Without a key configured, this falls back to the
+  // original scaffold behavior: log the link server-side and return the
+  // raw token in the response, since there's no other channel for a
+  // developer/demo user to receive it. That fallback only fires when
+  // `sent` comes back false — once a provider is actually delivering,
+  // returning the token in the response would defeat the point of a reset
+  // flow (anyone who could call this endpoint for an email could reset
+  // that account's password), so it's dropped the moment sending succeeds.
   async forgotPassword(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
     // Same response whether the email exists or not — don't let this
@@ -179,10 +183,20 @@ export class AuthService {
     });
 
     const resetLink = `${process.env.WEB_APP_URL ?? 'http://localhost:3000'}/reset-password?token=${rawToken}`;
-    this.logger.log(`Password reset requested for ${email} — link (would be emailed): ${resetLink}`);
+    const sent = await this.email.send({
+      to: email,
+      subject: 'Reset your PropertyOnTheGo password',
+      html: `<p>We received a request to reset your PropertyOnTheGo password.</p><p><a href="${resetLink}">Reset your password</a></p><p>This link expires in one hour. If you didn't request this, you can ignore this email.</p>`,
+      text: `Reset your PropertyOnTheGo password: ${resetLink}\n\nThis link expires in one hour. If you didn't request this, you can ignore this email.`,
+    });
+    const linkStatus = sent
+      ? '(emailed)'
+      : this.email.isConfigured
+        ? '(email send failed — see the EmailService error above)'
+        : '(would be emailed, no RESEND_API_KEY configured)';
+    this.logger.log(`Password reset requested for ${email} — link ${linkStatus}: ${resetLink}`);
 
-    // TODO(production): stop returning resetToken once a real email
-    // provider sends resetLink instead — see the method comment above.
+    if (sent) return generic;
     return { ...generic, resetToken: rawToken };
   }
 

@@ -9,10 +9,10 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // Set only when the API hands back a resetToken — see the big comment on
-  // AuthService.forgotPassword: no email provider is wired up anywhere in
-  // this scaffold, so there's no other way for a demo/dev user to actually
-  // get the link. A real deployment removes this along with that field.
+  // Set only when the API hands back a resetToken — see the comment on
+  // AuthService.forgotPassword: that only happens when EmailService
+  // couldn't actually deliver the email (no RESEND_API_KEY configured),
+  // the one case left needing a manual fallback link.
   const [devResetLink, setDevResetLink] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
 
@@ -38,9 +38,8 @@ export default function ForgotPasswordPage() {
       {sent ? (
         <div>
           <p style={{ fontSize: 13 }}>
-            If that email has an account, a password reset link has been generated. In a real deployment it would
-            arrive by email — this scaffold doesn't have an email provider wired up yet, so it's logged server-side
-            instead.
+            If that email has an account, a password reset link has been generated
+            {devResetLink ? "" : " and emailed to it"}.
           </p>
           {devResetLink && (
             <p className="potg-card" style={{ padding: 12, fontSize: 12, marginTop: 12 }}>

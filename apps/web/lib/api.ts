@@ -813,14 +813,14 @@ export class ApiClient {
   }
   // Existing email -> added immediately ({type:"member"}); new email ->
   // a pending invite is created ({type:"invite", inviteToken}) — see
-  // AccountsService.addMember. inviteToken is only ever present because
-  // there's no real email provider wired up (same tradeoff as
-  // forgotPassword's resetToken); a real deployment would drop it and
-  // rely on the email actually sent.
+  // AccountsService.addMember. inviteToken is only present when
+  // EmailService couldn't actually deliver the invite (no RESEND_API_KEY
+  // configured, same fallback shape as forgotPassword's resetToken) —
+  // once a real send succeeds, the raw token is dropped from the response.
   addAccountMember(accountId: string, input: { email: string; roleKey: string }) {
     return request<
       | { type: "member"; member: AccountMemberSummary }
-      | { type: "invite"; invite: AccountInviteSummary; inviteToken: string }
+      | { type: "invite"; invite: AccountInviteSummary; inviteToken?: string }
     >(`/accounts/${accountId}/members`, { method: "POST", body: input, token: this.token, accountId: this.accountId });
   }
   // Kills a pending invite without replacing it — see
@@ -833,8 +833,9 @@ export class ApiClient {
     });
   }
   // Rotates a pending invite's token/expiry — see AccountsService.resendInvite.
+  // Same inviteToken-only-on-fallback shape as addAccountMember above.
   resendInvite(accountId: string, inviteId: string) {
-    return request<{ invite: AccountInviteSummary; inviteToken: string }>(
+    return request<{ invite: AccountInviteSummary; inviteToken?: string }>(
       `/accounts/${accountId}/invites/${inviteId}/resend`,
       { method: "POST", token: this.token, accountId: this.accountId },
     );

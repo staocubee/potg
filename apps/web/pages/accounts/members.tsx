@@ -75,8 +75,9 @@ export default function AccountMembersPage() {
 }
 
 // Resend rotates the token and shows the fresh link the same way the
-// invite form does on first send — no real email provider, see
-// AccountsService.resendInvite. Revoke has no link to show, just removes
+// invite form does on first send — an actual email when EmailService has
+// a provider configured, otherwise the same raw-link fallback (see
+// AccountsService.resendInvite). Revoke has no link to show, just removes
 // the row (the invite disappears from `load()`'s result once its status
 // is no longer "pending").
 function PendingInviteRow({ invite, onChanged }: { invite: AccountInviteSummary; onChanged: () => void }) {
@@ -84,6 +85,7 @@ function PendingInviteRow({ invite, onChanged }: { invite: AccountInviteSummary;
   const [busy, setBusy] = useState<"revoke" | "resend" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resendLink, setResendLink] = useState<string | null>(null);
+  const [resendEmailed, setResendEmailed] = useState(false);
 
   async function onRevoke() {
     if (!auth.currentAccountId) return;
@@ -103,9 +105,15 @@ function PendingInviteRow({ invite, onChanged }: { invite: AccountInviteSummary;
     if (!auth.currentAccountId) return;
     setBusy("resend");
     setError(null);
+    setResendLink(null);
+    setResendEmailed(false);
     try {
       const result = await auth.api.resendInvite(auth.currentAccountId, invite.id);
-      setResendLink(`${window.location.origin}/accept-invite?token=${result.inviteToken}`);
+      if (result.inviteToken) {
+        setResendLink(`${window.location.origin}/accept-invite?token=${result.inviteToken}`);
+      } else {
+        setResendEmailed(true);
+      }
       onChanged();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't resend that invite.");
@@ -134,9 +142,10 @@ function PendingInviteRow({ invite, onChanged }: { invite: AccountInviteSummary;
         </div>
       </div>
       {error && <div className="potg-error" style={{ fontSize: 11 }}>{error}</div>}
+      {resendEmailed && <div className="potg-muted" style={{ fontSize: 11 }}>New invite emailed to {invite.email}.</div>}
       {resendLink && (
         <div className="potg-muted" style={{ fontSize: 11 }}>
-          New link (no email sent):
+          No email provider configured — share this new link with them directly:
           <div style={{ wordBreak: "break-all", fontFamily: "monospace" }}>{resendLink}</div>
         </div>
       )}
@@ -149,11 +158,12 @@ function InviteForm({ onDone }: { onDone: () => void }) {
   const [email, setEmail] = useState("");
   const [roleKey, setRoleKey] = useState(INVITABLE_ROLES[0].key);
   const [error, setError] = useState<string | null>(null);
-  // Shown after a successful invite of an email with no existing account —
-  // there's no real email provider wired up (see AccountsService.addMember),
-  // so this link is the only way a developer/demo user actually has to
-  // hand it to the person they just invited.
+  // inviteLink is only ever set when EmailService couldn't actually
+  // deliver the invite (no RESEND_API_KEY configured — see
+  // AccountsService.addMember) — that's the only case left needing a
+  // manual hand-off link; inviteEmailed covers the normal case.
   const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteEmailed, setInviteEmailed] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   async function onSubmit(e: FormEvent) {
@@ -161,11 +171,16 @@ function InviteForm({ onDone }: { onDone: () => void }) {
     if (!auth.currentAccountId) return;
     setError(null);
     setInviteLink(null);
+    setInviteEmailed(null);
     setBusy(true);
     try {
       const result = await auth.api.addAccountMember(auth.currentAccountId, { email, roleKey });
       if (result.type === "invite") {
-        setInviteLink(`${window.location.origin}/accept-invite?token=${result.inviteToken}`);
+        if (result.inviteToken) {
+          setInviteLink(`${window.location.origin}/accept-invite?token=${result.inviteToken}`);
+        } else {
+          setInviteEmailed(email);
+        }
       }
       setEmail("");
       onDone();
@@ -180,9 +195,10 @@ function InviteForm({ onDone }: { onDone: () => void }) {
     <form onSubmit={onSubmit} className="potg-card" style={{ padding: 18, marginBottom: 16, display: "flex", flexDirection: "column", gap: 10 }}>
       <h3 style={{ fontSize: 14, margin: 0 }}>Invite a member</h3>
       {error && <div className="potg-error">{error}</div>}
+      {inviteEmailed && <div className="potg-muted" style={{ fontSize: 12 }}>Invite emailed to {inviteEmailed}.</div>}
       {inviteLink && (
         <div className="potg-muted" style={{ fontSize: 12 }}>
-          No email is sent yet in this scaffold — share this link with them directly:
+          No email provider configured — share this link with them directly:
           <div style={{ wordBreak: "break-all", marginTop: 4, fontFamily: "monospace" }}>{inviteLink}</div>
         </div>
       )}

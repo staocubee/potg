@@ -3,6 +3,7 @@ import { randomBytes, createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { AddMemberDto } from './dto/add-member.dto';
+import { EmailService } from '../notifications/email.service';
 
 // The role a user creating a new account is granted automatically —
 // mirrors Section 8's core roles. Seed data (prisma/seed.ts) must define a
@@ -21,7 +22,23 @@ const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export class AccountsService {
   private readonly logger = new Logger(AccountsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly email: EmailService,
+  ) {}
+
+  // Shared by addMember/resendInvite's own log lines — distinguishes "no
+  // RESEND_API_KEY at all" from "a key is set but this particular send
+  // failed" (rate limit, a sandbox-mode restriction, a bad address, ...)
+  // rather than blaming "no provider configured" for a failure that has
+  // nothing to do with configuration. EmailService.send already logs the
+  // specific reason itself when a configured send fails.
+  private describeSendStatus(sent: boolean): string {
+    if (sent) return '(emailed)';
+    return this.email.isConfigured
+      ? '(email send failed — see the EmailService error above)'
+      : '(would be emailed, no RESEND_API_KEY configured)';
+  }
 
   async create(userId: string, dto: CreateAccountDto) {
     const roleKey = DEFAULT_OWNER_ROLE_BY_ACCOUNT_TYPE[dto.accountType];
@@ -85,13 +102,20 @@ export class AccountsService {
         });
 
     const inviteLink = `${process.env.WEB_APP_URL ?? 'http://localhost:3000'}/accept-invite?token=${rawToken}`;
-    this.logger.log(`Invited ${dto.email} to account ${accountId} — link (would be emailed): ${inviteLink}`);
+    const account = await this.prisma.account.findUnique({ where: { id: accountId }, select: { name: true } });
+    const sent = await this.email.send({
+      to: dto.email,
+      subject: `You've been invited to join ${account?.name ?? 'a PropertyOnTheGo account'}`,
+      html: `<p>You've been invited to join <strong>${account?.name ?? 'a PropertyOnTheGo account'}</strong> on PropertyOnTheGo.</p><p><a href="${inviteLink}">Accept the invite</a></p><p>This link expires in 7 days.</p>`,
+      text: `You've been invited to join ${account?.name ?? 'a PropertyOnTheGo account'} on PropertyOnTheGo: ${inviteLink}\n\nThis link expires in 7 days.`,
+    });
+    this.logger.log(`Invited ${dto.email} to account ${accountId} — link ${this.describeSendStatus(sent)}: ${inviteLink}`);
 
-    // Same "no email provider" tradeoff as AuthService.forgotPassword —
-    // logged server-side and ONLY returned raw here because there's no
-    // other channel for a developer/demo user to get it. A real
-    // deployment must drop `inviteToken` from the response.
-    return { type: 'invite' as const, invite, inviteToken: rawToken };
+    // Same EmailService fallback shape as AuthService.forgotPassword — the
+    // raw token is only ever in the response when nothing actually sent
+    // it, same "no other channel for a developer/demo user to get it"
+    // reasoning, and dropped the moment a real send succeeds.
+    return { type: 'invite' as const, invite, inviteToken: sent ? undefined : rawToken };
   }
 
   // Public-facing (see InvitesController — no account context, possibly no
@@ -176,9 +200,16 @@ export class AccountsService {
     });
 
     const inviteLink = `${process.env.WEB_APP_URL ?? 'http://localhost:3000'}/accept-invite?token=${rawToken}`;
-    this.logger.log(`Resent invite for ${existing.email} on account ${accountId} — link (would be emailed): ${inviteLink}`);
+    const account = await this.prisma.account.findUnique({ where: { id: accountId }, select: { name: true } });
+    const sent = await this.email.send({
+      to: existing.email,
+      subject: `You've been invited to join ${account?.name ?? 'a PropertyOnTheGo account'}`,
+      html: `<p>You've been invited to join <strong>${account?.name ?? 'a PropertyOnTheGo account'}</strong> on PropertyOnTheGo.</p><p><a href="${inviteLink}">Accept the invite</a></p><p>This link expires in 7 days.</p>`,
+      text: `You've been invited to join ${account?.name ?? 'a PropertyOnTheGo account'} on PropertyOnTheGo: ${inviteLink}\n\nThis link expires in 7 days.`,
+    });
+    this.logger.log(`Resent invite for ${existing.email} on account ${accountId} — link ${this.describeSendStatus(sent)}: ${inviteLink}`);
 
-    return { invite, inviteToken: rawToken };
+    return { invite, inviteToken: sent ? undefined : rawToken };
   }
 
   // Called by InvitesController for an already-registered, already-
