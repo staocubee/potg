@@ -13,6 +13,8 @@ import { ResolveDisputeDto } from '../payments/dto/resolve-dispute.dto';
 import { ReplyToReviewDto } from './dto/reply-to-review.dto';
 import { SetVendorVerificationDto } from './dto/set-vendor-verification.dto';
 import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
+import { FlagReviewDto } from './dto/flag-review.dto';
+import { ModerateReviewDto } from './dto/moderate-review.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -119,6 +121,36 @@ export class VendorsController {
     @Body() dto: ReplyToReviewDto,
   ) {
     return this.vendors.replyToReview(member.accountId, reviewId, dto);
+  }
+
+  // The report side of the "no report/flag mechanism" gap — see
+  // VendorsService.flagReview. Same review:respond-shaped ownership check
+  // as replying, its own permission so a role can carry one without the
+  // other (a viewer-style role could conceivably flag without being able
+  // to write a reply, though no seeded role currently splits them).
+  @RequirePermissions('review:flag')
+  @Post('me/reviews/:reviewId/flag')
+  flagReview(
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Param('reviewId') reviewId: string,
+    @Body() dto: FlagReviewDto,
+  ) {
+    return this.vendors.flagReview(member.accountId, reviewId, dto);
+  }
+
+  // Module 6's neutral-reviewer queue for flagged reviews — see
+  // VendorsService.findFlaggedReviews. Must be registered before
+  // GET :vendorId below so "reviews" doesn't get swallowed as a vendor id.
+  @RequirePermissions('review:moderate')
+  @Get('reviews/flagged')
+  findFlaggedReviews() {
+    return this.vendors.findFlaggedReviews();
+  }
+
+  @RequirePermissions('review:moderate')
+  @Patch('reviews/:reviewId/moderate')
+  moderateReview(@Param('reviewId') reviewId: string, @Body() dto: ModerateReviewDto) {
+    return this.vendors.moderateReview(reviewId, dto);
   }
 
   @RequirePermissions('vendor:read')

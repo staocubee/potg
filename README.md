@@ -1694,15 +1694,93 @@ Same shape as those two passes, applied to `Document`.
   immediately after) and in the browser: switching to the platform
   account turns `/documents` into the arbitration queue, verifying the
   pending document there empties the queue.
-- **Closes Module 6's neutral-reviewer scope for this session.** All
-  three fields that had either no verification path (`Vendor`/`Supplier.
-  verificationStatus`) or only a self-service one (`Document.
-  verificationStatus`, `Dispute.status`) now have a genuinely separate
-  reviewer path. What's still open: the reviewer can't request more
-  evidence before deciding on any of the three, and the score/self-serve
-  paths still exist alongside the neutral ones rather than being
-  replaced by them — see the "Not built yet" bullets below for exactly
-  what that leaves on the table.
+- **Closed Module 6's neutral-reviewer scope as it stood at the time** —
+  see "Review moderation — flagging and the neutral reviewer (Module 6)"
+  further down for a fourth field (review `moderationStatus`) this same
+  role picked up later in this session. All four fields that had either
+  no verification path (`Vendor`/`Supplier.verificationStatus`) or only a
+  self-service one (`Document.verificationStatus`, `Dispute.status`,
+  review `moderationStatus`) now have a genuinely separate reviewer path.
+  What's still open: the reviewer can't request more evidence before
+  deciding on any of them, and the score/self-serve paths still exist
+  alongside the neutral ones rather than being replaced by them — see the
+  "Not built yet" bullets below for exactly what that leaves on the
+  table.
+
+## Review moderation — flagging and the neutral reviewer (Module 6)
+
+Closes the "no report/flag mechanism" half of the "Reviews still have no
+moderation" gap, and extends `platform_reviewer` to a fourth field —
+same structural-neutrality shape as vendor/supplier verification, dispute
+arbitration, and document verification above, applied to `VendorReview`/
+`SupplierReview`.
+
+- **`VendorReview`/`SupplierReview` both gain `moderationStatus`**
+  (`published | flagged | hidden`, mirroring `Document.
+  verificationStatus`'s shape) plus `flagReason`/`flaggedAt` (set by the
+  reviewed party) and `moderationNotes`/`moderatedAt` (set by the
+  moderator). Migration `20260902100000_add_review_moderation`.
+- **New `review:flag` permission**, granted to the `vendor`/`supplier`
+  roles alongside their existing `review:respond` — flagging is still
+  just the other party to the review acting on their own profile, the
+  same ownership check `replyToReview` already used.
+  **`POST /vendors/me/reviews/:reviewId/flag`** and **`POST /suppliers/
+  me/reviews/:reviewId/flag`** (`VendorsService.flagReview`,
+  `MaterialsService.flagOrderReview`) mark a review `"flagged"` with a
+  reason — flagging doesn't hide anything by itself, it only surfaces the
+  review to the moderation queue.
+- **New `review:moderate` permission, granted only to
+  `platform_reviewer`** — that role never gets `review:write`/`respond`/
+  `flag` (see `seed.ts`), so it can never be the reviewer, the reviewed
+  party, or whoever flagged a review it goes on to moderate. **`GET
+  /vendors/reviews/flagged`** and **`GET /suppliers/reviews/flagged`**
+  (`findFlaggedReviews`/`findFlaggedOrderReviews`) list every flagged
+  review platform-wide, no `:vendorId`/`:supplierId`/`:accountId` param
+  for `PermissionsGuard`'s ABAC to key on — same shape every other
+  neutral-reviewer route already uses. **`PATCH /vendors/reviews/
+  :reviewId/moderate`** / **`.../suppliers/reviews/:reviewId/moderate`**
+  record the decision: `"hidden"` (excluded from the public profile and
+  no longer counted in `ratingAverage`) or `"published"` (dismiss the
+  flag, or — found and fixed during live testing below — restore an
+  earlier `"hidden"` decision; only a review that's never been flagged at
+  all is rejected as "nothing to moderate").
+- **A hidden review stays visible to the account it's about.** The
+  public `findOne`/`findSupplier` filter `moderationStatus: { not:
+  "hidden" }`; the owner's own `findForAccount`/`findMySupplier` don't, so
+  a vendor/supplier can see why a review disappeared (and the moderator's
+  own note) rather than it just vanishing unexplained.
+  `recomputeRating` — and, since they read reviews directly rather than
+  the pre-computed `ratingAverage`, `compare_vendor_quotes` and
+  `boq_to_order`'s own review reads — all apply the same exclusion, so a
+  hidden review stops counting anywhere its rating would otherwise show
+  up, immediately and consistently.
+- **Web UI**: `pages/vendors/me.tsx` and `pages/marketplace/materials/
+  me.tsx` get a "Flag" button next to "Reply" on each own-profile review
+  (hidden once a review is already flagged or hidden), plus a moderation-
+  notes readout when hidden. `pages/vendors/index.tsx` — the one page
+  `platform_reviewer` can actually reach, since `product:read` (not
+  `vendor:read`) gates the materials marketplace and this role has
+  neither a supplier list page nor that permission — gains a combined
+  "Flagged reviews" queue for both marketplaces shown *alongside* (not
+  replacing) the vendor grid this role already browses to verify vendors,
+  each row offering "Hide review" / "Dismiss flag".
+- **Verified live end-to-end**, including a real gap the first pass
+  missed: flagged the seeded vendor review as the vendor account,
+  confirmed it appeared in the platform reviewer's queue with its reason,
+  dismissed it (queue emptied, rating unchanged), re-flagged it, hid it
+  (queue emptied again; confirmed via direct API calls that `ratingAverage`
+  recomputed to `null`, the public `GET /vendors/:id` response dropped the
+  review entirely, and the vendor's own `GET /vendors/me` still showed it
+  marked `"hidden"` with the moderator's note) — then discovered
+  `moderateReview` had no way to reverse a `"hidden"` decision at all (it
+  only accepted a review currently `"flagged"`), fixed it to accept
+  either `"flagged"` or `"hidden"` as a starting point, and confirmed live
+  that restoring the hidden review brought the `4.0` rating back.
+- **Known gap, honestly left open**: restoring a hidden review works via
+  the API (confirmed above) but has no UI — there's no "previously
+  moderated" list to find one from, only the still-flagged queue. A real
+  deployment doing enough of this to need it would want that list; this
+  scaffold's slice doesn't build it.
 
 ## A real payment gateway — Paystack (Section 16)
 
@@ -2015,15 +2093,13 @@ blueprint, or explicitly cut from it:
   verification is no longer on this list — see "Document verification"
   above — though it's still an account's own admin doing the verifying,
   not an independent reviewer.
-- **Reviews still have no moderation.** See "Review editing, replies, and
-  the 'me' dashboards" above for what changed — the reviewer can now edit
-  or delete their own review and the vendor/supplier can reply, but
-  there's still no admin/moderator who can act on a review that isn't
-  theirs, and no report/flag mechanism. `compare_vendor_quotes` and
-  `boq_to_order` now read reviews (see "AI skills read reviews" below) —
-  `assess_listing_risk` still doesn't, but that's because listings have no
-  vendor/supplier relationship to read in the first place, not because it
-  was skipped.
+- **Reviews now have moderation.** See "Review moderation — flagging and
+  the neutral reviewer (Module 6)" above for the report/flag mechanism and
+  the `platform_reviewer` role's hide/dismiss/restore actions this closed.
+  `compare_vendor_quotes` and `boq_to_order` now read reviews (see "AI
+  skills read reviews" below) — `assess_listing_risk` still doesn't, but
+  that's because listings have no vendor/supplier relationship to read in
+  the first place, not because it was skipped.
 - **Auth hardening that's still open.** The access token lives in
   `localStorage` (XSS-exposed) rather than an httpOnly cookie — a
   deliberate tradeoff, see "Web app auth hardening" above, not an

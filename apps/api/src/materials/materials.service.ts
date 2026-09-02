@@ -9,6 +9,8 @@ import { UpdateDeliveryDto } from './dto/update-delivery.dto';
 import { CreateOrderReviewDto } from './dto/create-order-review.dto';
 import { UpdateOrderReviewDto } from './dto/update-order-review.dto';
 import { ReplyToReviewDto } from '../vendors/dto/reply-to-review.dto';
+import { FlagReviewDto } from '../vendors/dto/flag-review.dto';
+import { ModerateReviewDto } from '../vendors/dto/moderate-review.dto';
 import { SetSupplierVerificationDto } from './dto/set-supplier-verification.dto';
 import { CreateRentalBookingDto } from './dto/create-rental-booking.dto';
 import { UpsertCartItemDto } from './dto/upsert-cart-item.dto';
@@ -53,12 +55,16 @@ export class MaterialsService {
     return { ...supplier, trustScore: await getSupplierTrustScore(this.prisma, supplier) };
   }
 
+  // Public marketplace view — hides a review moderateOrderReview has
+  // marked "hidden" (findMySupplier, the supplier's own view, shows every
+  // review including hidden ones so it can see why one disappeared
+  // publicly).
   async findSupplier(id: string) {
     const supplier = await this.prisma.supplier.findUnique({
       where: { id },
       include: {
         products: { where: { status: 'active' } },
-        reviews: { orderBy: { createdAt: 'desc' } },
+        reviews: { where: { moderationStatus: { not: 'hidden' } }, orderBy: { createdAt: 'desc' } },
       },
     });
     if (!supplier) return supplier;
@@ -441,8 +447,15 @@ export class MaterialsService {
     return review;
   }
 
+  // Excludes "hidden" reviews (but not "flagged" ones — see
+  // VendorsService.recomputeRating's counterpart for why) so a review a
+  // moderator hides for spam/abuse stops inflating or deflating the
+  // supplier's rating.
   private async recomputeRating(supplierId: string) {
-    const { _avg } = await this.prisma.supplierReview.aggregate({ where: { supplierId }, _avg: { rating: true } });
+    const { _avg } = await this.prisma.supplierReview.aggregate({
+      where: { supplierId, moderationStatus: { not: 'hidden' } },
+      _avg: { rating: true },
+    });
     await this.prisma.supplier.update({
       where: { id: supplierId },
       data: { ratingAverage: _avg.rating ?? null },
@@ -489,5 +502,48 @@ export class MaterialsService {
       where: { id: reviewId },
       data: { response: dto.response, respondedAt: new Date() },
     });
+  }
+
+  // The materials-marketplace counterpart to VendorsService.flagReview —
+  // same reasoning, same review:flag-gated ownership check.
+  async flagOrderReview(supplierAccountId: string, reviewId: string, dto: FlagReviewDto) {
+    const supplier = await this.prisma.supplier.findUnique({ where: { accountId: supplierAccountId } });
+    if (!supplier) throw new NotFoundException('Review not found');
+    const review = await this.prisma.supplierReview.findUnique({ where: { id: reviewId } });
+    if (!review || review.supplierId !== supplier.id) throw new NotFoundException('Review not found');
+    if (review.moderationStatus === 'hidden') {
+      throw new BadRequestException('This review has already been hidden by a moderator');
+    }
+    return this.prisma.supplierReview.update({
+      where: { id: reviewId },
+      data: { moderationStatus: 'flagged', flagReason: dto.reason, flaggedAt: new Date() },
+    });
+  }
+
+  // The materials-marketplace counterpart to VendorsService.findFlaggedReviews.
+  findFlaggedOrderReviews() {
+    return this.prisma.supplierReview.findMany({
+      where: { moderationStatus: 'flagged' },
+      include: { supplier: { select: { id: true, businessName: true } } },
+      orderBy: { flaggedAt: 'desc' },
+    });
+  }
+
+  // The materials-marketplace counterpart to VendorsService.moderateReview
+  // — same "flagged or hidden, never published" reversibility shape.
+  async moderateOrderReview(reviewId: string, dto: ModerateReviewDto) {
+    const review = await this.prisma.supplierReview.findUnique({ where: { id: reviewId } });
+    if (!review) throw new NotFoundException('Review not found');
+    if (review.moderationStatus === 'published') {
+      throw new BadRequestException('This review has never been flagged — nothing to moderate');
+    }
+    const updated = await this.prisma.supplierReview.update({
+      where: { id: reviewId },
+      data: { moderationStatus: dto.status, moderationNotes: dto.moderationNotes, moderatedAt: new Date() },
+    });
+    if (dto.status === 'hidden' || review.moderationStatus === 'hidden') {
+      await this.recomputeRating(review.supplierId);
+    }
+    return updated;
   }
 }

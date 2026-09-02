@@ -5,6 +5,8 @@ import { SubmitQuoteDto } from './dto/submit-quote.dto';
 import { CreateVendorReviewDto } from './dto/create-vendor-review.dto';
 import { UpdateVendorReviewDto } from './dto/update-vendor-review.dto';
 import { ReplyToReviewDto } from './dto/reply-to-review.dto';
+import { FlagReviewDto } from './dto/flag-review.dto';
+import { ModerateReviewDto } from './dto/moderate-review.dto';
 import { SetVendorVerificationDto } from './dto/set-vendor-verification.dto';
 import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
 import { getVendorTrustScore } from './trust-score';
@@ -81,10 +83,14 @@ export class VendorsService {
     return { ...vendor, trustScore: await getVendorTrustScore(this.prisma, vendor) };
   }
 
+  // Public marketplace view — hides a review moderateReview has marked
+  // "hidden" (findForAccount, the vendor's own view of its profile, shows
+  // every review including hidden ones so the vendor can see why one
+  // disappeared publicly).
   async findOne(id: string) {
     const vendor = await this.prisma.vendor.findUnique({
       where: { id },
-      include: { reviews: { orderBy: { createdAt: 'desc' } } },
+      include: { reviews: { where: { moderationStatus: { not: 'hidden' } }, orderBy: { createdAt: 'desc' } } },
     });
     if (!vendor) return vendor;
     return { ...vendor, trustScore: await getVendorTrustScore(this.prisma, vendor) };
@@ -193,8 +199,15 @@ export class VendorsService {
     return review;
   }
 
+  // Excludes "hidden" reviews (but not "flagged" ones — a flag alone
+  // doesn't change the score, only a moderator confirming it should) so a
+  // review a moderator hides for spam/abuse stops inflating or deflating
+  // the vendor's rating.
   private async recomputeRating(vendorId: string) {
-    const { _avg } = await this.prisma.vendorReview.aggregate({ where: { vendorId }, _avg: { rating: true } });
+    const { _avg } = await this.prisma.vendorReview.aggregate({
+      where: { vendorId, moderationStatus: { not: 'hidden' } },
+      _avg: { rating: true },
+    });
     await this.prisma.vendor.update({
       where: { id: vendorId },
       data: { ratingAverage: _avg.rating ?? null },
@@ -247,5 +260,67 @@ export class VendorsService {
       where: { id: reviewId },
       data: { response: dto.response, respondedAt: new Date() },
     });
+  }
+
+  // Closes the "no report/flag mechanism" gap the README flagged — the
+  // reviewed vendor's own report that a review is spam/abusive/inaccurate,
+  // gated on the same review:respond-shaped permission as replying (this
+  // is still just the other party to the review acting on their own
+  // profile). Flagging doesn't hide the review itself — only
+  // moderateReview below does that — it just surfaces it to the neutral
+  // reviewer queue. A review that's already hidden can't be re-flagged;
+  // one already flagged can be re-flagged with a new reason (overwrites,
+  // same one-shot-per-field shape as response/reply).
+  async flagReview(vendorAccountId: string, reviewId: string, dto: FlagReviewDto) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { accountId: vendorAccountId } });
+    if (!vendor) throw new NotFoundException('Review not found');
+    const review = await this.prisma.vendorReview.findUnique({ where: { id: reviewId } });
+    if (!review || review.vendorId !== vendor.id) throw new NotFoundException('Review not found');
+    if (review.moderationStatus === 'hidden') {
+      throw new BadRequestException('This review has already been hidden by a moderator');
+    }
+    return this.prisma.vendorReview.update({
+      where: { id: reviewId },
+      data: { moderationStatus: 'flagged', flagReason: dto.reason, flaggedAt: new Date() },
+    });
+  }
+
+  // The neutral-reviewer queue this flag feeds — same "no :vendorId param
+  // for PermissionsGuard's ABAC to key on" shape as setVerificationStatus,
+  // so review:moderate reaches every flagged review on the platform, not
+  // just one vendor's.
+  findFlaggedReviews() {
+    return this.prisma.vendorReview.findMany({
+      where: { moderationStatus: 'flagged' },
+      include: { vendor: { select: { id: true, businessName: true } } },
+      orderBy: { flaggedAt: 'desc' },
+    });
+  }
+
+  // review:moderate's actual decision: hide the review (excluded from the
+  // vendor's public profile — see findOne/findForAccount) or (re)publish
+  // it. Blocks only from "published" — nothing has ever been reported, so
+  // there's nothing to decide. Both "flagged" and "hidden" are valid
+  // starting points so a moderator can reverse an earlier hide as well as
+  // act on a fresh flag — findFlaggedReviews only ever surfaces the
+  // "flagged" ones, but this itself doesn't require the review still be
+  // in the queue, the same way DocumentsService.arbitrateVerify isn't
+  // limited to documents findPendingForArbitration still lists.
+  async moderateReview(reviewId: string, dto: ModerateReviewDto) {
+    const review = await this.prisma.vendorReview.findUnique({ where: { id: reviewId } });
+    if (!review) throw new NotFoundException('Review not found');
+    if (review.moderationStatus === 'published') {
+      throw new BadRequestException('This review has never been flagged — nothing to moderate');
+    }
+    const updated = await this.prisma.vendorReview.update({
+      where: { id: reviewId },
+      data: { moderationStatus: dto.status, moderationNotes: dto.moderationNotes, moderatedAt: new Date() },
+    });
+    // Recompute whenever the hidden set changes in either direction —
+    // hiding it, or restoring a previously hidden one back to published.
+    if (dto.status === 'hidden' || review.moderationStatus === 'hidden') {
+      await this.recomputeRating(review.vendorId);
+    }
+    return updated;
   }
 }

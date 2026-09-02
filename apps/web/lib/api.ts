@@ -425,8 +425,15 @@ export type VendorReview = {
   comment?: string | null;
   response?: string | null;
   respondedAt?: string | null;
+  moderationStatus: "published" | "flagged" | "hidden" | string;
+  flagReason?: string | null;
+  flaggedAt?: string | null;
+  moderationNotes?: string | null;
+  moderatedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  // Only present on GET /vendors/reviews/flagged
+  vendor?: { id: string; businessName: string };
 };
 
 export type VendorQuote = {
@@ -670,8 +677,15 @@ export type SupplierReview = {
   comment?: string | null;
   response?: string | null;
   respondedAt?: string | null;
+  moderationStatus: "published" | "flagged" | "hidden" | string;
+  flagReason?: string | null;
+  flaggedAt?: string | null;
+  moderationNotes?: string | null;
+  moderatedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  // Only present on GET /suppliers/reviews/flagged
+  supplier?: { id: string; businessName: string };
 };
 
 export type Product = {
@@ -1310,6 +1324,27 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  // The report side of review moderation — see VendorsService.flagReview.
+  flagVendorReview(reviewId: string, input: { reason: string }) {
+    return request<VendorReview>(`/vendors/me/reviews/${reviewId}/flag`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  // Module 6's neutral-reviewer queue for flagged vendor reviews.
+  listFlaggedVendorReviews() {
+    return request<VendorReview[]>("/vendors/reviews/flagged", { token: this.token, accountId: this.accountId });
+  }
+  moderateVendorReview(reviewId: string, input: { status: "hidden" | "published"; moderationNotes?: string }) {
+    return request<VendorReview>(`/vendors/reviews/${reviewId}/moderate`, {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
 
   // --- Property marketplace (listings) ---
   createListing(input: { propertyId: string; listingType: string; askingPrice: number; currency?: string; title: string; description?: string; photoUrls?: string[] }) {
@@ -1556,6 +1591,27 @@ export class ApiClient {
   replyToOrderReview(reviewId: string, input: { response: string }) {
     return request<SupplierReview>(`/suppliers/me/reviews/${reviewId}/reply`, {
       method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  // The report side of review moderation — see MaterialsService.flagOrderReview.
+  flagOrderReview(reviewId: string, input: { reason: string }) {
+    return request<SupplierReview>(`/suppliers/me/reviews/${reviewId}/flag`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  // Module 6's neutral-reviewer queue for flagged supplier reviews.
+  listFlaggedOrderReviews() {
+    return request<SupplierReview[]>("/suppliers/reviews/flagged", { token: this.token, accountId: this.accountId });
+  }
+  moderateOrderReview(reviewId: string, input: { status: "hidden" | "published"; moderationNotes?: string }) {
+    return request<SupplierReview>(`/suppliers/reviews/${reviewId}/moderate`, {
+      method: "PATCH",
       body: input,
       token: this.token,
       accountId: this.accountId,

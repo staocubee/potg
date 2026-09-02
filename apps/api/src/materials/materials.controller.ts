@@ -14,6 +14,8 @@ import { UpdateDeliveryDto } from './dto/update-delivery.dto';
 import { CreateOrderReviewDto } from './dto/create-order-review.dto';
 import { UpdateOrderReviewDto } from './dto/update-order-review.dto';
 import { ReplyToReviewDto } from '../vendors/dto/reply-to-review.dto';
+import { FlagReviewDto } from '../vendors/dto/flag-review.dto';
+import { ModerateReviewDto } from '../vendors/dto/moderate-review.dto';
 import { SetSupplierVerificationDto } from './dto/set-supplier-verification.dto';
 import { CreateRentalBookingDto } from './dto/create-rental-booking.dto';
 import { UpsertCartItemDto } from './dto/upsert-cart-item.dto';
@@ -245,5 +247,31 @@ export class MaterialsController {
     @Body() dto: ReplyToReviewDto,
   ) {
     return this.materials.replyToOrderReview(member.accountId, reviewId, dto);
+  }
+
+  // The report side — see MaterialsService.flagOrderReview, the
+  // materials-marketplace counterpart to VendorsController.flagReview.
+  @RequirePermissions('review:flag')
+  @Post('suppliers/me/reviews/:reviewId/flag')
+  flagOrderReview(
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Param('reviewId') reviewId: string,
+    @Body() dto: FlagReviewDto,
+  ) {
+    return this.materials.flagOrderReview(member.accountId, reviewId, dto);
+  }
+
+  // Module 6's neutral-reviewer queue — the materials-marketplace
+  // counterpart to VendorsController.findFlaggedReviews/moderateReview.
+  @RequirePermissions('review:moderate')
+  @Get('suppliers/reviews/flagged')
+  findFlaggedOrderReviews() {
+    return this.materials.findFlaggedOrderReviews();
+  }
+
+  @RequirePermissions('review:moderate')
+  @Patch('suppliers/reviews/:reviewId/moderate')
+  moderateOrderReview(@Param('reviewId') reviewId: string, @Body() dto: ModerateReviewDto) {
+    return this.materials.moderateOrderReview(reviewId, dto);
   }
 }

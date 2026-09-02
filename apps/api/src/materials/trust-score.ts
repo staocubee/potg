@@ -43,7 +43,7 @@ export async function getSupplierTrustScore(
   supplier: { id: string; verificationStatus: string; ratingAverage: unknown },
 ): Promise<SupplierTrustScore> {
   const [reviewCount, deliveredOrders, cancelledOrders] = await Promise.all([
-    prisma.supplierReview.count({ where: { supplierId: supplier.id } }),
+    prisma.supplierReview.count({ where: { supplierId: supplier.id, moderationStatus: { not: 'hidden' } } }),
     prisma.order.count({ where: { supplierId: supplier.id, status: 'delivered' } }),
     prisma.order.count({ where: { supplierId: supplier.id, status: 'cancelled' } }),
   ]);

@@ -62,6 +62,8 @@ const PERMISSIONS = [
   // already include it.
   { key: 'review:write', label: 'Leave a review after a completed project or delivered order' },
   { key: 'review:respond', label: "Reply to a review left on your own vendor/supplier profile" },
+  { key: 'review:flag', label: 'Flag a review left on your own vendor/supplier profile for moderation' },
+  { key: 'review:moderate', label: 'Hide or restore any flagged review platform-wide (neutral reviewer only — never granted to review:write/respond/flag roles)' },
 ];
 
 // Section 8's core roles, narrowed to the ones DEFAULT_OWNER_ROLE_BY_ACCOUNT_TYPE
@@ -198,6 +200,7 @@ const ROLES: Record<string, string[]> = {
     'dispute:read',
     'dispute:write',
     'review:respond',
+    'review:flag',
     // Browsing materials while assessing or pricing a job — never
     // supplier:write/product:write, a vendor isn't a supplier.
     'supplier:read',
@@ -224,6 +227,7 @@ const ROLES: Record<string, string[]> = {
     'rental:read',
     'rental:write',
     'review:respond',
+    'review:flag',
   ],
   // Section 8's own example role: "a family member can view documents but
   // not approve payments" — a read-only member of a family/company account.
@@ -254,9 +258,13 @@ const ROLES: Record<string, string[]> = {
   // granted dispute:write, so it can never be the account that raised a
   // dispute it goes on to arbitrate; and never granted document:write, so
   // it never uploads — let alone owns — a document it might later verify.
-  // Reads only what it needs to review (vendor:read/supplier:read) plus
-  // :verify/:arbitrate — nothing else, not even ai:act, since this role's
-  // whole job is a handful of mechanical actions on other accounts' data.
+  // Same shape extends to review:moderate: never granted review:write/
+  // respond/flag, so it can never be the reviewer, the reviewed party, or
+  // the one who flagged a review it goes on to moderate. Reads only what
+  // it needs to review (vendor:read/supplier:read) plus
+  // :verify/:arbitrate/:moderate — nothing else, not even ai:act, since
+  // this role's whole job is a handful of mechanical actions on other
+  // accounts' data.
   platform_reviewer: [
     'vendor:read',
     'vendor:verify',
@@ -264,6 +272,7 @@ const ROLES: Record<string, string[]> = {
     'supplier:verify',
     'dispute:arbitrate',
     'document:arbitrate',
+    'review:moderate',
   ],
 };
 

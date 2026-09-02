@@ -267,11 +267,15 @@ function QuoteRow({ quote, onSubmitted }: { quote: VendorQuote; onSubmitted: () 
 // A review left on this vendor's own profile, with a reply box if it
 // hasn't been replied to yet — the other half of the reviewer's own
 // edit/delete controls on the project page. One reply per review: replying
-// again overwrites the last one rather than threading.
+// again overwrites the last one rather than threading. Also where the
+// vendor can flag a review as spam/abusive/inaccurate for a neutral
+// reviewer to act on — see VendorsService.flagReview.
 function VendorReviewReplyRow({ review, onReplied }: { review: VendorReview; onReplied: () => void }) {
   const auth = useAuth();
   const [replying, setReplying] = useState(false);
   const [response, setResponse] = useState(review.response ?? "");
+  const [flagging, setFlagging] = useState(false);
+  const [flagReason, setFlagReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -290,11 +294,30 @@ function VendorReviewReplyRow({ review, onReplied }: { review: VendorReview; onR
     }
   }
 
+  async function onFlag(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.flagVendorReview(review.id, { reason: flagReason });
+      setFlagging(false);
+      onReplied();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't flag that review.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div style={{ fontSize: 13, borderBottom: "1px solid var(--potg-border)", paddingBottom: 10 }}>
-      <div style={{ fontWeight: 700 }}>
-        {"★".repeat(review.rating)}
-        {"☆".repeat(5 - review.rating)}
+      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+        <div style={{ fontWeight: 700 }}>
+          {"★".repeat(review.rating)}
+          {"☆".repeat(5 - review.rating)}
+        </div>
+        {review.moderationStatus === "flagged" && <span className="potg-badge">Flagged — awaiting review</span>}
+        {review.moderationStatus === "hidden" && <span className="potg-badge">Hidden by moderator</span>}
       </div>
       {review.comment && <div style={{ marginTop: 2 }}>{review.comment}</div>}
       <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
@@ -305,11 +328,24 @@ function VendorReviewReplyRow({ review, onReplied }: { review: VendorReview; onR
           Your reply: {review.response}
         </div>
       )}
-      {!replying ? (
-        <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11, marginTop: 6 }} onClick={() => setReplying(true)}>
-          {review.response ? "Edit reply" : "Reply"}
-        </button>
-      ) : (
+      {review.moderationStatus === "hidden" && review.moderationNotes && (
+        <div className="potg-muted" style={{ marginTop: 6, fontSize: 12, borderLeft: "2px solid var(--potg-border)", paddingLeft: 8 }}>
+          Moderator's note: {review.moderationNotes}
+        </div>
+      )}
+      {!replying && !flagging && (
+        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+          <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setReplying(true)}>
+            {review.response ? "Edit reply" : "Reply"}
+          </button>
+          {review.moderationStatus === "published" && (
+            <button className="potg-btn potg-btn-danger" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setFlagging(true)}>
+              Flag
+            </button>
+          )}
+        </div>
+      )}
+      {replying && (
         <form onSubmit={onSubmit} style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
           {error && <div className="potg-error">{error}</div>}
           <textarea className="potg-input" rows={2} value={response} onChange={(e) => setResponse(e.target.value)} />
@@ -318,6 +354,27 @@ function VendorReviewReplyRow({ review, onReplied }: { review: VendorReview; onR
               {busy ? "Posting…" : "Post reply"}
             </button>
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setReplying(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+      {flagging && (
+        <form onSubmit={onFlag} style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+          {error && <div className="potg-error">{error}</div>}
+          <textarea
+            className="potg-input"
+            rows={2}
+            required
+            placeholder="Why should a moderator look at this review?"
+            value={flagReason}
+            onChange={(e) => setFlagReason(e.target.value)}
+          />
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="potg-btn potg-btn-danger" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
+              {busy ? "Flagging…" : "Submit flag"}
+            </button>
+            <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setFlagging(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
               Cancel
             </button>
           </div>

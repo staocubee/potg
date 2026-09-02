@@ -43,7 +43,7 @@ export async function getVendorTrustScore(
   vendor: { id: string; verificationStatus: string; ratingAverage: unknown },
 ): Promise<VendorTrustScore> {
   const [reviewCount, completedProjects, disputeCount] = await Promise.all([
-    prisma.vendorReview.count({ where: { vendorId: vendor.id } }),
+    prisma.vendorReview.count({ where: { vendorId: vendor.id, moderationStatus: { not: 'hidden' } } }),
     prisma.projectVendorAssignment.count({ where: { vendorId: vendor.id, project: { status: 'completed' } } }),
     prisma.dispute.count({ where: { project: { assignments: { some: { vendorId: vendor.id } } } } }),
   ]);

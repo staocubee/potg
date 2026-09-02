@@ -60,7 +60,15 @@ export const boqToOrderSkill: AiSkill = {
         orderBy: { unitPrice: 'asc' },
         take: 3,
         include: {
-          supplier: { select: { businessName: true, ratingAverage: true, _count: { select: { reviews: true } } } },
+          // Excludes a moderator-hidden review — see the same exclusion
+          // in compare-vendor-quotes.skill.ts and MaterialsService.recomputeRating.
+          supplier: {
+            select: {
+              businessName: true,
+              ratingAverage: true,
+              _count: { select: { reviews: { where: { moderationStatus: { not: 'hidden' } } } } },
+            },
+          },
         },
       });
       if (products.length === 0) {

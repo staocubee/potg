@@ -35,8 +35,12 @@ export const compareVendorQuotesSkill: AiSkill = {
       include: {
         vendor: {
           include: {
-            reviews: { orderBy: { createdAt: 'desc' }, take: 1 },
-            _count: { select: { reviews: true } },
+            // Excludes a moderator-hidden review — see VendorsService.
+            // recomputeRating's comment for why the same filter applies
+            // to Vendor.ratingAverage itself; this skill reads reviews
+            // directly, so it needs its own copy of that exclusion.
+            reviews: { where: { moderationStatus: { not: 'hidden' } }, orderBy: { createdAt: 'desc' }, take: 1 },
+            _count: { select: { reviews: { where: { moderationStatus: { not: 'hidden' } } } } },
           },
         },
       },
