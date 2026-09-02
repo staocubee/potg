@@ -6,6 +6,6 @@ import { PaymentsController, AccountPaymentsController } from './payments.contro
 @Module({
   providers: [PaymentsService, PaystackService],
   controllers: [PaymentsController, AccountPaymentsController],
-  exports: [PaymentsService],
+  exports: [PaymentsService, PaystackService],
 })
 export class PaymentsModule {}

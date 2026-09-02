@@ -12,6 +12,7 @@ import { RaiseDisputeAsVendorDto } from './dto/raise-dispute-as-vendor.dto';
 import { ResolveDisputeDto } from '../payments/dto/resolve-dispute.dto';
 import { ReplyToReviewDto } from './dto/reply-to-review.dto';
 import { SetVendorVerificationDto } from './dto/set-vendor-verification.dto';
+import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -27,6 +28,20 @@ export class VendorsController {
   @Post()
   create(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: CreateVendorDto) {
     return this.vendors.create(member.accountId, dto);
+  }
+
+  // The real half of Section 16's payout integration — see
+  // VendorsService.setBankDetails.
+  @RequirePermissions('vendor:write')
+  @Patch('me/bank-details')
+  setBankDetails(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: SetVendorBankDetailsDto) {
+    return this.vendors.setBankDetails(member.accountId, dto);
+  }
+
+  @RequirePermissions('vendor:read')
+  @Get('banks')
+  listBanks() {
+    return this.vendors.listBanks();
   }
 
   // Marketplace browse (Module 7): ?serviceCategory=plumbing

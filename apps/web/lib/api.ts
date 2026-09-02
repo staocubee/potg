@@ -406,10 +406,15 @@ export type Vendor = {
   locationCoverage?: string | null;
   verificationStatus: string;
   ratingAverage?: string | null;
+  bankAccountNumber?: string | null;
+  bankCode?: string | null;
+  bankAccountName?: string | null;
   createdAt: string;
   reviews?: VendorReview[];
   trustScore?: VendorTrustScore;
 };
+
+export type PaystackBank = { name: string; code: string; currency: string };
 
 export type VendorReview = {
   id: string;
@@ -476,6 +481,7 @@ export type Payout = {
   currency: string;
   status: "pending" | "processing" | "paid" | "failed" | string;
   payoutMethod: string;
+  providerReference?: string | null;
   createdAt: string;
   paidAt?: string | null;
   project?: { id: string; title: string };
@@ -1123,6 +1129,17 @@ export class ApiClient {
   myPayouts() {
     return request<Payout[]>("/vendors/me/payouts", { token: this.token, accountId: this.accountId });
   }
+  listBanks() {
+    return request<PaystackBank[]>("/vendors/banks", { token: this.token, accountId: this.accountId });
+  }
+  setVendorBankDetails(input: { bankAccountNumber: string; bankCode: string }) {
+    return request<Vendor>("/vendors/me/bank-details", {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   submitVendorQuote(input: { projectId: string; amount: number; currency?: string; notes?: string }) {
     return request<VendorQuote>("/vendors/me/quotes", {
       method: "POST",
@@ -1181,11 +1198,25 @@ export class ApiClient {
     });
   }
   releaseMilestone(projectId: string, milestoneId: string) {
-    return request<{ payout: Payout; receipt: Receipt }>(`/projects/${projectId}/milestones/${milestoneId}/release`, {
+    // receipt is null while a real Paystack transfer is still
+    // "processing" — see verifyPayout below.
+    return request<{ payout: Payout; receipt: Receipt | null }>(`/projects/${projectId}/milestones/${milestoneId}/release`, {
       method: "POST",
       token: this.token,
       accountId: this.accountId,
     });
+  }
+  verifyPayout(projectId: string, payoutId: string) {
+    return request<{ payout: Payout; receipt: Receipt | null; alreadyVerified: boolean }>(
+      `/projects/${projectId}/payouts/${payoutId}/verify`,
+      { method: "POST", token: this.token, accountId: this.accountId },
+    );
+  }
+  finalizePayoutOtp(projectId: string, payoutId: string, otp: string) {
+    return request<{ payout: Payout; receipt: Receipt | null; alreadyVerified: boolean }>(
+      `/projects/${projectId}/payouts/${payoutId}/finalize`,
+      { method: "POST", body: { otp }, token: this.token, accountId: this.accountId },
+    );
   }
   findProjectPayouts(projectId: string) {
     return request<Payout[]>(`/projects/${projectId}/payouts`, { token: this.token, accountId: this.accountId });

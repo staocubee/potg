@@ -378,20 +378,7 @@ export default function ProjectDetailPage() {
               <h3 style={{ fontSize: 14, marginBottom: 10 }}>Payouts</h3>
               {payouts.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No payouts yet.</p>}
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {payouts.map((po) => (
-                  <div key={po.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                    <div>
-                      <div className="potg-muted" style={{ fontSize: 11 }}>
-                        {po.payoutMethod.replace(/_/g, " ")}
-                        {po.paidAt && ` · ${new Date(po.paidAt).toLocaleDateString()}`}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontWeight: 700 }}>{formatMoney(po.amount, po.currency)}</div>
-                      <span className="potg-badge">{po.status}</span>
-                    </div>
-                  </div>
-                ))}
+                {id && payouts.map((po) => <PayoutRow key={po.id} projectId={id} payout={po} onChanged={load} />)}
               </div>
             </div>
 
@@ -525,6 +512,102 @@ function AddUpdateForm({ projectId, milestones, onCreated }: { projectId: string
         {busy ? "Posting…" : "Post update"}
       </button>
     </form>
+  );
+}
+
+// The payout side of the same real Paystack integration — a "processing"
+// payout is a real Transfer that hasn't confirmed yet (see
+// PaymentsService.releaseMilestone/verifyPayout), so it gets a "Check
+// status" action instead of just sitting there; "pending"/"paid"/"failed"
+// render as plain rows, same as before this pass.
+function PayoutRow({ projectId, payout, onChanged }: { projectId: string; payout: Payout; onChanged: () => void }) {
+  const auth = useAuth();
+  const [otp, setOtp] = useState("");
+  const [showOtp, setShowOtp] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"check" | "finalize" | null>(null);
+
+  async function onVerify() {
+    setError(null);
+    setBusy("check");
+    try {
+      await auth.api.verifyPayout(projectId, payout.id);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't check that payout's status.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onFinalize(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy("finalize");
+    try {
+      await auth.api.finalizePayoutOtp(projectId, payout.id, otp);
+      setShowOtp(false);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't finalize that payout with this code.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div style={{ fontSize: 13 }}>
+      <div style={{ display: "flex", justifyContent: "space-between" }}>
+        <div>
+          <div className="potg-muted" style={{ fontSize: 11 }}>
+            {payout.payoutMethod.replace(/_/g, " ")}
+            {payout.paidAt && ` · ${new Date(payout.paidAt).toLocaleDateString()}`}
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontWeight: 700 }}>{formatMoney(payout.amount, payout.currency)}</div>
+          <span className="potg-badge">{payout.status}</span>
+        </div>
+      </div>
+      {error && <div className="potg-error" style={{ marginTop: 4 }}>{error}</div>}
+      {payout.status === "processing" && !showOtp && (
+        <div style={{ marginTop: 4, display: "flex", gap: 6 }}>
+          <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={onVerify}>
+            {busy === "check" ? "Checking…" : "Check status"}
+          </button>
+          <button
+            className="potg-btn potg-btn-secondary"
+            style={{ padding: "3px 8px", fontSize: 11 }}
+            onClick={() => setShowOtp(true)}
+          >
+            Enter OTP
+          </button>
+        </div>
+      )}
+      {payout.status === "processing" && showOtp && (
+        <form onSubmit={onFinalize} style={{ marginTop: 6, display: "flex", gap: 6 }}>
+          <input
+            className="potg-input"
+            style={{ maxWidth: 140, padding: "3px 8px", fontSize: 11 }}
+            placeholder="OTP code"
+            value={otp}
+            onChange={(e) => setOtp(e.target.value)}
+            autoFocus
+          />
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "3px 8px", fontSize: 11 }}>
+            {busy === "finalize" ? "…" : "Finalize"}
+          </button>
+          <button
+            className="potg-btn potg-btn-secondary"
+            type="button"
+            onClick={() => setShowOtp(false)}
+            style={{ padding: "3px 8px", fontSize: 11 }}
+          >
+            Cancel
+          </button>
+        </form>
+      )}
+    </div>
   );
 }
 

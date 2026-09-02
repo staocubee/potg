@@ -318,47 +318,181 @@ export class PaymentsService {
     if (!assignment) {
       throw new BadRequestException('No vendor is assigned to this project yet — accept a quote first');
     }
+    const vendor = await this.prisma.vendor.findUniqueOrThrow({ where: { id: assignment.vendorId } });
 
-    const newBalance = Number(escrowAccount.balance) - amount;
-    const [, payout] = await this.prisma.$transaction([
-      this.prisma.escrowAccount.update({ where: { id: escrowAccount.id }, data: { balance: newBalance } }),
-      this.prisma.payout.create({
+    // Real Paystack Transfer path — only once a vendor has actually set
+    // up bank details (VendorsService.setBankDetails) and the server has
+    // a Paystack key; otherwise this falls through to the original
+    // instant simulation below, same "manual" vs "paystack" branch
+    // deposit() already makes.
+    if (vendor.bankAccountNumber && vendor.bankCode && this.paystack.isConfigured) {
+      let recipientCode = vendor.paystackRecipientCode;
+      if (!recipientCode) {
+        recipientCode = await this.paystack.createTransferRecipient({
+          name: vendor.bankAccountName ?? vendor.businessName,
+          accountNumber: vendor.bankAccountNumber,
+          bankCode: vendor.bankCode,
+          currency: escrowAccount.currency,
+        });
+        await this.prisma.vendor.update({ where: { id: vendor.id }, data: { paystackRecipientCode: recipientCode } });
+      }
+
+      const reference = `potg_payout_${randomUUID()}`;
+      const transfer = await this.paystack.initiateTransfer({
+        amount,
+        currency: escrowAccount.currency,
+        recipientCode,
+        reference,
+        reason: `Milestone released: ${milestone.title}`,
+      });
+      const payout = await this.prisma.payout.create({
         data: {
-          vendorId: assignment.vendorId,
+          vendorId: vendor.id,
           projectId,
           milestoneId,
           amount,
           currency: escrowAccount.currency,
-          status: 'paid',
-          paidAt: new Date(),
+          status: transfer.status === 'success' ? 'paid' : 'processing',
+          payoutMethod: 'bank_transfer',
+          providerReference: transfer.transferCode,
         },
-      }),
-      this.prisma.projectMilestone.update({ where: { id: milestoneId }, data: { status: 'completed' } }),
-    ]);
+      });
+      if (transfer.status !== 'success') {
+        // Paystack test-mode transfers normally complete immediately, but
+        // this still handles the "pending"/"otp" cases honestly: escrow
+        // stays untouched and the milestone stays open until verifyPayout
+        // confirms it, same pessimistic-until-confirmed shape
+        // verifyDeposit already uses for the other direction.
+        return { payout, receipt: null };
+      }
+      return this.finalizePayout(escrowAccount, milestone, payout, vendor.accountId, amount);
+    }
 
+    const payout = await this.prisma.payout.create({
+      data: {
+        vendorId: vendor.id,
+        projectId,
+        milestoneId,
+        amount,
+        currency: escrowAccount.currency,
+        status: 'pending',
+      },
+    });
+    return this.finalizePayout(escrowAccount, milestone, payout, vendor.accountId, amount);
+  }
+
+  // Shared by the instant "manual" path above and verifyPayout below —
+  // the one place that actually debits escrow, marks the milestone
+  // completed, and issues the receipt, so a payout can only ever be
+  // finalized once and the same way regardless of how it got there.
+  private async finalizePayout(
+    escrowAccount: { id: string; balance: unknown; currency: string },
+    milestone: { id: string; title: string },
+    payout: { id: string },
+    vendorAccountId: string,
+    amount: number,
+  ) {
+    const newBalance = Number(escrowAccount.balance) - amount;
+    const [, updatedPayout] = await this.prisma.$transaction([
+      this.prisma.escrowAccount.update({ where: { id: escrowAccount.id }, data: { balance: newBalance } }),
+      this.prisma.payout.update({ where: { id: payout.id }, data: { status: 'paid', paidAt: new Date() } }),
+      this.prisma.projectMilestone.update({ where: { id: milestone.id }, data: { status: 'completed' } }),
+    ]);
     await this.prisma.escrowLedgerEntry.create({
       data: {
         escrowAccountId: escrowAccount.id,
         entryType: 'release',
         amount,
         balanceAfter: newBalance,
-        relatedMilestoneId: milestoneId,
+        relatedMilestoneId: milestone.id,
         relatedPayoutId: payout.id,
         notes: `Milestone released: ${milestone.title}`,
       },
     });
-    const vendor = await this.prisma.vendor.findUnique({ where: { id: assignment.vendorId } });
     const receipt = await this.prisma.receipt.create({
       data: {
-        accountId: vendor!.accountId,
+        accountId: vendorAccountId,
         receiptNumber: receiptNumber(),
         payoutId: payout.id,
         amount,
         currency: escrowAccount.currency,
       },
     });
+    return { payout: updatedPayout, receipt };
+  }
 
-    return { payout, receipt };
+  // The other half of the real Paystack payout path — asks Paystack
+  // directly whether a "processing" transfer actually succeeded, rather
+  // than trusting anything the client claims. Callable more than once
+  // safely: a payout that's already "paid" just returns its existing
+  // receipt instead of debiting escrow twice.
+  async verifyPayout(projectId: string, payoutId: string) {
+    const payout = await this.requireProcessingBankTransferPayout(projectId, payoutId);
+    if ('alreadyVerified' in payout) return payout;
+    const result = await this.paystack.fetchTransfer(payout.providerReference!);
+    return this.applyTransferResult(projectId, payout, result);
+  }
+
+  // A newly created Paystack integration has OTP-based transfer
+  // finalization on by default — see PaystackService.finalizeTransferOtp's
+  // own comment. Confirmed live against this scaffold's own test key:
+  // initiateTransfer in releaseMilestone came back "otp", not "success".
+  // This relays whatever OTP the vendor/owner was sent (Paystack emails
+  // or texts it to the account holder, not to this app) straight through.
+  async finalizePayoutOtp(projectId: string, payoutId: string, otp: string) {
+    const payout = await this.requireProcessingBankTransferPayout(projectId, payoutId);
+    if ('alreadyVerified' in payout) return payout;
+    const result = await this.paystack.finalizeTransferOtp(payout.providerReference!, otp);
+    return this.applyTransferResult(projectId, payout, result);
+  }
+
+  private async requireProcessingBankTransferPayout(projectId: string, payoutId: string) {
+    const payout = await this.prisma.payout.findFirst({ where: { id: payoutId, projectId } });
+    if (!payout) throw new NotFoundException('Payout not found on this project');
+    if (payout.payoutMethod !== 'bank_transfer') {
+      throw new BadRequestException('Only a bank transfer payout needs verification');
+    }
+    if (payout.status === 'paid') {
+      const receipt = await this.prisma.receipt.findUnique({ where: { payoutId: payout.id } });
+      return { payout, receipt, alreadyVerified: true as const };
+    }
+    if (payout.status !== 'processing' || !payout.providerReference) {
+      throw new BadRequestException(`This payout is "${payout.status}" — nothing to verify`);
+    }
+    return payout;
+  }
+
+  private async applyTransferResult(
+    projectId: string,
+    payout: { id: string; milestoneId: string | null; vendorId: string; amount: unknown },
+    result: { status: string },
+  ) {
+    if (result.status === 'failed' || result.status === 'reversed') {
+      const updated = await this.prisma.payout.update({ where: { id: payout.id }, data: { status: 'failed' } });
+      return { payout: updated, receipt: null, alreadyVerified: false };
+    }
+    if (result.status !== 'success') {
+      // Still "pending"/"otp" on Paystack's side — leave it "processing"
+      // rather than guessing; the caller can check back later.
+      return { payout, receipt: null, alreadyVerified: false };
+    }
+
+    if (!payout.milestoneId) {
+      throw new BadRequestException('This payout has no milestone to complete');
+    }
+    const [escrowAccount, milestone, vendor] = await Promise.all([
+      this.prisma.escrowAccount.findUniqueOrThrow({ where: { projectId } }),
+      this.prisma.projectMilestone.findUniqueOrThrow({ where: { id: payout.milestoneId } }),
+      this.prisma.vendor.findUniqueOrThrow({ where: { id: payout.vendorId } }),
+    ]);
+    const { payout: finalPayout, receipt } = await this.finalizePayout(
+      escrowAccount,
+      milestone,
+      payout,
+      vendor.accountId,
+      Number(payout.amount),
+    );
+    return { payout: finalPayout, receipt, alreadyVerified: false };
   }
 
   findPayouts(projectId: string) {

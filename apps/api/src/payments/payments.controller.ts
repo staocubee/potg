@@ -9,6 +9,7 @@ import { DepositDto } from './dto/deposit.dto';
 import { RaiseDisputeDto } from './dto/raise-dispute.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
+import { FinalizePayoutOtpDto } from './dto/finalize-payout-otp.dto';
 
 type AccountMemberCtx = { accountId: string };
 type UserCtx = { id: string; email: string };
@@ -85,6 +86,29 @@ export class PaymentsController {
   @Get('payouts')
   findPayouts(@Param('projectId') projectId: string) {
     return this.payments.findPayouts(projectId);
+  }
+
+  // The other half of the real Paystack payout path — see
+  // PaymentsService.verifyPayout. Same payment:approve permission as
+  // releasing itself: checking on a payout's real status is still the
+  // owner-side action that moved money out of escrow in the first place.
+  @RequirePermissions('payment:approve')
+  @Post('payouts/:payoutId/verify')
+  verifyPayout(@Param('projectId') projectId: string, @Param('payoutId') payoutId: string) {
+    return this.payments.verifyPayout(projectId, payoutId);
+  }
+
+  // See PaymentsService.finalizePayoutOtp — relays an OTP Paystack sent
+  // the account holder directly, for integrations that have transfer OTP
+  // enabled (the default for a newly created Paystack account).
+  @RequirePermissions('payment:approve')
+  @Post('payouts/:payoutId/finalize')
+  finalizePayoutOtp(
+    @Param('projectId') projectId: string,
+    @Param('payoutId') payoutId: string,
+    @Body() dto: FinalizePayoutOtpDto,
+  ) {
+    return this.payments.finalizePayoutOtp(projectId, payoutId, dto.otp);
   }
 
   @RequirePermissions('payment:read')

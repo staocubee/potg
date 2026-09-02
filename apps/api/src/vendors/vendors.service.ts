@@ -6,11 +6,16 @@ import { CreateVendorReviewDto } from './dto/create-vendor-review.dto';
 import { UpdateVendorReviewDto } from './dto/update-vendor-review.dto';
 import { ReplyToReviewDto } from './dto/reply-to-review.dto';
 import { SetVendorVerificationDto } from './dto/set-vendor-verification.dto';
+import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
 import { getVendorTrustScore } from './trust-score';
+import { PaystackService } from '../payments/paystack.service';
 
 @Injectable()
 export class VendorsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly paystack: PaystackService,
+  ) {}
 
   // One Vendor profile per account (@@unique accountId on the model) — the
   // account is what auth/RBAC already understands, this is the
@@ -21,6 +26,34 @@ export class VendorsService {
       throw new ConflictException('This account already has a vendor profile — use PATCH to update it');
     }
     return this.prisma.vendor.create({ data: { accountId, ...dto } });
+  }
+
+  // The real half of Section 16's payout integration — see
+  // PaymentsService.releaseMilestone's own comment. Resolves the account
+  // number against Paystack's own records first (never trusting a
+  // client-supplied account holder name), so bankAccountName is always
+  // whatever Paystack itself says the account belongs to. Clears any
+  // cached paystackRecipientCode: a changed bank account needs a new
+  // Transfer Recipient, the old one no longer applies.
+  async setBankDetails(accountId: string, dto: SetVendorBankDetailsDto) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { accountId } });
+    if (!vendor) {
+      throw new BadRequestException('This account has no vendor profile yet — create one with POST /vendors first');
+    }
+    const resolved = await this.paystack.resolveAccountNumber(dto.bankAccountNumber, dto.bankCode);
+    return this.prisma.vendor.update({
+      where: { id: vendor.id },
+      data: {
+        bankAccountNumber: dto.bankAccountNumber,
+        bankCode: dto.bankCode,
+        bankAccountName: resolved.accountName,
+        paystackRecipientCode: null,
+      },
+    });
+  }
+
+  listBanks() {
+    return this.paystack.listBanks('NGN');
   }
 
   // Marketplace browse — Module 7's "search/filter vendors by service

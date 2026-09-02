@@ -1742,22 +1742,92 @@ turned out to be.
   project page (carrying Paystack's `reference` as a query param, even
   though nothing currently reads it — see the gap below), and the
   escrow card updating live after "I've paid — verify".
-- **Still not the full Section 16 integration.** Payouts (releasing a
-  milestone to a vendor) are still fully simulated — a real transfer
-  would need a `Vendor` bank account (account number + bank code, fields
-  that don't exist on this schema yet), Paystack's separate Transfer
-  Recipient + Transfer APIs, and probably a dashboard-side "disable OTP
-  on transfers" step this scaffold can't do on the account holder's
-  behalf — a materially bigger integration than deposits turned out to
-  be, deliberately left out of this pass. The callback page also doesn't
-  read its own `?paystackReference=` query param — verification only
-  ever happens through the "I've paid — verify" button in the same tab
-  that started the deposit, so a buyer who completes checkout, closes
-  that original tab, and only ever lands on the redirect has no UI path
-  back to verifying; the payment stays "pending" until they return to
-  the project page and use the button there. And there's still no
-  webhook receiver, by design (see above) — every verification is
-  caller-initiated.
+- **The callback page doesn't read its own `?paystackReference=` query
+  param.** Verification only ever happens through the "I've paid —
+  verify" button in the same tab that started the deposit, so a buyer
+  who completes checkout, closes that original tab, and only ever lands
+  on the redirect has no UI path back to verifying; the payment stays
+  "pending" until they return to the project page and use the button
+  there. And there's still no webhook receiver, by design (see above) —
+  every verification is caller-initiated. Payouts were still fully
+  simulated at the time this was written — see "A real payout gateway —
+  Paystack Transfers" further down for what a later pass this same
+  session built.
+
+## A real payout gateway — Paystack Transfers (Section 16)
+
+The other half of Section 16, closing the "payouts are still fully
+simulated" gap the deposit pass above left open. Releasing a milestone
+to a vendor now goes through Paystack's real Transfer API when the
+vendor has bank details on file — the same "verify first, never trust
+the client" discipline as the deposit side, adapted for a flow that also
+has to survive a real bank's own OTP confirmation step.
+
+- **`Vendor.bankAccountNumber`/`bankCode`/`bankAccountName`/
+  `paystackRecipientCode`** (new columns) — all four or none, same
+  "record what's true" shape other optional-together fields already use
+  in this schema. `bankAccountName` is never client-supplied: **`PATCH
+  /vendors/me/bank-details`** (`VendorsService.setBankDetails`) resolves
+  the account number against Paystack's own `/bank/resolve` first and
+  stores whatever name Paystack itself returns — a vendor can't put a
+  fake name on their own payout account. **`GET /vendors/banks`** backs
+  the web form's bank picker with Paystack's real bank list (not a
+  hardcoded one this scaffold would have to keep in sync).
+- **`PaymentsService.releaseMilestone`** now branches the same way
+  `deposit` does: no bank details, or no Paystack key configured, falls
+  through to the original instant simulation unchanged. With both, it
+  creates (or reuses a cached) Transfer Recipient, calls Paystack's
+  `/transfer` endpoint, and creates the `Payout` as `"processing"` —
+  escrow is **not** debited and the milestone does **not** flip to
+  `"completed"` yet, mirroring the deposit side's "pessimistic until
+  confirmed" shape exactly. **`POST /projects/:projectId/payouts/
+  :payoutId/verify`** asks Paystack directly whether the transfer
+  actually succeeded before any of that happens, via a shared
+  `finalizePayout` helper (`PaymentsService`) that's now the one place
+  that can debit escrow for a payout, used by both the instant-manual
+  path and the confirmed-real one.
+- **A newly created Paystack integration has transfer OTP on by
+  default** — confirmed live, not assumed: `initiateTransfer` against
+  this scaffold's own test key came back `"otp"`, not `"success"`.
+  Paystack sends that code to whoever owns the *Paystack account*
+  itself, not to this app or the vendor being paid — there's no way for
+  this integration to intercept or redirect it. **`POST /projects/
+  :projectId/payouts/:payoutId/finalize`** (`PaymentsService.
+  finalizePayoutOtp`, `PaystackService.finalizeTransferOtp`) relays
+  whatever code a human types in; the web UI's `PayoutRow` gets both a
+  "Check status" button (polls `/verify`, for OTP-less integrations or
+  once OTP is already handled) and an "Enter OTP" form next to any
+  `"processing"` payout.
+- **Verified as far as an external account allows, and documented
+  exactly where that stops.** Live against Paystack's real API: bank
+  list, account-number resolution (Paystack's own documented test
+  account resolved to a real name), Transfer Recipient creation, and
+  Transfer initiation all succeeded and were confirmed by querying
+  Paystack directly — a real `TRF_…` transfer code exists, correctly
+  sitting in Paystack's own `"otp"` state, with escrow correctly left
+  untouched and the milestone correctly left incomplete pending that
+  confirmation. What's *not* verified end-to-end: actually receiving and
+  submitting the OTP, and the "success" branch of `finalizePayout` for a
+  real (not manual) payout — both blocked by external account state, not
+  by this integration's own code:
+  1. The OTP itself wasn't confirmed delivered — Paystack's own
+     `resend_otp` returned `"OTP has been resent"` on request, twice,
+     which places the delivery gap outside this scaffold's control
+     (registered contact info on the Paystack account).
+  2. A second test key created specifically to try disabling OTP turned
+     out to belong to a Paystack business Paystack itself has disabled
+     (`"code":"disabled_merchant"`, confirmed by calling Paystack
+     directly, independent of this codebase) — an account-activation
+     step only Paystack support can resolve, not something to route
+     around in code.
+  The integration code itself — recipient creation, transfer
+  initiation, the pessimistic-until-confirmed escrow/milestone gating,
+  the OTP relay endpoint — is written, typechecked, and has run
+  successfully against Paystack's live test API up to the exact point an
+  external human confirmation step takes over. Picking this back up once
+  an activated key is available needs no further code changes, only a
+  live OTP (or a dashboard "disable OTP for transfers" toggle) to watch
+  the `"success"` branch actually fire.
 
 ## Not built yet
 

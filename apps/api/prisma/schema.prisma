@@ -391,6 +391,17 @@ model Vendor {
   locationCoverage  String? // freeform area/region description
   verificationStatus String  @default("not_verified") // not_verified | pending | verified
   ratingAverage     Decimal? @db.Decimal(3, 2)
+  // A real Paystack Transfer payout (see PaymentsService.releaseMilestone)
+  // needs a bank account to pay into — all three set together or not at
+  // all, same "record what's true" simplicity CreateLeaseDto's tenant
+  // fields already use, no separate BankAccount model. paystackRecipientCode
+  // caches the Transfer Recipient Paystack returns the first time a
+  // payout is attempted, so repeat payouts to the same vendor don't
+  // recreate one.
+  bankAccountNumber    String?
+  bankCode             String?
+  bankAccountName      String?
+  paystackRecipientCode String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -618,16 +629,20 @@ model EscrowLedgerEntry {
 // never directly, so a Payout always traces back to the milestone it paid
 // for.
 model Payout {
-  id           String    @id @default(uuid())
-  vendorId     String
-  projectId    String
-  milestoneId  String?
-  amount       Decimal   @db.Decimal(14, 2)
-  currency     String
-  status       String    @default("pending") // pending | processing | paid | failed
-  payoutMethod String    @default("manual") // manual | bank_transfer | mobile_money
-  createdAt    DateTime  @default(now())
-  paidAt       DateTime?
+  id                String    @id @default(uuid())
+  vendorId          String
+  projectId         String
+  milestoneId       String?
+  amount            Decimal   @db.Decimal(14, 2)
+  currency          String
+  status            String    @default("pending") // pending | processing | paid | failed
+  payoutMethod      String    @default("manual") // manual | bank_transfer | mobile_money
+  // Set when payoutMethod is "bank_transfer" — Paystack's own transfer_code
+  // for this payout, the same "provider"/"providerReference" pairing
+  // Payment already uses for a real gateway's own transaction id.
+  providerReference String?
+  createdAt         DateTime  @default(now())
+  paidAt            DateTime?
 
   vendor        Vendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   project       Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)

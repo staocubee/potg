@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Dispute, Payout, Vendor, VendorQuote, VendorReview } from "../../lib/api";
+import { ApiError, Dispute, Payout, PaystackBank, Vendor, VendorQuote, VendorReview } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 const SERVICE_CATEGORIES = [
@@ -107,6 +107,10 @@ export default function VendorDashboardPage() {
               </div>
               <span className="potg-badge">{vendor.verificationStatus.replace(/_/g, " ")}</span>
             </div>
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <BankDetailsForm vendor={vendor} onUpdated={() => load()} />
           </div>
 
           <div className="potg-card" style={{ padding: 18 }}>
@@ -475,6 +479,105 @@ function VendorDisputeRow({ dispute, onResolved }: { dispute: Dispute; onResolve
             </button>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// The real half of Section 16's payout integration — see
+// VendorsService.setBankDetails. Resolving the account number against
+// Paystack happens server-side; this form only ever shows back whatever
+// name Paystack itself confirmed, never a name the vendor typed in.
+function BankDetailsForm({ vendor, onUpdated }: { vendor: Vendor; onUpdated: () => void }) {
+  const auth = useAuth();
+  const [banks, setBanks] = useState<PaystackBank[] | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [bankCode, setBankCode] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const hasBankDetails = !!(vendor.bankAccountNumber && vendor.bankCode);
+
+  function startEditing() {
+    setEditing(true);
+    setError(null);
+    if (!banks) {
+      auth.api
+        .listBanks()
+        .then(setBanks)
+        .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load the bank list."));
+    }
+  }
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await auth.api.setVendorBankDetails({ bankAccountNumber: accountNumber, bankCode });
+      setEditing(false);
+      onUpdated();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't verify that bank account.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <h3 style={{ fontSize: 14, margin: 0 }}>Payout bank details</h3>
+        {!editing && (
+          <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={startEditing}>
+            {hasBankDetails ? "Change" : "+ Add"}
+          </button>
+        )}
+      </div>
+      {!editing && !hasBankDetails && (
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+          No payout bank account on file yet — a milestone released to you will fall back to a simulated payout until
+          you add one.
+        </p>
+      )}
+      {!editing && hasBankDetails && (
+        <p style={{ fontSize: 13, margin: 0 }}>
+          {vendor.bankAccountName} · •••• {vendor.bankAccountNumber?.slice(-4)}
+        </p>
+      )}
+      {editing && (
+        <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: hasBankDetails ? 8 : 0 }}>
+          {error && <div className="potg-error">{error}</div>}
+          <select className="potg-input" required value={bankCode} onChange={(e) => setBankCode(e.target.value)} disabled={!banks}>
+            <option value="">{banks ? "Select your bank" : "Loading banks…"}</option>
+            {banks?.map((b) => (
+              <option key={b.code} value={b.code}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+          <input
+            className="potg-input"
+            required
+            placeholder="Account number"
+            value={accountNumber}
+            onChange={(e) => setAccountNumber(e.target.value)}
+          />
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !banks} style={{ padding: "4px 9px", fontSize: 11 }}>
+              {busy ? "Verifying…" : "Verify & save"}
+            </button>
+            <button
+              className="potg-btn potg-btn-secondary"
+              type="button"
+              onClick={() => setEditing(false)}
+              style={{ padding: "4px 9px", fontSize: 11 }}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
       )}
     </div>
   );
