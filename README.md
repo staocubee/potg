@@ -432,13 +432,16 @@ Priority 3 of the Engineering Implementation Priorities — Modules 7 and 9.
 
 ## Payments & escrow (`src/payments`)
 
-Priority 4 — Module 11. No real payment gateway is wired up (Section 16
-lists Paystack/Flutterwave/Stripe/PayPal as day-one integrations); every
-deposit and payout here is simulated and completes instantly, the same way
-`StubLlmProvider` simulates a model. What's real is the ledger — every
-balance change is an `EscrowLedgerEntry`, so a project's escrow balance is
-always derivable from its history rather than just a number someone could
-edit directly.
+Priority 4 — Module 11. At the time this was written, no real payment
+gateway was wired up (Section 16 lists Paystack/Flutterwave/Stripe/PayPal
+as day-one integrations); every deposit and payout was simulated and
+completed instantly, the same way `StubLlmProvider` simulates a model. A
+much later pass this same session made deposits real via Paystack — see
+"A real payment gateway — Paystack" further down; payouts are still
+exactly what this paragraph describes. What's real from the start is the
+ledger — every balance change is an `EscrowLedgerEntry`, so a project's
+escrow balance is always derivable from its history rather than just a
+number someone could edit directly.
 
 - `POST /projects/:projectId/payments` — deposit funds into the project's
   escrow account (creates it on first deposit).
@@ -1664,6 +1667,98 @@ Same shape as those two passes, applied to `Document`.
   replaced by them — see the "Not built yet" bullets below for exactly
   what that leaves on the table.
 
+## A real payment gateway — Paystack (Section 16)
+
+Closes the specific gap this README named for a whole session: "`src/
+payments` simulates every deposit and payout instantly." Deposits into
+escrow now go through Paystack's real Checkout — an actual hosted
+payment page, a real transaction reference, and a server-side
+verification call before a naira ever counts as "in escrow." Payouts
+(releasing a milestone to a vendor) are still simulated — see the gap
+below for why that's a materially bigger integration than deposits
+turned out to be.
+
+- **`PaystackService`** (`src/payments/paystack.service.ts`) — the same
+  "plain `fetch`, no SDK" shape `AnthropicLlmProvider` already
+  established, wrapping exactly two Paystack endpoints:
+  `/transaction/initialize` and `/transaction/verify/:reference`.
+  That's Section 16's actual minimum ("process real transactions"), not
+  the full Paystack API surface — no webhook receiver, since this
+  scaffold runs on localhost with no public URL for Paystack to call
+  back to. Verification is caller-initiated instead: the buyer clicks
+  "I've paid — verify" and the backend asks Paystack directly, the same
+  pull-based pattern a production deployment would keep as the fallback
+  for a buyer who closes the tab before a webhook could fire.
+- **`PaymentsService.deposit`** now branches on `provider`. `"manual"`
+  (the default, and everything demo/seed data uses) is the original
+  instant simulation, unchanged. `"paystack"` creates a **`pending`**
+  `Payment` — no escrow credit yet — calls Paystack's initialize
+  endpoint, and returns an `authorizationUrl` instead of a receipt.
+  Escrow is only credited once **`verifyDeposit`** (new: `POST /
+  projects/:projectId/payments/:paymentId/verify`) confirms the charge
+  actually succeeded, so a buyer abandoning checkout never phantom-funds
+  the project. Both paths share one `creditEscrowForDeposit` helper for
+  the actual balance/ledger/receipt write, so there's only one place
+  that can credit escrow at all. Amount *and* currency are checked
+  against what Paystack itself confirms before crediting anything — a
+  reference alone isn't trusted.
+- **Paystack's own transaction statuses aren't binary.** A first version
+  of this treated any non-`"success"` verify result as a terminal
+  `"failed"` — caught live when verifying a truly untouched checkout
+  session returned Paystack's own `"abandoned"` status and permanently
+  failed a payment that hadn't even been attempted yet. Fixed: only
+  Paystack's own `"failed"` (an actually declined/errored charge) marks
+  the local `Payment` `"failed"`; anything else (`"abandoned"`, still
+  pending) leaves it `"pending"` so the same checkout session can still
+  be completed and re-verified later.
+- **Paystack rejects RFC 2606 reserved-TLD emails outright** — confirmed
+  directly against their API: `demo-owner@propertyonthego.test` (this
+  scaffold's own seeded login, deliberately fake so it's never mistaken
+  for a real mailbox) gets `"email" must be a valid email` back from
+  `/transaction/initialize`. A `payableEmail()` helper swaps a reserved
+  test TLD (`.test`/`.example`/`.invalid`/`.localhost`) for `.com` only
+  in what's sent to Paystack — Paystack never actually emails this
+  address in test mode, it's only a label on the transaction, so this
+  changes nothing about the account's real login email anywhere else.
+- **Web UI**: `DepositForm` (`pages/projects/[id].tsx`) labels the
+  provider dropdown honestly now — "Paystack (real test payment)" next
+  to "Manual/Flutterwave/Stripe/PayPal (simulated)", since only Paystack
+  does anything real. Choosing it opens Paystack's checkout in a new tab
+  and swaps the form for an "I've paid — verify" button.
+- **New env vars** (`apps/api/.env.example`): `PAYSTACK_SECRET_KEY`
+  (omit to keep every deposit on the manual simulated path — nothing
+  breaks without it) and `WEB_APP_URL` (where Paystack redirects the
+  browser after checkout).
+- **Verified for real, not mocked** — this pass actually ran against
+  Paystack's live test API using a real test secret key: initializing a
+  transaction, completing checkout on Paystack's real hosted page with
+  their public test cards (`Success` → escrow credited exactly once,
+  confirmed via the ledger and a direct balance check; `Declined` →
+  `Payment` marked `"failed"`, escrow untouched, re-verifying a failed
+  payment correctly refused), and — separately — verifying an
+  **un-touched** checkout session to catch the `"abandoned"` bug above.
+  Every step was also driven through the actual browser: the deposit
+  form, Paystack's real checkout UI, the callback redirect back to the
+  project page (carrying Paystack's `reference` as a query param, even
+  though nothing currently reads it — see the gap below), and the
+  escrow card updating live after "I've paid — verify".
+- **Still not the full Section 16 integration.** Payouts (releasing a
+  milestone to a vendor) are still fully simulated — a real transfer
+  would need a `Vendor` bank account (account number + bank code, fields
+  that don't exist on this schema yet), Paystack's separate Transfer
+  Recipient + Transfer APIs, and probably a dashboard-side "disable OTP
+  on transfers" step this scaffold can't do on the account holder's
+  behalf — a materially bigger integration than deposits turned out to
+  be, deliberately left out of this pass. The callback page also doesn't
+  read its own `?paystackReference=` query param — verification only
+  ever happens through the "I've paid — verify" button in the same tab
+  that started the deposit, so a buyer who completes checkout, closes
+  that original tab, and only ever lands on the redirect has no UI path
+  back to verifying; the payment stays "pending" until they return to
+  the project page and use the button there. And there's still no
+  webhook receiver, by design (see above) — every verification is
+  caller-initiated.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -1727,10 +1822,12 @@ blueprint, or explicitly cut from it:
   arguments (e.g. "model a 10% rent increase" → `{ scenario:
   "rent_increase", rentIncreasePercent: 10 }`); the no-API-key stub doesn't
   attempt that.
-- **A real payment gateway.** `src/payments` simulates every deposit and
-  payout instantly — Paystack/Flutterwave/Stripe/PayPal integration
-  (Section 16), and the licensing/compliance workstream the blueprint says
-  to run in parallel with it (Section 15), are both still open.
+- **Payouts are still simulated; only deposits are real.** See "A real
+  payment gateway — Paystack" above for what changed. Flutterwave/
+  Stripe/PayPal integration (Section 16 named all four) and the
+  licensing/compliance workstream the blueprint says to run alongside it
+  (Section 15) are both still open — this pass only covers Paystack, and
+  only the deposit half of it.
 - **Dispute arbitration has no evidence-request step.** See "Extending
   the neutral reviewer to dispute arbitration" above for the actual
   neutral-reviewer path this pass added — `platform_reviewer` can now

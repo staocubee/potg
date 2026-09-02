@@ -528,25 +528,76 @@ function AddUpdateForm({ projectId, milestones, onCreated }: { projectId: string
   );
 }
 
+// "paystack" is a real gateway integration (Section 16) — see
+// PaystackService's own comment for why there's no webhook. Submitting
+// creates a *pending* Payment and opens Paystack's real hosted checkout
+// in a new tab; escrow isn't credited until the buyer completes it there
+// and this form's own "I've paid — verify" button confirms it server-side
+// against Paystack directly. The other three providers stay exactly what
+// they always were: an instant simulation, never actually charged.
 function DepositForm({ projectId, defaultCurrency, onCreated }: { projectId: string; defaultCurrency: string; onCreated: () => void }) {
   const auth = useAuth();
   const [amount, setAmount] = useState("");
   const [provider, setProvider] = useState("manual");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pendingPaymentId, setPendingPaymentId] = useState<string | null>(null);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      await auth.api.deposit(projectId, { amount: Number(amount), provider });
-      onCreated();
+      const result = await auth.api.deposit(projectId, { amount: Number(amount), provider });
+      if ('authorizationUrl' in result) {
+        setPendingPaymentId(result.payment.id);
+        window.open(result.authorizationUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        onCreated();
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't record that deposit.");
     } finally {
       setBusy(false);
     }
+  }
+
+  async function onVerify() {
+    if (!pendingPaymentId) return;
+    setError(null);
+    setBusy(true);
+    try {
+      const result = await auth.api.verifyDeposit(projectId, pendingPaymentId);
+      if (result.payment.status === 'completed') {
+        setPendingPaymentId(null);
+        onCreated();
+      } else {
+        setError(`Paystack hasn't confirmed this payment yet (status: ${result.payment.status}). Complete checkout in the other tab, then try again.`);
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't verify that payment.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (pendingPaymentId) {
+    return (
+      <div style={{ marginBottom: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+        {error && <div className="potg-error">{error}</div>}
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+          Complete the payment in the Paystack tab that just opened, then come back and verify it here.
+        </p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="potg-btn potg-btn-primary" onClick={onVerify} disabled={busy}>
+            {busy ? "Checking…" : "I've paid — verify"}
+          </button>
+          <button className="potg-btn potg-btn-secondary" onClick={() => setPendingPaymentId(null)} disabled={busy}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -562,12 +613,12 @@ function DepositForm({ projectId, defaultCurrency, onCreated }: { projectId: str
         value={amount}
         onChange={(e) => setAmount(e.target.value)}
       />
-      <select className="potg-input" value={provider} onChange={(e) => setProvider(e.target.value)} style={{ maxWidth: 160 }}>
-        <option value="manual">Manual</option>
-        <option value="paystack">Paystack</option>
-        <option value="flutterwave">Flutterwave</option>
-        <option value="stripe">Stripe</option>
-        <option value="paypal">PayPal</option>
+      <select className="potg-input" value={provider} onChange={(e) => setProvider(e.target.value)} style={{ maxWidth: 200 }}>
+        <option value="manual">Manual (simulated)</option>
+        <option value="paystack">Paystack (real test payment)</option>
+        <option value="flutterwave">Flutterwave (simulated)</option>
+        <option value="stripe">Stripe (simulated)</option>
+        <option value="paypal">PayPal (simulated)</option>
       </select>
       <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ flexShrink: 0 }}>
         {busy ? "…" : "Deposit"}

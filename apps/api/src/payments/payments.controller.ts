@@ -3,7 +3,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
-import { CurrentAccountMember } from '../common/decorators/current-user.decorator';
+import { CurrentAccountMember, CurrentUser } from '../common/decorators/current-user.decorator';
 import { PaymentsService } from './payments.service';
 import { DepositDto } from './dto/deposit.dto';
 import { RaiseDisputeDto } from './dto/raise-dispute.dto';
@@ -11,6 +11,7 @@ import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
 
 type AccountMemberCtx = { accountId: string };
+type UserCtx = { id: string; email: string };
 
 // Controller-level :projectId (rather than each route repeating it) — same
 // param name PermissionsGuard's ABAC check looks for, so every route here
@@ -26,9 +27,24 @@ export class PaymentsController {
   deposit(
     @Param('projectId') projectId: string,
     @CurrentAccountMember() member: AccountMemberCtx,
+    @CurrentUser() user: UserCtx,
     @Body() dto: DepositDto,
   ) {
-    return this.payments.deposit(member.accountId, projectId, dto);
+    return this.payments.deposit(member.accountId, projectId, user.email, dto);
+  }
+
+  // The other half of the real Paystack path — see
+  // PaymentsService.verifyDeposit. Same payment:write permission as
+  // deposit itself: verifying is still the depositing account confirming
+  // its own payment, not a neutral-reviewer action.
+  @RequirePermissions('payment:write')
+  @Post('payments/:paymentId/verify')
+  verifyDeposit(
+    @Param('projectId') projectId: string,
+    @Param('paymentId') paymentId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+  ) {
+    return this.payments.verifyDeposit(member.accountId, projectId, paymentId);
   }
 
   @RequirePermissions('payment:read')

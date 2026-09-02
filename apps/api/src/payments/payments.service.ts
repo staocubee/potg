@@ -1,10 +1,12 @@
 import { randomUUID } from 'crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { DepositDto } from './dto/deposit.dto';
 import { RaiseDisputeDto } from './dto/raise-dispute.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
+import { PaystackService } from './paystack.service';
 
 function receiptNumber(): string {
   // Not sequential/invoice-grade (a real one would need a per-account
@@ -13,9 +15,34 @@ function receiptNumber(): string {
   return `RCT-${new Date().getFullYear()}-${randomUUID().slice(0, 8).toUpperCase()}`;
 }
 
+// RFC 2606/6761 reserved TLDs (.test, .example, .invalid, .localhost) are
+// deliberately never real deliverable domains — this seed data's own
+// demo-owner@propertyonthego.test uses one on purpose, so a login email
+// is never mistaken for one worth emailing for real. Paystack's own
+// server-side validation rejects them outright ("email must be a valid
+// email"), confirmed directly against their API — a real external
+// constraint, not something this scaffold can configure around. Paystack
+// never actually sends mail to this address in test mode, it's only a
+// label on the transaction, so swapping the TLD here doesn't change what
+// the account's real login email is anywhere else in the system.
+const RESERVED_TEST_TLDS = ['test', 'example', 'invalid', 'localhost'];
+function payableEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!domain) return email;
+  const tld = domain.split('.').pop();
+  if (tld && RESERVED_TEST_TLDS.includes(tld.toLowerCase())) {
+    return `${local}@${domain.slice(0, -tld.length)}com`;
+  }
+  return email;
+}
+
 @Injectable()
 export class PaymentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly paystack: PaystackService,
+    private readonly config: ConfigService,
+  ) {}
 
   private async getOrCreateEscrowAccount(projectId: string, currency: string) {
     const existing = await this.prisma.escrowAccount.findUnique({ where: { projectId } });
@@ -36,53 +63,148 @@ export class PaymentsService {
     return escrowAccount;
   }
 
-  // Deposit — simulated (see the Payment model's schema comment). Funds
-  // the project's escrow account, which is created on first deposit.
-  async deposit(accountId: string, projectId: string, dto: DepositDto) {
+  // Deposit — provider "manual" is the original simulation (see the
+  // Payment model's schema comment), still used for demo/seed data and
+  // anyone without a Paystack key configured: it credits escrow instantly,
+  // as if a gateway had already confirmed it. provider "paystack" is a
+  // real gateway integration instead — see PaystackService's own comment.
+  // It does NOT credit escrow here; the Payment is created "pending" and
+  // escrow is only credited once verifyDeposit confirms the charge
+  // actually succeeded, so a buyer abandoning Paystack's checkout page
+  // never phantom-funds the project.
+  async deposit(accountId: string, projectId: string, email: string, dto: DepositDto) {
     const project = await this.prisma.project.findFirst({ where: { id: projectId, accountId } });
     if (!project) throw new NotFoundException('Project not found');
 
     const currency = dto.currency ?? project.currency;
-    const escrowAccount = await this.getOrCreateEscrowAccount(projectId, currency);
-    const newBalance = Number(escrowAccount.balance) + dto.amount;
 
-    const [payment] = await this.prisma.$transaction([
-      this.prisma.payment.create({
+    if (dto.provider === 'paystack') {
+      const escrowAccount = await this.getOrCreateEscrowAccount(projectId, currency);
+      const reference = `potg_dep_${randomUUID()}`;
+      const webAppUrl = this.config.get<string>('WEB_APP_URL', 'http://localhost:3000');
+      const { authorizationUrl } = await this.paystack.initializeTransaction({
+        email: payableEmail(email),
+        amount: dto.amount,
+        currency,
+        reference,
+        callbackUrl: `${webAppUrl}/projects/${projectId}?paystackReference=${reference}`,
+        metadata: { projectId, accountId },
+      });
+      const payment = await this.prisma.payment.create({
         data: {
           accountId,
           projectId,
           escrowAccountId: escrowAccount.id,
           amount: dto.amount,
           currency,
-          provider: dto.provider ?? 'manual',
-          providerReference: dto.providerReference,
-          status: 'completed',
+          provider: 'paystack',
+          providerReference: reference,
+          status: 'pending',
         },
-      }),
-      this.prisma.escrowAccount.update({ where: { id: escrowAccount.id }, data: { balance: newBalance } }),
-    ]);
+      });
+      return { payment, authorizationUrl };
+    }
 
+    const escrowAccount = await this.getOrCreateEscrowAccount(projectId, currency);
+    const payment = await this.prisma.payment.create({
+      data: {
+        accountId,
+        projectId,
+        escrowAccountId: escrowAccount.id,
+        amount: dto.amount,
+        currency,
+        provider: dto.provider ?? 'manual',
+        providerReference: dto.providerReference,
+        status: 'completed',
+      },
+    });
+    const receipt = await this.creditEscrowForDeposit(escrowAccount.id, payment, accountId);
+    return { payment, receipt };
+  }
+
+  // Shared by the instant "manual" path above and verifyDeposit below —
+  // the one place that actually moves the escrow balance and records the
+  // ledger entry + receipt for a deposit, so the two paths can never
+  // credit it two different ways.
+  private async creditEscrowForDeposit(
+    escrowAccountId: string,
+    payment: { id: string; amount: unknown; currency: string; provider: string },
+    accountId: string,
+  ) {
+    const escrowAccount = await this.prisma.escrowAccount.findUniqueOrThrow({ where: { id: escrowAccountId } });
+    const amount = Number(payment.amount);
+    const newBalance = Number(escrowAccount.balance) + amount;
+
+    await this.prisma.escrowAccount.update({ where: { id: escrowAccountId }, data: { balance: newBalance } });
     await this.prisma.escrowLedgerEntry.create({
       data: {
-        escrowAccountId: escrowAccount.id,
+        escrowAccountId,
         entryType: 'deposit',
-        amount: dto.amount,
+        amount,
         balanceAfter: newBalance,
         relatedPaymentId: payment.id,
         notes: `Deposit via ${payment.provider}`,
       },
     });
-    const receipt = await this.prisma.receipt.create({
+    return this.prisma.receipt.create({
       data: {
         accountId,
         receiptNumber: receiptNumber(),
         paymentId: payment.id,
-        amount: dto.amount,
-        currency,
+        amount,
+        currency: payment.currency,
       },
     });
+  }
 
-    return { payment, receipt };
+  // The other half of the real Paystack path — asks Paystack directly
+  // whether the charge for this payment's own reference actually
+  // succeeded, rather than trusting anything the client claims. Callable
+  // more than once safely: a payment that's already "completed" just
+  // returns its existing receipt instead of crediting escrow twice.
+  async verifyDeposit(accountId: string, projectId: string, paymentId: string) {
+    const payment = await this.prisma.payment.findFirst({ where: { id: paymentId, projectId, accountId } });
+    if (!payment) throw new NotFoundException('Payment not found on this project');
+    if (payment.provider !== 'paystack') {
+      throw new BadRequestException('Only a Paystack deposit needs verification');
+    }
+    if (payment.status === 'completed') {
+      const receipt = await this.prisma.receipt.findUnique({ where: { paymentId: payment.id } });
+      return { payment, receipt, alreadyVerified: true };
+    }
+    if (payment.status !== 'pending' || !payment.providerReference) {
+      throw new BadRequestException(`This payment is "${payment.status}" — nothing to verify`);
+    }
+
+    const result = await this.paystack.verifyTransaction(payment.providerReference);
+    if (result.status === 'failed') {
+      // A genuinely declined/failed charge — terminal, same as any other
+      // failed Payment elsewhere in this schema.
+      const updated = await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'failed' } });
+      return { payment: updated, receipt: null, alreadyVerified: false };
+    }
+    if (result.status !== 'success') {
+      // "abandoned" (checkout not completed yet) or anything else that
+      // isn't a final answer — leave the payment "pending" rather than
+      // marking it failed, so a buyer who verifies too early (or closes
+      // the tab and comes back later) can still complete the same
+      // checkout session and verify again afterward.
+      return { payment, receipt: null, alreadyVerified: false };
+    }
+
+    const expectedKobo = Math.round(Number(payment.amount) * 100);
+    if (result.amountKobo !== expectedKobo || result.currency !== payment.currency) {
+      // Paystack confirmed a charge, but not for the amount/currency this
+      // payment recorded — refuse to credit escrow for a mismatch rather
+      // than trusting the reference alone.
+      throw new BadRequestException(
+        `Paystack confirmed a different amount/currency than expected (got ${result.amountKobo / 100} ${result.currency})`,
+      );
+    }
+
+    const completed = await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'completed' } });
+    const receipt = await this.creditEscrowForDeposit(payment.escrowAccountId, completed, accountId);
+    return { payment: completed, receipt, alreadyVerified: false };
   }
 
   findPayments(projectId: string) {

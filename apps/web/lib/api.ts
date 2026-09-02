@@ -1153,13 +1153,22 @@ export class ApiClient {
 
   // --- Payments & escrow (per-project routes below; the account-wide
   // rollup is getPaymentsOverview() further down) ---
+  // Two shapes back, depending on provider: "manual" (the default)
+  // credits escrow instantly and returns a receipt, same as before.
+  // "paystack" returns an authorizationUrl instead — nothing is credited
+  // until the buyer completes checkout there and the caller calls
+  // verifyDeposit with the returned payment's id.
   deposit(projectId: string, input: { amount: number; currency?: string; provider?: string; providerReference?: string }) {
-    return request<{ payment: Payment; receipt: Receipt }>(`/projects/${projectId}/payments`, {
-      method: "POST",
-      body: input,
-      token: this.token,
-      accountId: this.accountId,
-    });
+    return request<{ payment: Payment; receipt: Receipt } | { payment: Payment; authorizationUrl: string }>(
+      `/projects/${projectId}/payments`,
+      { method: "POST", body: input, token: this.token, accountId: this.accountId },
+    );
+  }
+  verifyDeposit(projectId: string, paymentId: string) {
+    return request<{ payment: Payment; receipt: Receipt | null; alreadyVerified: boolean }>(
+      `/projects/${projectId}/payments/${paymentId}/verify`,
+      { method: "POST", token: this.token, accountId: this.accountId },
+    );
   }
   getEscrow(projectId: string) {
     return request<EscrowAccount>(`/projects/${projectId}/escrow`, { token: this.token, accountId: this.accountId });
