@@ -51,18 +51,46 @@ export class DocumentsService {
   // can't lean on PermissionsGuard's ABAC convention — filters by accountId
   // directly instead, same shape as PaymentsService.getAccountOverview.
   //
-  // There's no neutral third-party reviewer role in this scaffold's RBAC
-  // (Section 8's account_manage roles are the only ones granted
-  // document:verify) — an account's own owner/admin can verify a document
-  // its own member uploaded. A real deployment implementing Module 6's
-  // "neutral reviewer" would need a reviewer identity outside the
-  // uploading account entirely; that's still open, see the README.
+  // An account's own owner/admin can verify a document its own member
+  // uploaded — not neutral, but see arbitrateVerify below for the actual
+  // neutral-reviewer path Module 6 calls for.
   async verify(documentId: string, accountId: string, dto: UpdateDocumentVerificationDto) {
     const document = await this.prisma.document.findFirst({ where: { id: documentId, accountId } });
     if (!document) throw new NotFoundException('Document not found');
+    return this.applyVerification(document, dto);
+  }
 
+  // Module 6's actual neutral-reviewer path for documents, the counterpart
+  // to VendorsService.setVerificationStatus / PaymentsService.
+  // arbitrateDispute. Gated on document:arbitrate, which only the
+  // platform_reviewer role carries (never document:write, so it never
+  // uploads — let alone owns — a document it might later arbitrate).
+  // Looks the document up by id alone, no accountId filter, so it reaches
+  // any document on the platform once the caller's role has the
+  // permission — same shape the other two neutral-reviewer routes use.
+  findPendingForArbitration() {
+    return this.prisma.document.findMany({
+      where: { verificationStatus: { notIn: ['verified', 'rejected'] } },
+      include: {
+        account: { select: { id: true, name: true } },
+        property: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async arbitrateVerify(documentId: string, dto: UpdateDocumentVerificationDto) {
+    const document = await this.prisma.document.findUnique({ where: { id: documentId } });
+    if (!document) throw new NotFoundException('Document not found');
+    return this.applyVerification(document, dto);
+  }
+
+  private async applyVerification(
+    document: { id: string; documentType: string; propertyId: string | null },
+    dto: UpdateDocumentVerificationDto,
+  ) {
     const updated = await this.prisma.document.update({
-      where: { id: documentId },
+      where: { id: document.id },
       data: { verificationStatus: dto.status, verificationNotes: dto.notes ?? null },
     });
 

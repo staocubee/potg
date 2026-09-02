@@ -199,6 +199,10 @@ export type AppDocument = {
   expiryDate?: string | null;
   uploadedByUserId: string;
   createdAt: string;
+  // Only present on GET /documents/pending (the neutral-reviewer queue) —
+  // the account-scoped /documents routes already know whose document it is.
+  account?: { id: string; name: string };
+  property?: { id: string; name: string } | null;
 };
 
 export type PropertyTimelineEvent = {
@@ -1511,6 +1515,17 @@ export class ApiClient {
   }
   verifyDocument(documentId: string, input: { status: "verified" | "rejected"; notes?: string }) {
     return request<AppDocument>(`/documents/${documentId}/verify`, {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  findPendingDocumentsForArbitration() {
+    return request<AppDocument[]>("/documents/pending", { token: this.token, accountId: this.accountId });
+  }
+  arbitrateDocumentVerification(documentId: string, input: { status: "verified" | "rejected"; notes?: string }) {
+    return request<AppDocument>(`/documents/${documentId}/arbitrate`, {
       method: "PATCH",
       body: input,
       token: this.token,

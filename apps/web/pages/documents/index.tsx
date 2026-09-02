@@ -34,8 +34,10 @@ export default function DocumentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
+  const isPlatformReviewer = auth.currentAccount?.role === "platform_reviewer";
+
   function load() {
-    if (!auth.currentAccountId) return;
+    if (!auth.currentAccountId || isPlatformReviewer) return;
     setError(null);
     Promise.all([auth.api.listDocuments(), auth.api.listProperties()])
       .then(([docs, props]) => {
@@ -48,7 +50,7 @@ export default function DocumentsPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.currentAccountId]);
+  }, [auth.currentAccountId, isPlatformReviewer]);
 
   const propertyName = (id?: string | null) => (id ? properties.find((p) => p.id === id)?.name ?? "Unknown property" : null);
 
@@ -56,6 +58,17 @@ export default function DocumentsPage() {
     () => (filterPropertyId ? documents?.filter((d) => d.propertyId === filterPropertyId) : documents),
     [documents, filterPropertyId],
   );
+
+  // The platform reviewer has no documents of its own — document:read is
+  // never in its role, so listDocuments/listProperties would just 403.
+  // This account only ever sees the arbitration queue.
+  if (isPlatformReviewer) {
+    return (
+      <AppShell title="Document verification">
+        <DocumentArbitrationQueue />
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell
@@ -307,6 +320,137 @@ function VerifyDocumentControls({ document, onUpdated }: { document: AppDocument
           Reject
         </button>
       </div>
+    </div>
+  );
+}
+
+// Module 6's neutral-reviewer path for documents — only ever rendered for
+// the platform_reviewer role (see isPlatformReviewer above), which never
+// gets document:write, so it can't be the account that uploaded whatever
+// it's verifying here.
+function DocumentArbitrationQueue() {
+  const auth = useAuth();
+  const [documents, setDocuments] = useState<AppDocument[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    if (!auth.currentAccountId) return;
+    setError(null);
+    auth.api
+      .findPendingDocumentsForArbitration()
+      .then(setDocuments)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load pending documents."));
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  return (
+    <div>
+      <p className="potg-muted" style={{ fontSize: 13, marginTop: 0 }}>
+        Every document platform-wide not yet verified or rejected, regardless of which account uploaded it.
+      </p>
+      {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
+      {!documents && !error && <p className="potg-muted">Loading…</p>}
+      {documents && documents.length === 0 && (
+        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
+          <p className="potg-muted" style={{ margin: 0 }}>Nothing pending review right now.</p>
+        </div>
+      )}
+      {documents && documents.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {documents.map((d) => (
+            <DocumentArbitrationRow key={d.id} document={d} onChanged={load} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DocumentArbitrationRow({ document, onChanged }: { document: AppDocument; onChanged: () => void }) {
+  const auth = useAuth();
+  const [rejecting, setRejecting] = useState(false);
+  const [notes, setNotes] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"verified" | "rejected" | null>(null);
+
+  async function submit(status: "verified" | "rejected") {
+    setBusy(status);
+    setError(null);
+    try {
+      await auth.api.arbitrateDocumentVerification(document.id, { status, notes: notes || undefined });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update this document's verification status.");
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <a href={document.fileUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 700, fontSize: 14 }}>
+            {labelType(document.documentType)}
+          </a>
+          <p className="potg-muted" style={{ fontSize: 12, margin: "2px 0 0" }}>
+            {document.account?.name ?? "Unknown account"}
+            {document.property && ` · ${document.property.name}`}
+            {" · "}Uploaded {new Date(document.createdAt).toLocaleDateString()}
+          </p>
+        </div>
+        <span className="potg-badge">{document.verificationStatus.replace(/_/g, " ")}</span>
+      </div>
+      {error && <div className="potg-error" style={{ marginTop: 8 }}>{error}</div>}
+      {rejecting ? (
+        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+          <input
+            className="potg-input"
+            placeholder="Reason (optional)"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+          />
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              className="potg-btn potg-btn-danger"
+              style={{ padding: "4px 9px", fontSize: 11 }}
+              disabled={busy !== null}
+              onClick={() => submit("rejected")}
+            >
+              {busy === "rejected" ? "…" : "Confirm reject"}
+            </button>
+            <button
+              className="potg-btn potg-btn-secondary"
+              style={{ padding: "4px 9px", fontSize: 11 }}
+              onClick={() => setRejecting(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          <button
+            className="potg-btn potg-btn-primary"
+            style={{ padding: "4px 9px", fontSize: 11 }}
+            disabled={busy !== null}
+            onClick={() => submit("verified")}
+          >
+            {busy === "verified" ? "…" : "Verify"}
+          </button>
+          <button
+            className="potg-btn potg-btn-secondary"
+            style={{ padding: "4px 9px", fontSize: 11 }}
+            disabled={busy !== null}
+            onClick={() => setRejecting(true)}
+          >
+            Reject
+          </button>
+        </div>
+      )}
     </div>
   );
 }

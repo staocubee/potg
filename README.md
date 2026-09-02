@@ -863,13 +863,13 @@ separate human/admin action, which simply didn't exist yet.
   No client-side permission check: a member without `document:verify`
   sees the buttons and gets the API's 403, same pattern the project
   page's approve/release buttons already use.
-- **Still not a neutral reviewer.** This scaffold's RBAC has no
-  reviewer identity outside the account itself — an account's own
-  owner/admin can verify a document its own member uploaded, which isn't
-  what Module 6's "neutral reviewer" ultimately calls for. The bullet
-  below about the fuller trust workflow (risk flags, trust scores, a real
-  independent reviewer) stays open; this pass only adds the mechanical
-  ability to change the status at all.
+- **Still not a neutral reviewer, at the time this was written.** This
+  scaffold's RBAC had no reviewer identity outside the account itself —
+  an account's own owner/admin could verify a document its own member
+  uploaded, which isn't what Module 6's "neutral reviewer" ultimately
+  calls for. A much later pass this same session added exactly that
+  identity and gave it this exact action — see "Extending the neutral
+  reviewer to document verification" further down.
 
 ## Two-party dispute resolution (this pass)
 
@@ -1610,6 +1610,60 @@ construction, not by an extra runtime check.
   shows `Open disputes: 0` on the normal overview — the decision
   propagated to the exact page a real dispute lives on.
 
+## Extending the neutral reviewer to document verification (Module 6)
+
+The last of the three gaps "A real neutral reviewer for vendor/supplier
+verification" originally left open: document verification was still an
+account's own admin, the same "not actually neutral" limitation
+vendor/supplier verification and dispute resolution both used to carry.
+Same shape as those two passes, applied to `Document`.
+
+- **New `document:arbitrate` permission**, granted only to
+  `platform_reviewer` — that role never gets `document:write` (see
+  `seed.ts`), so it never uploads, let alone owns, a document it might
+  later verify. Structural neutrality again, not a runtime check.
+- **`DocumentsService.verify`** (the existing account-scoped path) and
+  the new **`arbitrateVerify`** now share one private `applyVerification`
+  helper for the actual status update and timeline-event write —
+  `verify` still filters `{ id, accountId }` before calling it,
+  `arbitrateVerify` looks the document up by `id` alone. Same
+  extract-the-shared-part-not-the-check shape
+  `PaymentsService.applyDisputeResolution` already established.
+- **`GET /documents/pending`** lists every document platform-wide whose
+  `verificationStatus` isn't `verified`/`rejected` yet (so `not_verified`
+  and the never-actually-used `submitted` value both surface), with the
+  uploading account's name and the property's name for context — a
+  reviewer arbitrating blind wouldn't be reviewing anything. **`PATCH
+  /documents/:documentId/arbitrate`** records the decision. No
+  `:propertyId`/`:accountId` param for `PermissionsGuard`'s ABAC to key
+  on, same reasoning every other neutral-reviewer route this session
+  added already uses.
+- **Web UI**: `pages/documents/index.tsx` branches on
+  `auth.currentAccount?.role === "platform_reviewer"` — that account has
+  no `document:read`, so the normal per-account list would just 403.
+  Instead it renders a `DocumentArbitrationQueue`, structurally the same
+  Verify/Reject-with-optional-notes shape the existing
+  `VerifyDocumentControls` already used, just reading from and posting to
+  the arbitration routes instead.
+- Verified against the live dev API (a freshly uploaded document appears
+  in the pending queue with the uploading account's and property's
+  names; an unrelated account still gets 403 on the normal `/verify`
+  route; the reviewer's arbitration succeeds and writes the same
+  `document_verified` timeline event `verify` itself would have; the
+  decision is visible on the uploading account's own document list
+  immediately after) and in the browser: switching to the platform
+  account turns `/documents` into the arbitration queue, verifying the
+  pending document there empties the queue.
+- **Closes Module 6's neutral-reviewer scope for this session.** All
+  three fields that had either no verification path (`Vendor`/`Supplier.
+  verificationStatus`) or only a self-service one (`Document.
+  verificationStatus`, `Dispute.status`) now have a genuinely separate
+  reviewer path. What's still open: the reviewer can't request more
+  evidence before deciding on any of the three, and the score/self-serve
+  paths still exist alongside the neutral ones rather than being
+  replaced by them — see the "Not built yet" bullets below for exactly
+  what that leaves on the table.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -1617,17 +1671,18 @@ blueprint, or explicitly cut from it:
 
 - **Modules 6, 14, 16-24** (the full property-verification/trust
   workflow — the rest of risk flags/trust scores beyond listings and
-  vendors/suppliers, document/dispute review by the new neutral role; the
-  rest of valuation beyond `PropertyValuation`, compliance, community
+  vendors/suppliers, an evidence-request step for the neutral reviewer;
+  the rest of valuation beyond `PropertyValuation`, compliance, community
   management, AR/VR, the full fixed-dashboard side of reports, admin
   operations, ...) — this scaffold now proves the pattern for Modules 1,
   2, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12, 13, 15, and 23, not the
   full 24. Modules 8, 12, and 13 are slices, not the full modules,
   because there's no separate Inspector, Contractor, or Tenant identity —
   see "Property inspections", "Maintenance requests", and "Leases" above.
-  Module 6 is a slice because the new `platform_reviewer` role only
-  covers vendor/supplier verification, not document verification or
-  dispute resolution — see "A real neutral reviewer" above.
+  Module 6 is a slice because the `platform_reviewer` role's actions are
+  still all one-shot status decisions with no way to request more
+  evidence first — see "Extending the neutral reviewer to document
+  verification" above for where that scope finished landing.
 - **Property inspections — one gap left in the new module.** No separate
   Inspector identity (see "Property inspections" above — `inspectorName`
   is freeform text, not an account relation). Editing a scheduled
@@ -1649,14 +1704,16 @@ blueprint, or explicitly cut from it:
   independent audit — a real reviewer setting `verificationStatus` (see
   "A real neutral reviewer" above) only ever feeds one input into that
   formula, it doesn't audit the rest.
-- **Document verification is still not on the neutral-reviewer role.**
-  `platform_reviewer` now covers `Vendor`/`Supplier.verificationStatus`
-  and dispute arbitration (see "A real neutral reviewer" and "Extending
-  the neutral reviewer to dispute arbitration" above) — document
-  verification is the one piece left, still an account's own admin. A
-  document reviewer would need to look at specific uploaded content, not
-  just flip a status the way verification/disputes both turned out to
-  be, which is a different shape of feature than this pass built.
+- **The neutral reviewer's decisions are all still one-shot, no evidence
+  request.** `platform_reviewer` now covers `Vendor`/`Supplier.
+  verificationStatus`, dispute arbitration, and `Document.
+  verificationStatus` (see "A real neutral reviewer", "Extending the
+  neutral reviewer to dispute arbitration", and "Extending the neutral
+  reviewer to document verification" above) — on all three, the reviewer
+  either decides now with what's already on file or doesn't decide at
+  all. There's no way to ask the account being reviewed for more
+  evidence and come back to it later; that stays a real deployment's
+  workflow to build, not this scaffold's.
 - **AI-generated renovation visualizations.** Explicitly deferred by
   Priority 6 itself, pending Module 22 (AR/VR) existing at all.
 - **Multi-turn tool use in one chat turn.** `ChatService` calls at most one

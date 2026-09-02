@@ -52,4 +52,18 @@ export class DocumentsController {
   ) {
     return this.documents.verify(documentId, member.accountId, dto);
   }
+
+  // Module 6's neutral-reviewer path — see
+  // DocumentsService.findPendingForArbitration/arbitrateVerify.
+  @RequirePermissions('document:arbitrate')
+  @Get('pending')
+  findPendingForArbitration() {
+    return this.documents.findPendingForArbitration();
+  }
+
+  @RequirePermissions('document:arbitrate')
+  @Patch(':documentId/arbitrate')
+  arbitrateVerify(@Param('documentId') documentId: string, @Body() dto: UpdateDocumentVerificationDto) {
+    return this.documents.arbitrateVerify(documentId, dto);
+  }
 }

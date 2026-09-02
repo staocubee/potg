@@ -19,6 +19,7 @@ const PERMISSIONS = [
   { key: 'document:read', label: 'View documents' },
   { key: 'document:write', label: 'Upload documents' },
   { key: 'document:verify', label: "Approve or reject an uploaded document's verification status" },
+  { key: 'document:arbitrate', label: 'Verify or reject any document platform-wide (neutral reviewer only — never granted to document:write roles)' },
   { key: 'account:manage_members', label: 'Manage account members' },
   { key: 'ai:act', label: 'Use the AI copilot' },
   // Modules 7 & 9 — Vendor Marketplace & Project Tracking (Priority 3).
@@ -249,13 +250,21 @@ const ROLES: Record<string, string[]> = {
   ],
   // Module 6's actual "neutral reviewer" — a role deliberately never
   // granted to the vendor or supplier roles above, so a vendor/supplier
-  // can never move its own verificationStatus off "not_verified", and
-  // never granted dispute:write, so it can never be the account that
-  // raised a dispute it goes on to arbitrate. Reads only what it needs to
-  // review (vendor:read/supplier:read) plus :verify/:arbitrate — nothing
-  // else, not even ai:act, since this role's whole job is a handful of
-  // mechanical actions on other accounts' data.
-  platform_reviewer: ['vendor:read', 'vendor:verify', 'supplier:read', 'supplier:verify', 'dispute:arbitrate'],
+  // can never move its own verificationStatus off "not_verified"; never
+  // granted dispute:write, so it can never be the account that raised a
+  // dispute it goes on to arbitrate; and never granted document:write, so
+  // it never uploads — let alone owns — a document it might later verify.
+  // Reads only what it needs to review (vendor:read/supplier:read) plus
+  // :verify/:arbitrate — nothing else, not even ai:act, since this role's
+  // whole job is a handful of mechanical actions on other accounts' data.
+  platform_reviewer: [
+    'vendor:read',
+    'vendor:verify',
+    'supplier:read',
+    'supplier:verify',
+    'dispute:arbitrate',
+    'document:arbitrate',
+  ],
 };
 
 const DEMO_ACCOUNT_ID = '00000000-0000-0000-0000-000000000001';
