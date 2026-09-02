@@ -372,12 +372,16 @@ function DocumentArbitrationQueue() {
 
 function DocumentArbitrationRow({ document, onChanged }: { document: AppDocument; onChanged: () => void }) {
   const auth = useAuth();
-  const [rejecting, setRejecting] = useState(false);
+  // "reject" and "evidence" both need a reason/note typed first; "verify"
+  // stays the one-click action it always was. Was a plain `rejecting`
+  // boolean before "submitted" (see ArbitrateDocumentVerificationDto)
+  // gave the reviewer a second note-bearing action to choose between.
+  const [pendingAction, setPendingAction] = useState<"reject" | "evidence" | null>(null);
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"verified" | "rejected" | null>(null);
+  const [busy, setBusy] = useState<"verified" | "rejected" | "submitted" | null>(null);
 
-  async function submit(status: "verified" | "rejected") {
+  async function submit(status: "verified" | "rejected" | "submitted") {
     setBusy(status);
     setError(null);
     try {
@@ -385,6 +389,13 @@ function DocumentArbitrationRow({ document, onChanged }: { document: AppDocument
       onChanged();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't update this document's verification status.");
+    } finally {
+      // A "verified"/"rejected" decision drops this row from the reloaded
+      // queue entirely, so this was previously a no-op; "submitted"
+      // deliberately stays in the queue (the point of asking for more
+      // evidence), which is what would otherwise leave the row stuck
+      // showing "…" forever — the same bug found and fixed on the dispute
+      // arbitration queue's equivalent row.
       setBusy(null);
     }
   }
@@ -401,38 +412,43 @@ function DocumentArbitrationRow({ document, onChanged }: { document: AppDocument
             {document.property && ` · ${document.property.name}`}
             {" · "}Uploaded {new Date(document.createdAt).toLocaleDateString()}
           </p>
+          {document.verificationStatus === "submitted" && document.verificationNotes && (
+            <p className="potg-muted" style={{ fontSize: 12, marginTop: 8, borderLeft: "2px solid var(--potg-border)", paddingLeft: 8 }}>
+              What's needed: {document.verificationNotes}
+            </p>
+          )}
         </div>
         <span className="potg-badge">{document.verificationStatus.replace(/_/g, " ")}</span>
       </div>
       {error && <div className="potg-error" style={{ marginTop: 8 }}>{error}</div>}
-      {rejecting ? (
+      {pendingAction ? (
         <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
           <input
             className="potg-input"
-            placeholder="Reason (optional)"
+            placeholder={pendingAction === "reject" ? "Reason (optional)" : "What's needed? (optional)"}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
           />
           <div style={{ display: "flex", gap: 6 }}>
             <button
-              className="potg-btn potg-btn-danger"
+              className={pendingAction === "reject" ? "potg-btn potg-btn-danger" : "potg-btn potg-btn-secondary"}
               style={{ padding: "4px 9px", fontSize: 11 }}
               disabled={busy !== null}
-              onClick={() => submit("rejected")}
+              onClick={() => submit(pendingAction === "reject" ? "rejected" : "submitted")}
             >
-              {busy === "rejected" ? "…" : "Confirm reject"}
+              {busy !== null ? "…" : pendingAction === "reject" ? "Confirm reject" : "Send back for more evidence"}
             </button>
             <button
               className="potg-btn potg-btn-secondary"
               style={{ padding: "4px 9px", fontSize: 11 }}
-              onClick={() => setRejecting(false)}
+              onClick={() => setPendingAction(null)}
             >
               Cancel
             </button>
           </div>
         </div>
       ) : (
-        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+        <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
           <button
             className="potg-btn potg-btn-primary"
             style={{ padding: "4px 9px", fontSize: 11 }}
@@ -445,9 +461,17 @@ function DocumentArbitrationRow({ document, onChanged }: { document: AppDocument
             className="potg-btn potg-btn-secondary"
             style={{ padding: "4px 9px", fontSize: 11 }}
             disabled={busy !== null}
-            onClick={() => setRejecting(true)}
+            onClick={() => setPendingAction("reject")}
           >
             Reject
+          </button>
+          <button
+            className="potg-btn potg-btn-secondary"
+            style={{ padding: "4px 9px", fontSize: 11 }}
+            disabled={busy !== null}
+            onClick={() => setPendingAction("evidence")}
+          >
+            Request more evidence
           </button>
         </div>
       )}

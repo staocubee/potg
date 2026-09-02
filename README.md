@@ -1750,15 +1750,64 @@ Same shape as those two passes, applied to `Document`.
 - **Closed Module 6's neutral-reviewer scope as it stood at the time** —
   see "Review moderation — flagging and the neutral reviewer (Module 6)"
   further down for a fourth field (review `moderationStatus`) this same
-  role picked up later in this session. All four fields that had either
+  role picked up later in this session, and "An evidence-request step for
+  document verification" just below for the evidence-request gap this
+  bullet used to describe as fully open. All four fields that had either
   no verification path (`Vendor`/`Supplier.verificationStatus`) or only a
   self-service one (`Document.verificationStatus`, `Dispute.status`,
-  review `moderationStatus`) now have a genuinely separate reviewer path.
-  What's still open: the reviewer can't request more evidence before
-  deciding on any of them, and the score/self-serve paths still exist
-  alongside the neutral ones rather than being replaced by them — see the
-  "Not built yet" bullets below for exactly what that leaves on the
-  table.
+  review `moderationStatus`) now have a genuinely separate reviewer path;
+  the score/self-serve paths still exist alongside the neutral ones
+  rather than being replaced by them — see the "Not built yet" bullets
+  below for exactly what that leaves on the table.
+
+## An evidence-request step for document verification (Module 6)
+
+The other half of the evidence-request gap "An evidence-request step for
+dispute arbitration" above closed for disputes — same reasoning applies
+here almost verbatim: `Document.verificationStatus`'s own comment already
+anticipated `submitted` (`not_verified | submitted | verified |
+rejected`), and `findPendingForArbitration` already filtered `notIn:
+['verified', 'rejected']`, so `submitted` was already going to show up in
+the queue the moment anything ever wrote it. Nothing did, until now.
+
+- **New `ArbitrateDocumentVerificationDto`**, a superset of
+  `UpdateDocumentVerificationDto` (`verified | rejected`) adding
+  `submitted` — its own class, not a widened one, for the same reason
+  `ArbitrateDisputeDto` is separate from `ResolveDisputeDto`: only
+  `arbitrateVerify` (`document:arbitrate`, `platform_reviewer` only)
+  accepts it, so neither the uploading account nor its own admin's
+  self-service `verify` can send a document back to itself.
+  `applyVerification` (shared by both paths) picks the right
+  `PropertyTimelineEvent` type for all three outcomes now instead of a
+  `verified`-or-`rejected` ternary that would have mislabeled a
+  `submitted` update as a rejection.
+- **`verificationNotes` doubles as the evidence request's own text**, the
+  same reuse `resolutionNotes` got for disputes — what the reviewer
+  writes when sending a document back is stored and shown the same place
+  as the eventual verified/rejected reason.
+- **No document-revision model exists**, so "more evidence" today means
+  whatever the account does outside this specific flow (re-upload as a
+  new `Document`, update the file at the same `fileUrl`) — there's no
+  structured way to attach a resubmission to the original request. Same
+  limitation the dispute version has (no evidence/attachment model on
+  `Dispute` either), noted honestly rather than papered over.
+- **Web UI**: `DocumentArbitrationRow` (`pages/documents/index.tsx`)
+  replaces its old `rejecting: boolean` with a `pendingAction: "reject" |
+  "evidence" | null`, so "Reject" and the new "Request more evidence"
+  button share one notes-input-then-confirm flow ("Verify" stays the
+  one-click action it always was) — plus the same `finally`-block busy-
+  reset fix the dispute row needed, applied here pre-emptively since the
+  identical bug (never resetting `busy` on success, invisible for a
+  terminal decision that drops its own row, not invisible for one that
+  deliberately stays) would have hit this row too the first time anyone
+  used the new button.
+- **Verified live end-to-end**: uploaded a fresh document, switched to
+  the platform reviewer, sent it back with a note ("Please upload a
+  clearer scan…"), confirmed the status read `submitted` and the note
+  rendered as "What's needed: …" both in the reviewer's queue and — via
+  the account's own `GET /documents` — on the uploading account's own
+  view, reloaded to confirm the row wasn't stuck busy, then verified it
+  from that `submitted` state and watched it clear the queue.
 
 ## Review moderation — flagging and the neutral reviewer (Module 6)
 
@@ -2089,12 +2138,13 @@ blueprint, or explicitly cut from it:
   13, 15, and 23, not the full 24. Modules 8, 12, and 13 are slices, not
   the full modules, because there's no separate Inspector, Contractor, or
   Tenant identity — see "Property inspections", "Maintenance requests",
-  and "Leases" above. Module 6 is still a slice — three of the
-  `platform_reviewer` role's four actions are still one-shot status
-  decisions with no way to request more evidence first; the fourth
-  (dispute arbitration) isn't anymore — see "An evidence-request step for
-  dispute arbitration" above for where that one stands and "Extending the
-  neutral reviewer to document verification" for the rest of this scope.
+  and "Leases" above. Module 6 is still a slice — two of the
+  `platform_reviewer` role's four actions (vendor/supplier verification,
+  review moderation) are still one-shot status decisions with no way to
+  request more evidence first; the other two (dispute arbitration,
+  document verification) aren't anymore — see "An evidence-request step
+  for dispute arbitration" and "An evidence-request step for document
+  verification" above for where those two stand.
 - **Property inspections — one gap left in the new module.** No separate
   Inspector identity (see "Property inspections" above — `inspectorName`
   is freeform text, not an account relation). Editing a scheduled
@@ -2116,27 +2166,28 @@ blueprint, or explicitly cut from it:
   independent audit — a real reviewer setting `verificationStatus` (see
   "A real neutral reviewer" above) only ever feeds one input into that
   formula, it doesn't audit the rest.
-- **The neutral reviewer's decisions are one-shot for three fields out of
+- **The neutral reviewer's decisions are one-shot for two fields out of
   four, no evidence request.** `platform_reviewer` covers `Vendor`/
   `Supplier.verificationStatus`, dispute arbitration, `Document.
   verificationStatus`, and review `moderationStatus` (see "A real neutral
   reviewer", "Extending the neutral reviewer to dispute arbitration",
   "Extending the neutral reviewer to document verification", and "Review
-  moderation" above) — dispute arbitration gained an `under_review`
-  evidence-request step (see "An evidence-request step for dispute
-  arbitration" above); the other three still only ever decide now with
-  what's already on file or don't decide at all, with no way to ask the
-  account being reviewed for more and come back to it later.
-  `Document.verificationStatus`'s own `submitted` is the same kind of
-  already-modeled-but-never-actually-set state `under_review` was before
-  this pass (`UpdateDocumentVerificationDto` only ever accepts `verified`/
-  `rejected`) and would be the closest next slice. `Vendor`/`Supplier.
-  verificationStatus`'s `pending` is a narrower gap than it looks —
-  `SetVendorVerificationDto`/`SetSupplierVerificationDto` already let the
-  reviewer set it freely — but nothing gives it "awaiting evidence"
-  semantics or a way back to it, so setting it today is indistinguishable
-  from any other one-shot decision. Either way, this stays a real
-  deployment's workflow to build for now, not this scaffold's.
+  moderation" above) — dispute arbitration and document verification both
+  gained an evidence-request step (`under_review` / `submitted` — see "An
+  evidence-request step for dispute arbitration" and its document-
+  verification counterpart above); vendor/supplier verification and
+  review moderation still only ever decide now with what's already on
+  file or don't decide at all. `Vendor`/`Supplier.verificationStatus`'s
+  `pending` is a narrower gap than it looks — `SetVendorVerificationDto`/
+  `SetSupplierVerificationDto` already let the reviewer set it freely —
+  but nothing gives it "awaiting evidence" semantics or a way back to it,
+  so setting it today is indistinguishable from any other one-shot
+  decision; that'd be the closest next slice if this gets picked up
+  again. Review `moderationStatus` has no obvious third state to reuse
+  the same way — "flagged" already plays a similar "needs a decision"
+  role for reviews, just raised by the reviewed party rather than the
+  reviewer. Either way, this stays a real deployment's workflow to build
+  for now, not this scaffold's.
 - **AI-generated renovation visualizations.** Explicitly deferred by
   Priority 6 itself, pending Module 22 (AR/VR) existing at all.
 - **Multi-turn tool use in one chat turn.** `ChatService` calls at most one

@@ -1639,7 +1639,7 @@ export class ApiClient {
   findPendingDocumentsForArbitration() {
     return request<AppDocument[]>("/documents/pending", { token: this.token, accountId: this.accountId });
   }
-  arbitrateDocumentVerification(documentId: string, input: { status: "verified" | "rejected"; notes?: string }) {
+  arbitrateDocumentVerification(documentId: string, input: { status: "verified" | "rejected" | "submitted"; notes?: string }) {
     return request<AppDocument>(`/documents/${documentId}/arbitrate`, {
       method: "PATCH",
       body: input,

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentVerificationDto } from './dto/update-document-verification.dto';
+import { ArbitrateDocumentVerificationDto } from './dto/arbitrate-document-verification.dto';
 
 @Injectable()
 export class DocumentsService {
@@ -79,7 +80,16 @@ export class DocumentsService {
     });
   }
 
-  async arbitrateVerify(documentId: string, dto: UpdateDocumentVerificationDto) {
+  // "submitted" (see ArbitrateDocumentVerificationDto) is the evidence-
+  // request step the README used to flag as missing here — same shape as
+  // PaymentsService.arbitrateDispute's "under_review": findPendingForArbitration
+  // above already filters `notIn: ['verified', 'rejected']`, so a document
+  // sent back for more evidence stays in the queue on its own, and this
+  // same method can be called again later to make the actual call once
+  // that evidence shows up (a re-upload, an updated file at the same
+  // fileUrl — this scaffold has no document-revision model, so "more
+  // evidence" today means whatever the account does outside this flow).
+  async arbitrateVerify(documentId: string, dto: ArbitrateDocumentVerificationDto) {
     const document = await this.prisma.document.findUnique({ where: { id: documentId } });
     if (!document) throw new NotFoundException('Document not found');
     return this.applyVerification(document, dto);
@@ -87,7 +97,7 @@ export class DocumentsService {
 
   private async applyVerification(
     document: { id: string; documentType: string; propertyId: string | null },
-    dto: UpdateDocumentVerificationDto,
+    dto: { status: 'verified' | 'rejected' | 'submitted'; notes?: string },
   ) {
     const updated = await this.prisma.document.update({
       where: { id: document.id },
@@ -95,11 +105,14 @@ export class DocumentsService {
     });
 
     if (document.propertyId) {
+      const eventType =
+        dto.status === 'verified' ? 'document_verified' : dto.status === 'rejected' ? 'document_rejected' : 'document_needs_more_evidence';
+      const statusLabel = dto.status === 'submitted' ? 'needs more evidence' : dto.status;
       await this.prisma.propertyTimelineEvent.create({
         data: {
           propertyId: document.propertyId,
-          eventType: dto.status === 'verified' ? 'document_verified' : 'document_rejected',
-          label: `Document ${dto.status}: ${document.documentType}${dto.notes ? ` — ${dto.notes}` : ''}`,
+          eventType,
+          label: `Document ${statusLabel}: ${document.documentType}${dto.notes ? ` — ${dto.notes}` : ''}`,
         },
       });
     }

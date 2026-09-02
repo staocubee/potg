@@ -7,6 +7,7 @@ import { CurrentAccountMember, CurrentUser } from '../common/decorators/current-
 import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentVerificationDto } from './dto/update-document-verification.dto';
+import { ArbitrateDocumentVerificationDto } from './dto/arbitrate-document-verification.dto';
 
 type AccountMemberCtx = { accountId: string };
 type UserCtx = { id: string };
@@ -63,7 +64,7 @@ export class DocumentsController {
 
   @RequirePermissions('document:arbitrate')
   @Patch(':documentId/arbitrate')
-  arbitrateVerify(@Param('documentId') documentId: string, @Body() dto: UpdateDocumentVerificationDto) {
+  arbitrateVerify(@Param('documentId') documentId: string, @Body() dto: ArbitrateDocumentVerificationDto) {
     return this.documents.arbitrateVerify(documentId, dto);
   }
 }
