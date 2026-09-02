@@ -65,20 +65,82 @@ export default function AccountMembersPage() {
           <h3 style={{ fontSize: 14, marginBottom: 10 }}>Pending invites</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {invites.map((i) => (
-              <div key={i.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                <div>
-                  <div style={{ fontWeight: 600 }}>{i.email}</div>
-                  <div className="potg-muted" style={{ fontSize: 12 }}>
-                    Expires {new Date(i.expiresAt).toLocaleDateString()}
-                  </div>
-                </div>
-                <span className="potg-badge" style={{ alignSelf: "center" }}>{i.role.name}</span>
-              </div>
+              <PendingInviteRow key={i.id} invite={i} onChanged={load} />
             ))}
           </div>
         </div>
       )}
     </AppShell>
+  );
+}
+
+// Resend rotates the token and shows the fresh link the same way the
+// invite form does on first send — no real email provider, see
+// AccountsService.resendInvite. Revoke has no link to show, just removes
+// the row (the invite disappears from `load()`'s result once its status
+// is no longer "pending").
+function PendingInviteRow({ invite, onChanged }: { invite: AccountInviteSummary; onChanged: () => void }) {
+  const auth = useAuth();
+  const [busy, setBusy] = useState<"revoke" | "resend" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [resendLink, setResendLink] = useState<string | null>(null);
+
+  async function onRevoke() {
+    if (!auth.currentAccountId) return;
+    setBusy("revoke");
+    setError(null);
+    try {
+      await auth.api.revokeInvite(auth.currentAccountId, invite.id);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't revoke that invite.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onResend() {
+    if (!auth.currentAccountId) return;
+    setBusy("resend");
+    setError(null);
+    try {
+      const result = await auth.api.resendInvite(auth.currentAccountId, invite.id);
+      setResendLink(`${window.location.origin}/accept-invite?token=${result.inviteToken}`);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't resend that invite.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 13 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontWeight: 600 }}>{invite.email}</div>
+          <div className="potg-muted" style={{ fontSize: 12 }}>
+            Expires {new Date(invite.expiresAt).toLocaleDateString()}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="potg-badge">{invite.role.name}</span>
+          <button className="potg-btn potg-btn-secondary" disabled={busy !== null} onClick={onResend} style={{ fontSize: 12, padding: "4px 8px" }}>
+            {busy === "resend" ? "…" : "Resend"}
+          </button>
+          <button className="potg-btn potg-btn-danger" disabled={busy !== null} onClick={onRevoke} style={{ fontSize: 12, padding: "4px 8px" }}>
+            {busy === "revoke" ? "…" : "Revoke"}
+          </button>
+        </div>
+      </div>
+      {error && <div className="potg-error" style={{ fontSize: 11 }}>{error}</div>}
+      {resendLink && (
+        <div className="potg-muted" style={{ fontSize: 11 }}>
+          New link (no email sent):
+          <div style={{ wordBreak: "break-all", fontFamily: "monospace" }}>{resendLink}</div>
+        </div>
+      )}
+    </div>
   );
 }
 

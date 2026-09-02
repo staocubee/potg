@@ -807,6 +807,22 @@ export class ApiClient {
       | { type: "invite"; invite: AccountInviteSummary; inviteToken: string }
     >(`/accounts/${accountId}/members`, { method: "POST", body: input, token: this.token, accountId: this.accountId });
   }
+  // Kills a pending invite without replacing it — see
+  // AccountsService.revokeInvite.
+  revokeInvite(accountId: string, inviteId: string) {
+    return request<AccountInviteSummary>(`/accounts/${accountId}/invites/${inviteId}/revoke`, {
+      method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  // Rotates a pending invite's token/expiry — see AccountsService.resendInvite.
+  resendInvite(accountId: string, inviteId: string) {
+    return request<{ invite: AccountInviteSummary; inviteToken: string }>(
+      `/accounts/${accountId}/invites/${inviteId}/resend`,
+      { method: "POST", token: this.token, accountId: this.accountId },
+    );
+  }
 
   // --- Invites (no account context — the recipient isn't a member yet) ---
   getInvite(token: string) {

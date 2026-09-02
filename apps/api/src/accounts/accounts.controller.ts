@@ -39,4 +39,22 @@ export class AccountsController {
   listMembers(@Param('accountId') accountId: string) {
     return this.accounts.listMembers(accountId);
   }
+
+  // Kills a pending invite without replacing it — see
+  // AccountsService.revokeInvite for what "Not built yet" this closes.
+  @UseGuards(JwtAuthGuard, AccountContextGuard, PermissionsGuard)
+  @RequirePermissions('account:manage_members')
+  @Post(':accountId/invites/:inviteId/revoke')
+  revokeInvite(@Param('accountId') accountId: string, @Param('inviteId') inviteId: string) {
+    return this.accounts.revokeInvite(accountId, inviteId);
+  }
+
+  // Rotates a pending invite's token/expiry without needing its role
+  // re-entered — see AccountsService.resendInvite.
+  @UseGuards(JwtAuthGuard, AccountContextGuard, PermissionsGuard)
+  @RequirePermissions('account:manage_members')
+  @Post(':accountId/invites/:inviteId/resend')
+  resendInvite(@Param('accountId') accountId: string, @Param('inviteId') inviteId: string, @CurrentUser() user: UserCtx) {
+    return this.accounts.resendInvite(accountId, inviteId, user.id);
+  }
 }

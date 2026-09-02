@@ -140,6 +140,47 @@ export class AccountsService {
     return { members, invites };
   }
 
+  // Closes the "no way to revoke or resend" gap the README flagged: a
+  // re-invite by email already worked as an implicit revoke+resend, but
+  // there was no way to kill a pending invite without knowing its role
+  // and re-submitting the whole form, and no way to kill one at all
+  // without replacing it.
+  private async requirePendingInvite(accountId: string, inviteId: string) {
+    const invite = await this.prisma.accountInvite.findFirst({ where: { id: inviteId, accountId } });
+    if (!invite) throw new NotFoundException('Invite not found');
+    if (invite.status !== 'pending') {
+      throw new BadRequestException(`This invite is already "${invite.status}", not pending`);
+    }
+    return invite;
+  }
+
+  async revokeInvite(accountId: string, inviteId: string) {
+    await this.requirePendingInvite(accountId, inviteId);
+    return this.prisma.accountInvite.update({ where: { id: inviteId }, data: { status: 'revoked' } });
+  }
+
+  // Same token-rotation as the implicit resend inside addMember (a new raw
+  // token, a new tokenHash, a refreshed expiry) but keyed off the invite
+  // itself rather than the invited email — the caller doesn't have to know
+  // or re-pick a role. Same "no email provider" tradeoff: the raw token
+  // is logged and returned rather than actually emailed.
+  async resendInvite(accountId: string, inviteId: string, invitedByUserId: string) {
+    const existing = await this.requirePendingInvite(accountId, inviteId);
+    const rawToken = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
+
+    const invite = await this.prisma.accountInvite.update({
+      where: { id: inviteId },
+      data: { tokenHash, expiresAt, invitedByUserId },
+    });
+
+    const inviteLink = `${process.env.WEB_APP_URL ?? 'http://localhost:3000'}/accept-invite?token=${rawToken}`;
+    this.logger.log(`Resent invite for ${existing.email} on account ${accountId} — link (would be emailed): ${inviteLink}`);
+
+    return { invite, inviteToken: rawToken };
+  }
+
   // Called by InvitesController for an already-registered, already-
   // signed-in user. AuthService.register has its own copy of this same
   // validate-then-consume logic for someone accepting an invite by

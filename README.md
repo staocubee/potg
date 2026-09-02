@@ -1072,10 +1072,47 @@ independently-fixed IDOR in the same endpoint — see below.
   `PermissionsGuard`'s existing `:propertyId`/`:projectId` ABAC pattern
   to `:accountId` — see that guard's own comment. Shipped as its own
   commit, independent of the invite work that surfaced it.
-- **Not built:** revoking or resending a pending invite (re-inviting the
-  same email regenerates its token, which works as an implicit revoke +
-  resend, but there's no way to kill one without replacing it), and no
+- **Revoking or resending a pending invite is no longer missing** — see
+  "Revoking and resending pending invites" below. Still not built: any
   invite listing beyond one account's own Members page.
+
+## Revoking and resending pending invites (this pass)
+
+Closes the gap the invite/accept pass above left open: re-inviting the
+same email worked as an implicit revoke + resend, but there was no way to
+kill a pending invite without replacing it, or resend one without
+re-entering its role.
+
+- **`AccountsService.revokeInvite`** sets `AccountInvite.status` to
+  `"revoked"` — a value the schema's own `status` comment already
+  anticipated (`pending | accepted | revoked`) but nothing wrote until
+  now. A revoked invite's token stops resolving immediately: `GET
+  /invites/:token` (the same lookup `acceptInvite` and registration use)
+  only ever treats `status === "pending"` as live, so a revoked token
+  behaves exactly like an expired one — confirmed live, not assumed.
+- **`AccountsService.resendInvite`** reuses `addMember`'s token-rotation
+  (new raw token, new hash, refreshed 7-day expiry) but keyed off the
+  invite's own id instead of its email, so the caller doesn't have to
+  remember or re-pick a role. Same "no email provider" tradeoff as every
+  other invite/reset flow here — the new raw token is logged server-side
+  and returned in the response for the web UI to show directly.
+- Both share a new `requirePendingInvite` guard: 404 if the invite id
+  doesn't belong to `:accountId` (same cross-tenant shape as everywhere
+  else), 400 if it's already accepted or revoked — so a stale double-click
+  fails cleanly instead of silently reviving a dead invite.
+- **`POST /accounts/:accountId/invites/:inviteId/revoke`** and **`POST
+  /accounts/:accountId/invites/:inviteId/resend`**, both gated on
+  `account:manage_members` exactly like adding a member — revoking or
+  resending someone else's pending invite needs the same permission as
+  sending it in the first place, not a new one.
+- **`pages/accounts/members.tsx`** gets Resend/Revoke buttons on each
+  pending-invite row; Resend shows the fresh link the same way the invite
+  form does on first send.
+- **Verified live:** invited a fresh email, resend rotated the token (the
+  old link started 404ing, the new one resolved via `GET
+  /invites/:token`), then revoke removed it from the pending list and its
+  latest token also started 404ing — all confirmed by calling the API
+  directly, not just reading the UI state.
 
 ## Property inspections — Module 8 (this pass)
 
@@ -1974,11 +2011,10 @@ blueprint, or explicitly cut from it:
   and data residency** — the compliance work the blueprint review flagged
   needs to run in parallel with engineering, not be solved by this code.
 - **Invite/accept exists now, with real gaps left in it.** See "Real
-  invite/accept flow" above for what's there. Still open: no way to revoke
-  or resend a pending invite (only re-inviting the same email, which
-  regenerates the token), no invite listing beyond the account's own
-  Members page, and email delivery is the same "logged + returned raw"
-  scaffold-depth tradeoff as password reset — a real deployment must
+  invite/accept flow" and "Revoking and resending pending invites" above
+  for what's there. Still open: no invite listing beyond the account's
+  own Members page, and email delivery is the same "logged + returned
+  raw" scaffold-depth tradeoff as password reset — a real deployment must
   drop `inviteToken` from the response and actually send it.
 - **Chaining an AI Accept into its drafted action — down to one skill
   left, and it's advisory by design.** See "Accepting a status-update
