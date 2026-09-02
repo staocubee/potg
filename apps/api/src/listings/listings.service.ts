@@ -93,6 +93,14 @@ export class ListingsService {
     return { ...listing, isFavorited: favorite !== null };
   }
 
+  // Backs generate_listing_description's Accept chaining (AiService.
+  // applyChainedAction) — the only writer of Listing.description besides
+  // create() itself.
+  async updateDescription(listingId: string, accountId: string, description: string) {
+    await this.requireOwnListing(listingId, accountId);
+    return this.prisma.propertyListing.update({ where: { id: listingId }, data: { description } });
+  }
+
   async publish(listingId: string, accountId: string) {
     const listing = await this.requireOwnListing(listingId, accountId);
     if (listing.status !== 'draft') {

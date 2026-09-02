@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ProjectsModule } from '../projects/projects.module';
+import { ListingsModule } from '../listings/listings.module';
 import { AiService } from './ai.service';
 import { ChatService } from './chat.service';
 import { AiController } from './ai.controller';
@@ -27,7 +28,7 @@ import { explainSupplierTrustScoreSkill } from './skills/explain-supplier-trust-
 import { summarizeRentalBookingsSkill } from './skills/summarize-rental-bookings.skill';
 
 @Module({
-  imports: [ProjectsModule],
+  imports: [ProjectsModule, ListingsModule],
   controllers: [AiController],
   providers: [
     AiService,

@@ -1829,6 +1829,34 @@ has to survive a real bank's own OTP confirmation step.
   live OTP (or a dashboard "disable OTP for transfers" toggle) to watch
   the `"success"` branch actually fire.
 
+## Accepting a listing-description draft now saves it (this pass)
+
+Closes the "Not built yet" list's own pointer — "`generate_listing_description`
+is the next-clearest candidate... if this gets picked up again" — the same
+way "Accepting a status-update draft now posts it" closed it for projects.
+
+- **`AiService.applyChainedAction`** gets a second arm: accepting a
+  `generate_listing_description` draft now calls the new
+  `ListingsService.updateDescription`, which re-checks the listing still
+  belongs to the caller's account (same `requireOwnListing` guard every
+  other listing-owner action uses) before writing `Listing.description`.
+- **No permission re-check needed here**, unlike `draft_project_status_
+  update`'s — that skill only ever needed `project:read` to *run*, so
+  accepting it had to check `project:write` separately before it could
+  *post*. `generate_listing_description` already requires `listing:write`
+  just to run, so the permission that let someone request the draft
+  already matches the one now needed to save it.
+- **`AiModule` now imports `ListingsModule`** so `AiService` can inject
+  `ListingsService` alongside the `ProjectsService` it already had — the
+  same shape as the first chained action, extended to a second module.
+- Same caveat as the status-update case: the listing detail page
+  (`apps/web/pages/marketplace/[id].tsx`) doesn't live-refresh after
+  Accept — the new description is saved immediately, but the page shows
+  it after a reload, not optimistically. Not fixed here, for the same
+  reason it wasn't fixed there: `AskAiPanel` is one component shared by
+  every module's screen with no per-page refresh callback, and adding one
+  is a bigger change than this slice.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -1892,12 +1920,15 @@ blueprint, or explicitly cut from it:
   arguments (e.g. "model a 10% rent increase" → `{ scenario:
   "rent_increase", rentIncreasePercent: 10 }`); the no-API-key stub doesn't
   attempt that.
-- **Payouts are still simulated; only deposits are real.** See "A real
-  payment gateway — Paystack" above for what changed. Flutterwave/
-  Stripe/PayPal integration (Section 16 named all four) and the
-  licensing/compliance workstream the blueprint says to run alongside it
-  (Section 15) are both still open — this pass only covers Paystack, and
-  only the deposit half of it.
+- **Payouts are real too now, code-complete but not fully verified
+  end-to-end.** See "A real payout gateway — Paystack Transfers" above —
+  a payout now goes through Paystack's actual Transfer API rather than
+  being simulated, verified live up to the account-holder OTP step,
+  which is currently blocked on external Paystack account activation.
+  Flutterwave/Stripe/PayPal integration (Section 16 named all four) and
+  the licensing/compliance workstream the blueprint says to run
+  alongside it (Section 15) are both still open — this pass only covers
+  Paystack.
 - **Dispute arbitration has no evidence-request step.** See "Extending
   the neutral reviewer to dispute arbitration" above for the actual
   neutral-reviewer path this pass added — `platform_reviewer` can now
@@ -1949,14 +1980,14 @@ blueprint, or explicitly cut from it:
   Members page, and email delivery is the same "logged + returned raw"
   scaffold-depth tradeoff as password reset — a real deployment must
   drop `inviteToken` from the response and actually send it.
-- **Chaining an AI Accept into its drafted action — mostly still open.**
-  See "Accepting a status-update draft now posts it" above for the one
-  skill this closed. Every other skill's Accept still only records the
-  decision — and for most of them that's not a shortcut, it's the design:
-  `compare_vendor_quotes` and `boq_to_order` are explicitly advisory (see
-  their own code comments), and `flag_payment_anomaly` reports anomalies
-  that already happened in the ledger, not a pending action there's
-  anything to "hold" — the milestone-release-hold example this bullet
-  used to give doesn't actually correspond to any flag that skill raises.
-  `generate_listing_description` is the next-clearest candidate (Accept
-  could set `Listing.description`) if this gets picked up again.
+- **Chaining an AI Accept into its drafted action — down to one skill
+  left, and it's advisory by design.** See "Accepting a status-update
+  draft now posts it" and "Accepting a listing-description draft now
+  saves it" above for the two skills this closed. Every other skill's
+  Accept still only records the decision — and for the ones left that's
+  not a shortcut, it's the design: `compare_vendor_quotes` and
+  `boq_to_order` are explicitly advisory (see their own code comments),
+  and `flag_payment_anomaly` reports anomalies that already happened in
+  the ledger, not a pending action there's anything to "hold" — the
+  milestone-release-hold example this bullet used to give doesn't
+  actually correspond to any flag that skill raises.

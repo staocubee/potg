@@ -8,6 +8,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProjectsService } from '../projects/projects.service';
+import { ListingsService } from '../listings/listings.service';
 import { AI_SKILLS, LLM_PROVIDER } from './llm/llm.constants';
 import { AiSkill } from './skills/ai-skill.interface';
 import { AiSkillInputSchema } from './skills/ai-skill-input-schema';
@@ -38,6 +39,7 @@ export class AiService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly projects: ProjectsService,
+    private readonly listings: ListingsService,
     @Inject(AI_SKILLS) skills: AiSkill[],
     @Inject(LLM_PROVIDER) private readonly llm: LlmProvider,
   ) {
@@ -204,13 +206,13 @@ export class AiService {
     });
   }
 
-  // One switch arm proves the pattern; every other actionType is still
-  // draft-only — see the README's "Not built yet" for what chaining the
-  // rest would need (most of them are advisory by design, not a deferred
-  // real action — compare_vendor_quotes and boq_to_order say so in their
-  // own comments).
+  // Two switch arms now prove the pattern; every other actionType is
+  // still draft-only — see the README's "Not built yet" for what
+  // chaining the rest would need (most of them are advisory by design,
+  // not a deferred real action — compare_vendor_quotes and boq_to_order
+  // say so in their own comments).
   private async applyChainedAction(
-    aiRequest: { actionType: string; moduleContext: string },
+    aiRequest: { actionType: string; moduleContext: string; accountId: string },
     output: { draftBody: unknown },
     userId: string,
     permissions: Set<string>,
@@ -227,6 +229,18 @@ export class AiService {
       const projectId = aiRequest.moduleContext.split(':')[1];
       const [description] = (output.draftBody as { items: string[] }).items;
       await this.projects.addUpdate(projectId, userId, { description });
+    }
+
+    if (aiRequest.actionType === 'generate_listing_description') {
+      // Unlike draft_project_status_update, generate_listing_description's
+      // own run() already required listing:write (there's no read-only
+      // "draft a description" caller to distinguish from a poster) — so,
+      // unlike that skill, accepting it needs no separate permission
+      // re-check; the check that let this draft be requested already
+      // matches the one writing the description now requires.
+      const listingId = aiRequest.moduleContext.split(':')[1];
+      const [description] = (output.draftBody as { items: string[] }).items;
+      await this.listings.updateDescription(listingId, aiRequest.accountId, description);
     }
   }
 }
