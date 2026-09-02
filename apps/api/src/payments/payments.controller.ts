@@ -8,6 +8,7 @@ import { PaymentsService } from './payments.service';
 import { DepositDto } from './dto/deposit.dto';
 import { RaiseDisputeDto } from './dto/raise-dispute.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
+import { ArbitrateDisputeDto } from './dto/arbitrate-dispute.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
 import { FinalizePayoutOtpDto } from './dto/finalize-payout-otp.dto';
 
@@ -176,7 +177,7 @@ export class AccountPaymentsController {
 
   @RequirePermissions('dispute:arbitrate')
   @Patch('disputes/:disputeId/arbitrate')
-  arbitrateDispute(@Param('disputeId') disputeId: string, @Body() dto: ResolveDisputeDto) {
+  arbitrateDispute(@Param('disputeId') disputeId: string, @Body() dto: ArbitrateDisputeDto) {
     return this.payments.arbitrateDispute(disputeId, dto);
   }
 }

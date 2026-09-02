@@ -186,9 +186,9 @@ function ArbitrationRow({ dispute, onChanged }: { dispute: Dispute; onChanged: (
   const auth = useAuth();
   const [resolutionNotes, setResolutionNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"resolved" | "rejected" | null>(null);
+  const [busy, setBusy] = useState<"resolved" | "rejected" | "under_review" | null>(null);
 
-  async function onDecide(status: "resolved" | "rejected") {
+  async function onDecide(status: "resolved" | "rejected" | "under_review") {
     setBusy(status);
     setError(null);
     try {
@@ -196,6 +196,12 @@ function ArbitrationRow({ dispute, onChanged }: { dispute: Dispute; onChanged: (
       onChanged();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't record that decision.");
+    } finally {
+      // A "resolved"/"rejected" decision drops this row from the reloaded
+      // queue entirely, so this was previously a no-op; "under_review"
+      // deliberately stays in the queue (that's the point — the arbitrator
+      // comes back to it), which is what actually exposed this row
+      // otherwise being stuck showing "…" forever after a successful call.
       setBusy(null);
     }
   }
@@ -209,6 +215,11 @@ function ArbitrationRow({ dispute, onChanged }: { dispute: Dispute; onChanged: (
             Raised {new Date(dispute.createdAt).toLocaleDateString()}
           </p>
           <p style={{ fontSize: 13, marginTop: 8 }}>{dispute.reason}</p>
+          {dispute.status === "under_review" && dispute.resolutionNotes && (
+            <p className="potg-muted" style={{ fontSize: 12, marginTop: 8, borderLeft: "2px solid var(--potg-border)", paddingLeft: 8 }}>
+              What's needed: {dispute.resolutionNotes}
+            </p>
+          )}
         </div>
         <span className="potg-badge">{dispute.status.replace(/_/g, " ")}</span>
       </div>
@@ -221,7 +232,7 @@ function ArbitrationRow({ dispute, onChanged }: { dispute: Dispute; onChanged: (
         onChange={(e) => setResolutionNotes(e.target.value)}
         style={{ marginTop: 8 }}
       />
-      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+      <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
         <button
           className="potg-btn potg-btn-primary"
           style={{ padding: "4px 9px", fontSize: 11 }}
@@ -237,6 +248,14 @@ function ArbitrationRow({ dispute, onChanged }: { dispute: Dispute; onChanged: (
           onClick={() => onDecide("rejected")}
         >
           {busy === "rejected" ? "…" : "Reject the claim"}
+        </button>
+        <button
+          className="potg-btn potg-btn-secondary"
+          style={{ padding: "4px 9px", fontSize: 11 }}
+          disabled={busy !== null}
+          onClick={() => onDecide("under_review")}
+        >
+          {busy === "under_review" ? "…" : "Request more evidence"}
         </button>
       </div>
     </div>

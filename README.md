@@ -1650,6 +1650,59 @@ construction, not by an extra runtime check.
   shows `Open disputes: 0` on the normal overview — the decision
   propagated to the exact page a real dispute lives on.
 
+## An evidence-request step for dispute arbitration (Module 6)
+
+Closes the gap every Module 6 pass above kept flagging as still open:
+"the reviewer can't request more evidence before deciding." `Dispute.
+status`'s own comment already anticipated `under_review` (`open |
+under_review | resolved | rejected`) and every query that treats a
+dispute as still-holding-its-milestone already filtered `{ in: ['open',
+'under_review'] }` — nothing ever actually *wrote* that value. It turned
+out to be one status this scaffold had already built the read side of
+and never finished the write side.
+
+- **New `ArbitrateDisputeDto`**, a superset of `ResolveDisputeDto`
+  (`resolved | rejected`) adding `under_review` — deliberately its own
+  class rather than widening `ResolveDisputeDto` itself, so the two-party
+  `resolveDispute`/`resolveDisputeAsVendor` paths still can't set it; only
+  `arbitrateDispute` (`dispute:arbitrate`, `platform_reviewer` only) can.
+  Requesting evidence isn't a decision either party should be able to
+  hand itself.
+- **`PaymentsService.arbitrateDispute`** only sets `resolvedAt` for the
+  two terminal statuses — `under_review` leaves it `null`, so the dispute
+  stays out of "resolved" anywhere that matters and the same method can
+  be called again later to make the actual call, no separate "resume"
+  endpoint needed. The existing status guard (`already resolved/rejected
+  → 409`) already let `under_review` pass through unchanged, since it was
+  never resolved/rejected to begin with — the whole write path needed no
+  other change once the value could actually reach it.
+- **`resolutionNotes` doubles as the evidence request's own text** — no
+  new field. What the arbitrator writes when setting `under_review`
+  ("what's needed") is stored the same place, and shown the same way, as
+  what they'd write when finally resolving it.
+- **Web UI**: `ArbitrationRow` (`pages/payments/index.tsx`) gets a third
+  button, "Request more evidence", next to Resolve/Reject — and, found by
+  actually clicking through this live: `onDecide` never reset `busy` to
+  `null` on success, which was invisible before (a resolved/rejected
+  dispute drops out of the reloaded queue, so the button unmounts with
+  it) but left a dispute set `under_review` — which deliberately stays in
+  the queue — stuck showing "…" forever. Fixed by resetting `busy` in a
+  `finally` block.
+- **Verified live end-to-end**: raised a fresh dispute, set it
+  `under_review` with a note as the platform reviewer, confirmed the note
+  rendered back as "What's needed: …" and the status badge read "under
+  review", reloaded the page and confirmed the row wasn't stuck busy
+  (the fix above), then resolved it from that same `under_review` state
+  and watched it drop out of the queue.
+- **Scoped to disputes only, for now.** Vendor/supplier verification and
+  document verification still only ever decide immediately, same
+  one-shot shape as before — extending this same `under_review`-style
+  step to `Vendor`/`Supplier.verificationStatus` and `Document.
+  verificationStatus` (both already have a spare state in their own
+  status comments: `pending` and `submitted` respectively, never
+  currently set by any reviewer action either) is the natural next slice
+  if this gets picked up again, not something this pass touched.
+
 ## Extending the neutral reviewer to document verification (Module 6)
 
 The last of the three gaps "A real neutral reviewer for vendor/supplier
@@ -2028,18 +2081,20 @@ blueprint, or explicitly cut from it:
 
 - **Modules 6, 14, 16-24** (the full property-verification/trust
   workflow — the rest of risk flags/trust scores beyond listings and
-  vendors/suppliers, an evidence-request step for the neutral reviewer;
-  the rest of valuation beyond `PropertyValuation`, compliance, community
-  management, AR/VR, the full fixed-dashboard side of reports, admin
-  operations, ...) — this scaffold now proves the pattern for Modules 1,
-  2, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12, 13, 15, and 23, not the
-  full 24. Modules 8, 12, and 13 are slices, not the full modules,
-  because there's no separate Inspector, Contractor, or Tenant identity —
-  see "Property inspections", "Maintenance requests", and "Leases" above.
-  Module 6 is a slice because the `platform_reviewer` role's actions are
-  still all one-shot status decisions with no way to request more
-  evidence first — see "Extending the neutral reviewer to document
-  verification" above for where that scope finished landing.
+  vendors/suppliers, an evidence-request step for the rest of the neutral
+  reviewer's actions; the rest of valuation beyond `PropertyValuation`,
+  compliance, community management, AR/VR, the full fixed-dashboard side
+  of reports, admin operations, ...) — this scaffold now proves the
+  pattern for Modules 1, 2, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12,
+  13, 15, and 23, not the full 24. Modules 8, 12, and 13 are slices, not
+  the full modules, because there's no separate Inspector, Contractor, or
+  Tenant identity — see "Property inspections", "Maintenance requests",
+  and "Leases" above. Module 6 is still a slice — three of the
+  `platform_reviewer` role's four actions are still one-shot status
+  decisions with no way to request more evidence first; the fourth
+  (dispute arbitration) isn't anymore — see "An evidence-request step for
+  dispute arbitration" above for where that one stands and "Extending the
+  neutral reviewer to document verification" for the rest of this scope.
 - **Property inspections — one gap left in the new module.** No separate
   Inspector identity (see "Property inspections" above — `inspectorName`
   is freeform text, not an account relation). Editing a scheduled
@@ -2061,16 +2116,27 @@ blueprint, or explicitly cut from it:
   independent audit — a real reviewer setting `verificationStatus` (see
   "A real neutral reviewer" above) only ever feeds one input into that
   formula, it doesn't audit the rest.
-- **The neutral reviewer's decisions are all still one-shot, no evidence
-  request.** `platform_reviewer` now covers `Vendor`/`Supplier.
-  verificationStatus`, dispute arbitration, and `Document.
-  verificationStatus` (see "A real neutral reviewer", "Extending the
-  neutral reviewer to dispute arbitration", and "Extending the neutral
-  reviewer to document verification" above) — on all three, the reviewer
-  either decides now with what's already on file or doesn't decide at
-  all. There's no way to ask the account being reviewed for more
-  evidence and come back to it later; that stays a real deployment's
-  workflow to build, not this scaffold's.
+- **The neutral reviewer's decisions are one-shot for three fields out of
+  four, no evidence request.** `platform_reviewer` covers `Vendor`/
+  `Supplier.verificationStatus`, dispute arbitration, `Document.
+  verificationStatus`, and review `moderationStatus` (see "A real neutral
+  reviewer", "Extending the neutral reviewer to dispute arbitration",
+  "Extending the neutral reviewer to document verification", and "Review
+  moderation" above) — dispute arbitration gained an `under_review`
+  evidence-request step (see "An evidence-request step for dispute
+  arbitration" above); the other three still only ever decide now with
+  what's already on file or don't decide at all, with no way to ask the
+  account being reviewed for more and come back to it later.
+  `Document.verificationStatus`'s own `submitted` is the same kind of
+  already-modeled-but-never-actually-set state `under_review` was before
+  this pass (`UpdateDocumentVerificationDto` only ever accepts `verified`/
+  `rejected`) and would be the closest next slice. `Vendor`/`Supplier.
+  verificationStatus`'s `pending` is a narrower gap than it looks —
+  `SetVendorVerificationDto`/`SetSupplierVerificationDto` already let the
+  reviewer set it freely — but nothing gives it "awaiting evidence"
+  semantics or a way back to it, so setting it today is indistinguishable
+  from any other one-shot decision. Either way, this stays a real
+  deployment's workflow to build for now, not this scaffold's.
 - **AI-generated renovation visualizations.** Explicitly deferred by
   Priority 6 itself, pending Module 22 (AR/VR) existing at all.
 - **Multi-turn tool use in one chat turn.** `ChatService` calls at most one
@@ -2093,15 +2159,19 @@ blueprint, or explicitly cut from it:
   the licensing/compliance workstream the blueprint says to run
   alongside it (Section 15) are both still open — this pass only covers
   Paystack.
-- **Dispute arbitration has no evidence-request step.** See "Extending
-  the neutral reviewer to dispute arbitration" above for the actual
-  neutral-reviewer path this pass added — `platform_reviewer` can now
-  arbitrate any open dispute platform-wide without ever having raised it.
-  What's still missing: no way for the reviewer to request more evidence
-  from either party before deciding, and the two-party path ("Two-party
-  dispute resolution" above — the account that raised a dispute can't
-  resolve it, an open dispute holds its milestone/payment) still exists
-  alongside arbitration rather than being replaced by it.
+- **Dispute arbitration's evidence-request gap is closed; a narrower one
+  remains.** See "Extending the neutral reviewer to dispute arbitration"
+  and "An evidence-request step for dispute arbitration" above —
+  `platform_reviewer` can arbitrate any open dispute platform-wide
+  without ever having raised it, and can now set it `under_review` with a
+  note instead of only ever resolving/rejecting outright. What's still
+  missing: there's no dedicated way for either party to *submit* more
+  evidence in response beyond the general tools already available to them
+  (a project update, replying wherever the dispute lives) — no
+  evidence/attachment model on `Dispute` itself — and the two-party path
+  ("Two-party dispute resolution" above — the account that raised a
+  dispute can't resolve it, an open dispute holds its milestone/payment)
+  still exists alongside arbitration rather than being replaced by it.
 - **Deeper AI (Priority 6)** — natural-language project summaries beyond
   what `summarize_property`/`draft_project_status_update` already do,
   financial modeling chat, listing/risk summaries, valuation/ROI

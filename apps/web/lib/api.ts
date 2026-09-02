@@ -1282,7 +1282,7 @@ export class ApiClient {
   findOpenDisputesForArbitration() {
     return request<Dispute[]>("/payments/disputes/open", { token: this.token, accountId: this.accountId });
   }
-  arbitrateDispute(disputeId: string, input: { status: "resolved" | "rejected"; resolutionNotes?: string }) {
+  arbitrateDispute(disputeId: string, input: { status: "resolved" | "rejected" | "under_review"; resolutionNotes?: string }) {
     return request<Dispute>(`/payments/disputes/${disputeId}/arbitrate`, {
       method: "PATCH",
       body: input,

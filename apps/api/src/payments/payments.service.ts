@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { DepositDto } from './dto/deposit.dto';
 import { RaiseDisputeDto } from './dto/raise-dispute.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
+import { ArbitrateDisputeDto } from './dto/arbitrate-dispute.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
 import { PaystackService } from './paystack.service';
 
@@ -678,7 +679,21 @@ export class PaymentsService {
     });
   }
 
-  async arbitrateDispute(disputeId: string, dto: ResolveDisputeDto) {
+  // "under_review" (see ArbitrateDisputeDto) is the evidence-request step
+  // the README used to flag as missing from every neutral-reviewer path:
+  // the arbitrator can now say "not enough to decide yet" instead of only
+  // ever resolving or rejecting outright. It's deliberately not terminal —
+  // resolvedAt only gets set for resolved/rejected — so a dispute the
+  // arbitrator put under review stays in findOpenDisputesForArbitration
+  // (already filters `{ in: ['open', 'under_review'] }`) and keeps
+  // holding its milestone/payment (every other query in this file already
+  // treats the two the same way), and this same method can be called
+  // again later to make the actual call once more evidence shows up
+  // somewhere the arbitrator can see it (a project update, a reply on the
+  // dispute's own project) — the status guard below only ever blocks a
+  // dispute that's already resolved/rejected, "under_review" passes
+  // through it same as "open" always did.
+  async arbitrateDispute(disputeId: string, dto: ArbitrateDisputeDto) {
     const dispute = await this.prisma.dispute.findUnique({ where: { id: disputeId } });
     if (!dispute) throw new NotFoundException('Dispute not found');
     if (dispute.status === 'resolved' || dispute.status === 'rejected') {
@@ -686,7 +701,11 @@ export class PaymentsService {
     }
     return this.prisma.dispute.update({
       where: { id: disputeId },
-      data: { status: dto.status, resolutionNotes: dto.resolutionNotes, resolvedAt: new Date() },
+      data: {
+        status: dto.status,
+        resolutionNotes: dto.resolutionNotes,
+        resolvedAt: dto.status === 'under_review' ? null : new Date(),
+      },
     });
   }
 
