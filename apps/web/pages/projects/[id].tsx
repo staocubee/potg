@@ -35,6 +35,7 @@ export default function ProjectDetailPage() {
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [milestoneActionId, setMilestoneActionId] = useState<string | null>(null);
   const [completing, setCompleting] = useState(false);
+  const [callbackNotice, setCallbackNotice] = useState<string | null>(null);
 
   function load() {
     if (!id || !auth.currentAccountId) return;
@@ -94,6 +95,52 @@ export default function ProjectDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, auth.currentAccountId]);
 
+  // Closes the gap the README flagged: Paystack's checkout redirects the
+  // buyer back here with ?paystackReference=<reference> (see
+  // PaymentsService.deposit's callbackUrl), but nothing ever read it — a
+  // buyer who closes the tab that started checkout and only ever lands on
+  // this redirect had no UI path back to verifying, and the payment sat
+  // "pending" until they happened to reopen the original tab's own
+  // "I've paid — verify" button. This finds the matching pending Payment
+  // by its providerReference and verifies it the same way that button
+  // does, then strips the query param so a later refresh doesn't re-run it.
+  useEffect(() => {
+    if (!id || !auth.currentAccountId || !router.isReady) return;
+    const reference = typeof router.query.paystackReference === "string" ? router.query.paystackReference : undefined;
+    if (!reference) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const payments = await auth.api.findPayments(id);
+        const match = payments.find((p) => p.providerReference === reference && p.status === "pending");
+        if (!match) {
+          if (!cancelled) setCallbackNotice("Couldn't find a matching pending payment for this Paystack reference — it may already be verified below.");
+          return;
+        }
+        const result = await auth.api.verifyDeposit(id, match.id);
+        if (cancelled) return;
+        setCallbackNotice(
+          result.payment.status === "completed"
+            ? "Payment confirmed with Paystack — escrow has been updated."
+            : `Paystack hasn't confirmed this payment yet (status: ${result.payment.status}). Reload this page in a moment to check again.`,
+        );
+        load();
+      } catch (err) {
+        if (!cancelled) setCallbackNotice(err instanceof ApiError ? err.message : "Couldn't verify the payment from this redirect.");
+      } finally {
+        if (!cancelled) {
+          const { paystackReference: _drop, ...rest } = router.query;
+          router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, auth.currentAccountId, router.isReady, router.query.paystackReference]);
+
   async function onComplete() {
     if (!id) return;
     setCompleting(true);
@@ -132,6 +179,11 @@ export default function ProjectDetailPage() {
       </Link>
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
+      {callbackNotice && (
+        <div className="potg-card" style={{ padding: 12, marginBottom: 16, fontSize: 13 }}>
+          {callbackNotice}
+        </div>
+      )}
       {!project && !error && <p className="potg-muted">Loading…</p>}
 
       {project && (

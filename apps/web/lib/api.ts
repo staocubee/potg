@@ -1203,6 +1203,9 @@ export class ApiClient {
       { method: "POST", token: this.token, accountId: this.accountId },
     );
   }
+  findPayments(projectId: string) {
+    return request<Payment[]>(`/projects/${projectId}/payments`, { token: this.token, accountId: this.accountId });
+  }
   getEscrow(projectId: string) {
     return request<EscrowAccount>(`/projects/${projectId}/escrow`, { token: this.token, accountId: this.accountId });
   }

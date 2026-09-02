@@ -1776,20 +1776,49 @@ turned out to be.
   **un-touched** checkout session to catch the `"abandoned"` bug above.
   Every step was also driven through the actual browser: the deposit
   form, Paystack's real checkout UI, the callback redirect back to the
-  project page (carrying Paystack's `reference` as a query param, even
-  though nothing currently reads it — see the gap below), and the
-  escrow card updating live after "I've paid — verify".
-- **The callback page doesn't read its own `?paystackReference=` query
-  param.** Verification only ever happens through the "I've paid —
-  verify" button in the same tab that started the deposit, so a buyer
-  who completes checkout, closes that original tab, and only ever lands
-  on the redirect has no UI path back to verifying; the payment stays
-  "pending" until they return to the project page and use the button
-  there. And there's still no webhook receiver, by design (see above) —
-  every verification is caller-initiated. Payouts were still fully
-  simulated at the time this was written — see "A real payout gateway —
-  Paystack Transfers" further down for what a later pass this same
-  session built.
+  project page (carrying Paystack's `reference` as a query param — see
+  "The redirect back from checkout now verifies itself" below for what
+  reading it now does), and the escrow card updating live after "I've
+  paid — verify". There's still no webhook receiver, by design (see
+  above) — every verification is caller-initiated, the redirect included.
+  Payouts were still fully simulated at the time this was written — see
+  "A real payout gateway — Paystack Transfers" further down for what a
+  later pass this same session built.
+
+## The redirect back from checkout now verifies itself (this pass)
+
+Closes the gap the Paystack deposit pass above flagged: Paystack's
+checkout redirects the buyer back to `/projects/:id?paystackReference=
+<reference>` (see `PaymentsService.deposit`'s `callbackUrl`), but nothing
+ever read that query param — verification only ever happened through the
+"I've paid — verify" button in the *original* tab, so a buyer who closed
+that tab and only ever landed on the redirect had no UI path back to
+verifying at all.
+
+- **`ProjectDetailPage`** gets a new effect keyed on
+  `router.query.paystackReference`: it calls the now-exposed
+  `AuthApiClient.findPayments`, finds the `pending` `Payment` whose
+  `providerReference` matches, and verifies it the exact same way the
+  "I've paid — verify" button already does (`verifyDeposit`) — no new
+  backend logic, just a second caller of the endpoint that pass already
+  built. The query param is stripped via `router.replace` afterward
+  (shallow, no reload) so refreshing the page doesn't re-trigger it.
+- **Still no webhook** — this is still a caller-initiated confirmation,
+  same as the button. What changed is *which* caller: the redirect itself
+  now does it automatically instead of requiring the buyer to have kept
+  the original tab open.
+- **Verified live**, working around the current test key's activation
+  state (see "A real payout gateway" below — this session's Paystack
+  account is still activating, so a real end-to-end checkout couldn't be
+  driven right now): inserted a `pending` `Payment` row directly, then
+  loaded `/projects/:id?paystackReference=<its reference>` the same way
+  Paystack's redirect would. Confirmed the page called `verifyDeposit`
+  (visible in the network log), surfaced Paystack's real response as a
+  banner (`"Transaction reference not found"` — correct, since the test
+  reference was never a real Paystack transaction), and stripped the
+  query param from the URL afterward. The test row was deleted once
+  confirmed; nothing about this needed a code change to `PaymentsService`
+  or `PaystackService`, only a second consumer on the web side.
 
 ## A real payout gateway — Paystack Transfers (Section 16)
 
