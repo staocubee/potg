@@ -212,6 +212,22 @@ export class AccountsService {
     return { invite, inviteToken: sent ? undefined : rawToken };
   }
 
+  // Shared by acceptInvite (token path) and acceptMyInvite (session path)
+  // below — the actual membership-grant + invite-consume transaction,
+  // once each path's own way of proving "this invite is really for me"
+  // has already passed.
+  private async applyAcceptInvite(invite: { id: string; accountId: string; roleId: string }, userId: string) {
+    const [member] = await this.prisma.$transaction([
+      this.prisma.accountMember.upsert({
+        where: { accountId_userId: { accountId: invite.accountId, userId } },
+        update: { roleId: invite.roleId, status: 'active' },
+        create: { accountId: invite.accountId, userId, roleId: invite.roleId },
+      }),
+      this.prisma.accountInvite.update({ where: { id: invite.id }, data: { status: 'accepted', acceptedAt: new Date() } }),
+    ]);
+    return member;
+  }
+
   // Called by InvitesController for an already-registered, already-
   // signed-in user. AuthService.register has its own copy of this same
   // validate-then-consume logic for someone accepting an invite by
@@ -226,15 +242,41 @@ export class AccountsService {
     if (invite.email.toLowerCase() !== userEmail.toLowerCase()) {
       throw new ForbiddenException('This invite was sent to a different email address');
     }
+    return this.applyAcceptInvite(invite, userId);
+  }
 
-    const [member] = await this.prisma.$transaction([
-      this.prisma.accountMember.upsert({
-        where: { accountId_userId: { accountId: invite.accountId, userId } },
-        update: { roleId: invite.roleId, status: 'active' },
-        create: { accountId: invite.accountId, userId, roleId: invite.roleId },
-      }),
-      this.prisma.accountInvite.update({ where: { id: invite.id }, data: { status: 'accepted', acceptedAt: new Date() } }),
-    ]);
-    return member;
+  // Closes the "no invite listing beyond the account's own Members page"
+  // gap — until now the *only* place any invite was visible was the
+  // inviting account's own Members page; a recipient with no access to
+  // that page (or who lost the email) had no way to discover they'd been
+  // invited at all. Lists every still-pending, unexpired invite sent to
+  // this signed-in user's own email, across every account.
+  findMyInvites(email: string) {
+    return this.prisma.accountInvite.findMany({
+      where: { email, status: 'pending', expiresAt: { gt: new Date() } },
+      include: {
+        account: { select: { id: true, name: true, accountType: true } },
+        role: { select: { key: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // The accept action for the list above — deliberately keyed by the
+  // invite's own id rather than its bearer token: a signed-in user's
+  // session already proves their email, so there's nothing a token would
+  // add here that findMyInvites' own email filter doesn't already give.
+  // 404s (not 403) on an email mismatch — this scaffold's usual "don't
+  // confirm a cross-tenant resource exists" shape, same reasoning as
+  // every other id-addressed lookup that isn't the caller's own.
+  async acceptMyInvite(inviteId: string, userId: string, userEmail: string) {
+    const invite = await this.prisma.accountInvite.findUnique({ where: { id: inviteId } });
+    if (!invite || invite.status !== 'pending' || invite.expiresAt < new Date()) {
+      throw new BadRequestException('This invite is invalid or has expired');
+    }
+    if (invite.email.toLowerCase() !== userEmail.toLowerCase()) {
+      throw new NotFoundException('Invite not found');
+    }
+    return this.applyAcceptInvite(invite, userId);
   }
 }

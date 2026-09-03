@@ -2225,6 +2225,49 @@ uses too.
   `RESEND_API_KEY`'s comment in `.env.example`), and probably a proper
   HTML email template rather than the inline strings this pass uses.
 
+## Finding out you've been invited (this pass)
+
+Closes "no invite listing beyond the account's own Members page" — until
+now the *only* place any invite was visible at all was the inviting
+account's own Members page. A recipient with no access to that page, or
+who lost the email, had no way to discover an invite existed.
+
+- **`AccountsService.findMyInvites(email)`** lists every still-pending,
+  unexpired `AccountInvite` sent to the signed-in user's own email,
+  across every account — not just one. **`acceptMyInvite`** accepts one,
+  deliberately keyed by the invite's own id rather than its bearer token:
+  a signed-in session already proves the caller's email, so there's
+  nothing a token adds that the query's own email filter doesn't already
+  guarantee. 404s (not 403) on an email mismatch, this scaffold's usual
+  "don't confirm a cross-tenant resource exists" shape. Both share the
+  actual membership-grant transaction with the token-based `acceptInvite`
+  via a new private `applyAcceptInvite` helper — same extract-the-shared-
+  part pattern every other neutral-decision pass this session used.
+- **`GET /invites/mine` and `POST /invites/mine/:inviteId/accept`** —
+  registered before the existing `GET /invites/:token` catch-all on the
+  same controller, so `"mine"` isn't swallowed as a literal token value.
+- **Web UI, in the two places that actually matter**: `AccountSwitcher`
+  (rendered in `AppShell`'s header on every page once a user has at least
+  one account) gets a red count badge and an "Accept" row per invite in
+  its dropdown. But the *more* important case turned out to be the one a
+  first pass would have missed: a brand-new user who registers
+  independently of any invite link — the realistic way someone with a
+  waiting invite actually discovers this scaffold — lands on
+  `/accounts/new` with **zero** accounts, and `AccountSwitcher` can't
+  render at all without one. `pages/accounts/new.tsx` now fetches
+  `findMyInvites` itself and shows an "You've been invited" card above
+  the "create your own account" form, so that dead end doesn't happen.
+- **Verified live end-to-end**, including finding that second gap by
+  actually walking through the flow rather than assuming the first fix
+  was enough: invited a brand-new email, registered a User for that same
+  email independently (not via the invite link — the scenario that
+  matters), confirmed `GET /invites/mine` returned the pending invite,
+  confirmed a mismatched-email accept attempt correctly 404'd, then
+  drove it through the real browser — a fresh registration landing on
+  `/accounts/new` showed the invite card, clicking Accept joined the
+  account, switched into it, and redirected straight to the portfolio
+  showing that account's own property.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -2361,11 +2404,13 @@ blueprint, or explicitly cut from it:
 - **Payment/escrow licensing, market-specific verification mechanisms,
   and data residency** — the compliance work the blueprint review flagged
   needs to run in parallel with engineering, not be solved by this code.
-- **Invite/accept exists now, with one real gap left in it.** See "Real
-  invite/accept flow", "Revoking and resending pending invites", and "A
-  real email provider — Resend" above for what's there — invites are
-  actually emailed now, same as password resets. Still open: no invite
-  listing beyond the account's own Members page.
+- **Invite/accept is fully closed out now.** See "Real invite/accept
+  flow", "Revoking and resending pending invites", "A real email
+  provider — Resend", and "Finding out you've been invited" above —
+  invites are emailed, revocable, resendable, and now discoverable from
+  both the account switcher and a fresh registration, not just the
+  inviting account's own Members page. Nothing left on this list from the
+  original invite/accept gap.
 - **Chaining an AI Accept into its drafted action — down to one skill
   left, and it's advisory by design.** See "Accepting a status-update
   draft now posts it" and "Accepting a listing-description draft now

@@ -1,7 +1,7 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { useRequireAuth } from "../../lib/auth";
-import { ApiError } from "../../lib/api";
+import { AccountInviteMine, ApiError } from "../../lib/api";
 import AuthLayout from "../../components/AuthLayout";
 
 const ACCOUNT_TYPES: { value: string; label: string; hint: string }[] = [
@@ -17,6 +17,16 @@ const ACCOUNT_TYPES: { value: string; label: string; hint: string }[] = [
 // X-Account-Id header. This is where that first account gets created,
 // reached from /register (new user) or the account switcher's "+ New
 // account" entry (existing user adding another).
+//
+// Also the other half of closing "no invite listing beyond the account's
+// own Members page" (see AccountsService.findMyInvites): a brand-new
+// user who registered independently of any invite link — the realistic
+// way someone with a pending invite actually discovers this scaffold —
+// used to land here with zero way to know an invite was waiting; the
+// account switcher that surfaces it everywhere else isn't reachable yet
+// without an account to switch into. This is the one screen a
+// zero-account user is guaranteed to hit, so it's the one place this
+// gap actually needed closing for that case.
 export default function NewAccountPage() {
   const auth = useRequireAuth();
   const router = useRouter();
@@ -27,6 +37,34 @@ export default function NewAccountPage() {
   const [timezone, setTimezone] = useState("Africa/Lagos");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const [invites, setInvites] = useState<AccountInviteMine[] | null>(null);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!auth.token) return;
+    auth.api
+      .listMyInvites()
+      .then(setInvites)
+      .catch(() => setInvites([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.token]);
+
+  async function onAcceptInvite(invite: AccountInviteMine) {
+    setAcceptingId(invite.id);
+    setInviteError(null);
+    try {
+      await auth.api.acceptMyInvite(invite.id);
+      const list = await auth.refreshAccounts();
+      const joined = list.find((a) => a.accountId === invite.account.id);
+      if (joined) auth.switchAccount(joined.accountId);
+      router.push("/properties");
+    } catch (err) {
+      setInviteError(err instanceof ApiError ? err.message : "Couldn't accept that invite.");
+      setAcceptingId(null);
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -49,6 +87,32 @@ export default function NewAccountPage() {
 
   return (
     <AuthLayout title="Set up an account" subtitle="This is the workspace your properties, projects, and permissions live under.">
+      {invites && invites.length > 0 && (
+        <div className="potg-card" style={{ padding: 14, marginBottom: 18, background: "rgba(13,115,119,0.06)" }}>
+          <h3 style={{ fontSize: 13, marginBottom: 8 }}>You've been invited</h3>
+          {inviteError && <div className="potg-error" style={{ marginBottom: 8, fontSize: 12 }}>{inviteError}</div>}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {invites.map((invite) => (
+              <div key={invite.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <span style={{ fontSize: 13 }}>
+                  <strong>{invite.account.name}</strong> — join as {invite.role.name}
+                </span>
+                <button
+                  className="potg-btn potg-btn-primary"
+                  disabled={acceptingId !== null}
+                  onClick={() => onAcceptInvite(invite)}
+                  style={{ padding: "4px 10px", fontSize: 12, flexShrink: 0 }}
+                >
+                  {acceptingId === invite.id ? "…" : "Accept"}
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="potg-muted" style={{ fontSize: 11, margin: "10px 0 0" }}>
+            Or set up your own account below instead.
+          </p>
+        </div>
+      )}
       <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         {error && <div className="potg-error">{error}</div>}
         <div>

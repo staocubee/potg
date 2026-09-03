@@ -148,6 +148,19 @@ export type AccountInviteSummary = {
   role: { key: string; name: string };
 };
 
+// GET /invites/mine — every pending invite sent to the signed-in user's
+// own email, across every account, not just the one Members page they
+// happen to be looking at. See AccountsService.findMyInvites.
+export type AccountInviteMine = {
+  id: string;
+  email: string;
+  status: string;
+  expiresAt: string;
+  createdAt: string;
+  account: { id: string; name: string; accountType: string };
+  role: { key: string; name: string };
+};
+
 export type InvitePreview = {
   accountName: string;
   accountType: string;
@@ -847,6 +860,14 @@ export class ApiClient {
   }
   acceptInvite(token: string) {
     return request<AccountMemberSummary>(`/invites/${token}/accept`, { method: "POST", token: this.token });
+  }
+  // Every invite sent to the signed-in user's own email, across every
+  // account — see AccountsService.findMyInvites.
+  listMyInvites() {
+    return request<AccountInviteMine[]>("/invites/mine", { token: this.token });
+  }
+  acceptMyInvite(inviteId: string) {
+    return request<AccountMemberSummary>(`/invites/mine/${inviteId}/accept`, { method: "POST", token: this.token });
   }
 
   // --- Properties (account-scoped) ---
