@@ -1164,7 +1164,7 @@ export class ApiClient {
     });
   }
   sendChatMessage(input: { conversationId?: string; moduleContext?: string; message: string }) {
-    return request<{ conversationId: string; message: AiMessage }>("/ai/chat", {
+    return request<{ conversationId: string; messages: AiMessage[] }>("/ai/chat", {
       method: "POST",
       body: input,
       token: this.token,

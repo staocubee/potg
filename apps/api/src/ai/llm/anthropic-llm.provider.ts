@@ -55,6 +55,12 @@ export class AnthropicLlmProvider implements LlmProvider {
   // whatever the model sends before any skill sees it — this schema makes
   // the model more likely to send something valid, it isn't the thing that
   // enforces validity.
+  //
+  // A ChatMessage's content can be the block-array form ChatService builds
+  // mid-loop (a `tool_use` the model made plus the `tool_result` it got
+  // back) — passed straight through to Anthropic's own content-block
+  // format, mapping `toolUseId` to the `tool_use_id` field its
+  // `tool_result` blocks expect.
   async chat(request: ChatRequest): Promise<ChatResult> {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -67,7 +73,17 @@ export class AnthropicLlmProvider implements LlmProvider {
         model: this.model,
         max_tokens: 768,
         system: request.systemPrompt,
-        messages: request.messages.map((m) => ({ role: m.role, content: m.content })),
+        messages: request.messages.map((m) => ({
+          role: m.role,
+          content:
+            typeof m.content === 'string'
+              ? m.content
+              : m.content.map((block) =>
+                  block.type === 'tool_result'
+                    ? { type: 'tool_result', tool_use_id: block.toolUseId, content: block.content }
+                    : block,
+                ),
+        })),
         tools: request.tools.map((t) => ({
           name: t.name,
           description: t.description,
@@ -83,11 +99,11 @@ export class AnthropicLlmProvider implements LlmProvider {
     }
 
     const data = (await res.json()) as {
-      content: { type: string; text?: string; name?: string; input?: Record<string, unknown> }[];
+      content: { type: string; text?: string; id?: string; name?: string; input?: Record<string, unknown> }[];
     };
     const toolUse = data.content.find((block) => block.type === 'tool_use');
-    if (toolUse?.name) {
-      return { type: 'tool_call', toolName: toolUse.name, toolInput: toolUse.input ?? {} };
+    if (toolUse?.name && toolUse.id) {
+      return { type: 'tool_call', toolUseId: toolUse.id, toolName: toolUse.name, toolInput: toolUse.input ?? {} };
     }
     const text = data.content.find((block) => block.type === 'text')?.text ?? '';
     return { type: 'text', text };

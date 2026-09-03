@@ -167,9 +167,14 @@ export default function AskAiPanel({ moduleContext, heading }: { moduleContext: 
     setMessages((prev) => [...prev, optimistic]);
     setMessageInput("");
     try {
+      // A single turn can now chain several tool calls before settling on
+      // a final reply (ChatService.sendMessage's loop) — each one comes
+      // back as its own AiMessage, oldest first, so a multi-step answer
+      // renders as a sequence of bubbles (each with its own Accept/Discard
+      // once it has an aiOutputId) rather than a single combined one.
       const res = await auth.api.sendChatMessage({ conversationId, moduleContext, message: text });
       setConversationId(res.conversationId);
-      setMessages((prev) => [...prev, res.message]);
+      setMessages((prev) => [...prev, ...res.messages]);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Message didn't send — try again.");
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));

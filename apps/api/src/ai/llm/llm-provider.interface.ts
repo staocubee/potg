@@ -13,21 +13,33 @@ export interface LlmCompletionRequest {
 
 // --- Chat / tool-calling (Priority 6, Section 5.4) -----------------------
 //
-// Deliberately minimal next to a full SDK's tool-use types: one tool call
-// per assistant turn, no parallel calls, no streaming. ChatService only
-// ever executes the one tool call a turn returns and reports the result
-// back to the user directly rather than looping the result back into the
-// model for a second pass — see the comment on ChatService.sendMessage for
-// why that boundary was drawn there.
+// Still deliberately minimal next to a full SDK's tool-use types — no
+// parallel tool calls in one turn, no streaming — but ChatService now
+// loops: a tool call's result is fed back to the model as a `tool_result`
+// block (matching Anthropic's own tool-use protocol) so it can chain
+// another tool call before finally replying in text, instead of the result
+// being reported straight to the user as the last word. See the comment on
+// ChatService.sendMessage for the loop and its safety cap.
 export interface ChatToolDef {
   name: string; // matches an AiSkill.key
   description: string;
   inputSchema: AiSkillInputSchema; // AiSkill.inputSchema, passed straight through — see ai-skill-input-schema.ts
 }
 
+// A message's content is a plain string for ordinary user/assistant turns
+// (what's actually persisted to AiMessage — see ChatService) — the block
+// array form only appears in the in-memory scratch history ChatService
+// builds up mid-loop, to carry a `tool_use` the model made and the
+// `tool_result` ChatService ran for it, so the next model call can see
+// what happened without that exchange ever being written to the database.
+export type ChatContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  | { type: 'tool_result'; toolUseId: string; content: string };
+
 export interface ChatMessage {
   role: 'user' | 'assistant';
-  content: string;
+  content: string | ChatContentBlock[];
 }
 
 export interface ChatRequest {
@@ -38,7 +50,7 @@ export interface ChatRequest {
 
 export type ChatResult =
   | { type: 'text'; text: string }
-  | { type: 'tool_call'; toolName: string; toolInput: Record<string, unknown> };
+  | { type: 'tool_call'; toolUseId: string; toolName: string; toolInput: Record<string, unknown> };
 
 export interface LlmProvider {
   readonly name: string;

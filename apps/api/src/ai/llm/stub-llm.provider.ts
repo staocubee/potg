@@ -1,5 +1,18 @@
 import { Injectable } from '@nestjs/common';
-import { ChatRequest, ChatResult, LlmCompletionRequest, LlmProvider } from './llm-provider.interface';
+import { ChatMessage, ChatRequest, ChatResult, LlmCompletionRequest, LlmProvider } from './llm-provider.interface';
+
+// A message's content is a plain string except inside ChatService's
+// mid-loop scratch history, where a `tool_result` block stands in for the
+// human's words — this stub only ever looks for keywords in actual typed
+// text, so a tool_result (or any non-text block) just contributes nothing
+// to search rather than crashing on `.toLowerCase()` of a non-string.
+function textOf(message: ChatMessage): string {
+  if (typeof message.content === 'string') return message.content;
+  return message.content
+    .filter((b): b is { type: 'text'; text: string } => b.type === 'text')
+    .map((b) => b.text)
+    .join(' ');
+}
 
 // A very small keyword router so chat is genuinely useful without an API
 // key, the same philosophy as complete()'s templated text: a real model
@@ -37,8 +50,15 @@ export class StubLlmProvider implements LlmProvider {
   }
 
   async chat(request: ChatRequest): Promise<ChatResult> {
-    const lastUserMessage = [...request.messages].reverse().find((m) => m.role === 'user');
-    const text = (lastUserMessage?.content ?? '').toLowerCase();
+    // Mid-loop, the most *recent* user-role message is a tool_result (no
+    // matchable text — see textOf) rather than the human's own words, so
+    // finding "the last user message" has to skip past it to the human
+    // sentence that started this turn — otherwise this stub could never
+    // notice a second request in the same sentence once the first tool's
+    // result took that slot, and would always fall through to the generic
+    // reply after exactly one hop regardless of what else was asked.
+    const lastUserMessage = [...request.messages].reverse().find((m) => m.role === 'user' && textOf(m).length > 0);
+    const text = textOf(lastUserMessage ?? { role: 'user', content: '' }).toLowerCase();
     const offered = new Set(request.tools.map((t) => t.name));
 
     for (const [toolName, keywords] of Object.entries(KEYWORD_ROUTES)) {
@@ -52,7 +72,15 @@ export class StubLlmProvider implements LlmProvider {
         // on each skill's own in-schema defaults (model_roi_scenario falls
         // back to the "current" scenario). Set ANTHROPIC_API_KEY for a
         // provider that actually extracts arguments from what was typed.
-        return { type: 'tool_call', toolName, toolInput: {} };
+        //
+        // The keyword search re-scans the same original human sentence on
+        // every loop turn (see the lastUserMessage lookup above), and
+        // ChatService drops a tool from the offered set once it's been
+        // called — so a sentence matching several keyword sets chains
+        // through each of them in turn, same as a real model reasoning
+        // over one request with several parts, until nothing offered
+        // matches anymore and this falls through to a text reply.
+        return { type: 'tool_call', toolUseId: `stub-${toolName}`, toolName, toolInput: {} };
       }
     }
 

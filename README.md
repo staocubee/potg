@@ -559,9 +559,9 @@ That's `ChatService` (`src/ai/chat.service.ts`):
   same permission check, `AiRequest`/`AiOutput` persistence, and
   Accept/Edit/Discard requirement as a quick-action button. Chat is a
   second way to reach the same audited, human-in-the-loop skills, not a
-  bypass around them. It's deliberately one tool call per turn, reported
-  straight back to the user rather than looped into a second model call —
-  an explicit scope boundary, not a full agent loop.
+  bypass around them. A chat turn can now chain more than one tool call
+  before replying — see "Multi-turn tool use in chat" below for how and
+  why that was originally scoped out, then added.
 
 Three new skills round out the blueprint's Priority 6 list:
 
@@ -2519,6 +2519,68 @@ one, the same way a project's vendor assignment already works.
   (factored into one shared `vendorSummarySelect` field so the two can't
   drift apart again) to both `create()` calls.
 
+## Multi-turn tool use in chat (this pass)
+
+Closes the gap the "Chat & deeper AI" pass drew on purpose and then named
+under "Not built yet": `ChatService` ran at most one tool per message and
+reported the result straight to the user, even if the request genuinely
+needed two ("verify the documents and summarize this property" could only
+ever get one of the two done). Since `AiService.runAction` never mutates
+real state by itself — it only ever creates an `AiRequest`/`AiOutput`
+draft; a real action only happens later, if a human separately calls
+`POST /ai/outputs/:id/decision` with `accepted` (see `AiService.decide`
+and `applyChainedAction`) — chaining several tool calls automatically
+inside one chat turn costs nothing safety-wise beyond the calls
+themselves: it just means more drafts get created before the human sees
+any of them, each one still requiring its own separate Accept.
+
+- **`ChatService.sendMessage` is now a bounded loop**, not a single call:
+  after a tool runs, its result is fed back to the model as a
+  `tool_result` (Anthropic's own tool-use protocol — the assistant turn
+  that made the call is replayed alongside it, not just the result on its
+  own) so the model can decide whether another tool call would round out
+  the answer, or reply in text. Capped at `MAX_CHAINED_TOOL_CALLS = 4` — a
+  cost/latency guard against a model that keeps finding "one more thing to
+  check," not a safety boundary (see above for why chaining is safe to
+  begin with). A tool already called this turn is dropped from what's
+  offered on the next loop turn, so nothing can be run twice in one turn.
+- **`LlmProvider.chat()`'s types grew a `ChatContentBlock`** (`text` /
+  `tool_use` / `tool_result`) so a `ChatMessage`'s content can carry that
+  exchange — but only in the in-memory scratch history `ChatService`
+  builds up mid-loop. Nothing about what's persisted to `AiMessage`
+  changed: each loop step still writes one plain-string `content` row
+  (the same human-readable draft summary as before), so a resumed
+  conversation's history reconstruction needed no changes at all.
+- **`POST /ai/chat` now returns `messages: AiMessage[]`**, not a single
+  `message` — one entry per chained tool call plus the final reply, oldest
+  first. `AskAiPanel` (`components/AskAiPanel.tsx`) appends all of them;
+  since each one is its own `AiMessage` with its own `aiOutputId`, the
+  existing per-message `MiniDecision` control already rendered one
+  Accept/Discard per step with no changes needed there.
+- **`StubLlmProvider` needed two real fixes to chain correctly**, both
+  caught live rather than by inspection: its `chat()` crashed on the new
+  block-array content form until content was read through a `textOf()`
+  helper; and its "last user message" lookup, unchanged, would find the
+  `tool_result` block ChatService had just appended (role `user`, no
+  matchable text) instead of the human's actual sentence, so a second
+  keyword in the same sentence could never be found on the next loop turn
+  — every chat turn silently capped at one tool call regardless of intent.
+  Fixed by skipping user-role entries with no extractable text when
+  looking for "the" last user message, letting the keyword search re-scan
+  the original sentence on every turn, the same sentence a real model
+  reasons over the whole time.
+- **Verified live end-to-end** in the browser (stub provider, no
+  `ANTHROPIC_API_KEY` set): asked "verify the documents, give me a summary
+  of this property, and also its ROI" in a property-scoped chat and got
+  three separate draft cards back in one turn — `verify_property_documents`,
+  then `summarize_property`, then `model_roi_scenario` — each with its own
+  `AiOutput` id and independent Accept/Discard, followed by a final text
+  reply once nothing else matched. Reloaded the page and confirmed all
+  three drafts and their decision controls survived the round trip through
+  `GET /ai/conversations/:id`. Accepted one of the drafts from the
+  reloaded thread and confirmed the decision recorded correctly, same as
+  before this pass.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -2599,9 +2661,6 @@ blueprint, or explicitly cut from it:
   workflow to build for now, not this scaffold's.
 - **AI-generated renovation visualizations.** Explicitly deferred by
   Priority 6 itself, pending Module 22 (AR/VR) existing at all.
-- **Multi-turn tool use in one chat turn.** `ChatService` calls at most one
-  tool per message and reports the result directly — no agent loop where
-  the model chains several tool calls before replying.
 - **The stub LLM provider doesn't extract structured arguments from free
   text.** Every skill now declares a real `inputSchema` (see "Per-skill AI
   input schemas" above) and `AnthropicLlmProvider` passes it to the model,
