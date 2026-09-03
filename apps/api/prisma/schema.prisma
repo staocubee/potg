@@ -392,17 +392,31 @@ model Vendor {
   verificationStatus String  @default("not_verified") // not_verified | pending | verified
   verificationNotes String? // the neutral reviewer's note — what's needed to move off "pending", or why a decision was made
   ratingAverage     Decimal? @db.Decimal(3, 2)
-  // A real Paystack Transfer payout (see PaymentsService.releaseMilestone)
-  // needs a bank account to pay into — all three set together or not at
-  // all, same "record what's true" simplicity CreateLeaseDto's tenant
-  // fields already use, no separate BankAccount model. paystackRecipientCode
-  // caches the Transfer Recipient Paystack returns the first time a
-  // payout is attempted, so repeat payouts to the same vendor don't
-  // recreate one.
+  // A real payout (see PaymentsService.releaseMilestone) needs somewhere
+  // to pay into. Paystack and Flutterwave both pay a local bank account —
+  // bankAccountNumber/bankCode/bankAccountName are shared between the two
+  // (all three set together or not at all, same "record what's true"
+  // simplicity CreateLeaseDto's tenant fields already use), disambiguated
+  // by which gateway payoutProvider says they belong to, since the two
+  // gateways' own bank code lists are NOT interchangeable for the same
+  // physical bank. PayPal pays an email address instead, hence the
+  // separate paypalPayoutEmail field. paystackRecipientCode caches the
+  // Transfer Recipient Paystack returns the first time a payout is
+  // attempted (Flutterwave's own Transfer API needs no equivalent —
+  // it takes the bank account directly on every transfer, no separate
+  // recipient object).
   bankAccountNumber    String?
   bankCode             String?
   bankAccountName      String?
   paystackRecipientCode String?
+  // Which real gateway (if any) the fields above are currently set up
+  // for: "paystack" | "flutterwave" | "paypal" | null. Null (or no key
+  // configured for whichever this says) falls back to a simulated payout
+  // — same condition PaymentsService.releaseMilestone already checked via
+  // bank-details-presence alone before a second bank-transfer-capable
+  // gateway existed to disambiguate between.
+  payoutProvider       String?
+  paypalPayoutEmail    String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -645,9 +659,16 @@ model Payout {
   currency          String
   status            String    @default("pending") // pending | processing | paid | failed
   payoutMethod      String    @default("manual") // manual | bank_transfer | mobile_money
-  // Set when payoutMethod is "bank_transfer" — Paystack's own transfer_code
-  // for this payout, the same "provider"/"providerReference" pairing
-  // Payment already uses for a real gateway's own transaction id.
+  // Mirrors Payment.provider — which gateway (if any) actually moved this
+  // payout, independent of payoutMethod's "what kind of rail" question.
+  // Added because payoutMethod alone couldn't tell PaymentsService.verifyPayout/
+  // finalizePayoutOtp which gateway's API to call once a second
+  // bank-transfer-capable gateway existed alongside Paystack — every
+  // "bank_transfer" payout used to mean "call Paystack", unconditionally.
+  provider          String    @default("manual") // manual | paystack | flutterwave | paypal
+  // Set for any real-gateway payout — that gateway's own transfer/payout
+  // reference, the same "provider"/"providerReference" pairing Payment
+  // already uses for a real gateway's own transaction id.
   providerReference String?
   createdAt         DateTime  @default(now())
   paidAt            DateTime?

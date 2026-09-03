@@ -95,18 +95,20 @@ export default function ProjectDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, auth.currentAccountId]);
 
-  // Closes the gap the README flagged: Paystack's checkout redirects the
-  // buyer back here with ?paystackReference=<reference> (see
-  // PaymentsService.deposit's callbackUrl), but nothing ever read it — a
-  // buyer who closes the tab that started checkout and only ever lands on
-  // this redirect had no UI path back to verifying, and the payment sat
-  // "pending" until they happened to reopen the original tab's own
+  // Closes the gap the README flagged: a real gateway's checkout redirects
+  // the buyer back here with ?depositReference=<reference> (see
+  // PaymentsService.deposit's callbackUrl — shared by all four real
+  // gateways, not just Paystack, since verifyDeposit only needs the local
+  // Payment id to dispatch to the right one), but nothing ever read it —
+  // a buyer who closes the tab that started checkout and only ever lands
+  // on this redirect had no UI path back to verifying, and the payment
+  // sat "pending" until they happened to reopen the original tab's own
   // "I've paid — verify" button. This finds the matching pending Payment
   // by its providerReference and verifies it the same way that button
   // does, then strips the query param so a later refresh doesn't re-run it.
   useEffect(() => {
     if (!id || !auth.currentAccountId || !router.isReady) return;
-    const reference = typeof router.query.paystackReference === "string" ? router.query.paystackReference : undefined;
+    const reference = typeof router.query.depositReference === "string" ? router.query.depositReference : undefined;
     if (!reference) return;
 
     let cancelled = false;
@@ -115,22 +117,22 @@ export default function ProjectDetailPage() {
         const payments = await auth.api.findPayments(id);
         const match = payments.find((p) => p.providerReference === reference && p.status === "pending");
         if (!match) {
-          if (!cancelled) setCallbackNotice("Couldn't find a matching pending payment for this Paystack reference — it may already be verified below.");
+          if (!cancelled) setCallbackNotice("Couldn't find a matching pending payment for this reference — it may already be verified below.");
           return;
         }
         const result = await auth.api.verifyDeposit(id, match.id);
         if (cancelled) return;
         setCallbackNotice(
           result.payment.status === "completed"
-            ? "Payment confirmed with Paystack — escrow has been updated."
-            : `Paystack hasn't confirmed this payment yet (status: ${result.payment.status}). Reload this page in a moment to check again.`,
+            ? `Payment confirmed with ${match.provider} — escrow has been updated.`
+            : `${match.provider} hasn't confirmed this payment yet (status: ${result.payment.status}). Reload this page in a moment to check again.`,
         );
         load();
       } catch (err) {
         if (!cancelled) setCallbackNotice(err instanceof ApiError ? err.message : "Couldn't verify the payment from this redirect.");
       } finally {
         if (!cancelled) {
-          const { paystackReference: _drop, ...rest } = router.query;
+          const { depositReference: _drop, ...rest } = router.query;
           router.replace({ pathname: router.pathname, query: rest }, undefined, { shallow: true });
         }
       }
@@ -139,7 +141,7 @@ export default function ProjectDetailPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, auth.currentAccountId, router.isReady, router.query.paystackReference]);
+  }, [id, auth.currentAccountId, router.isReady, router.query.depositReference]);
 
   async function onComplete() {
     if (!id) return;
@@ -613,6 +615,7 @@ function PayoutRow({ projectId, payout, onChanged }: { projectId: string; payout
         <div>
           <div className="potg-muted" style={{ fontSize: 11 }}>
             {payout.payoutMethod.replace(/_/g, " ")}
+            {payout.provider !== "manual" && ` · ${payout.provider}`}
             {payout.paidAt && ` · ${new Date(payout.paidAt).toLocaleDateString()}`}
           </div>
         </div>
@@ -627,13 +630,19 @@ function PayoutRow({ projectId, payout, onChanged }: { projectId: string; payout
           <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={onVerify}>
             {busy === "check" ? "Checking…" : "Check status"}
           </button>
-          <button
-            className="potg-btn potg-btn-secondary"
-            style={{ padding: "3px 8px", fontSize: 11 }}
-            onClick={() => setShowOtp(true)}
-          >
-            Enter OTP
-          </button>
+          {payout.provider === "paystack" && (
+            // OTP finalization is a Paystack-specific step (see
+            // PaymentsService.finalizePayoutOtp's own comment) —
+            // Flutterwave/PayPal payouts in this integration only ever
+            // need "Check status" to move past "processing".
+            <button
+              className="potg-btn potg-btn-secondary"
+              style={{ padding: "3px 8px", fontSize: 11 }}
+              onClick={() => setShowOtp(true)}
+            >
+              Enter OTP
+            </button>
+          )}
         </div>
       )}
       {payout.status === "processing" && showOtp && (
@@ -663,13 +672,16 @@ function PayoutRow({ projectId, payout, onChanged }: { projectId: string; payout
   );
 }
 
-// "paystack" is a real gateway integration (Section 16) — see
-// PaystackService's own comment for why there's no webhook. Submitting
-// creates a *pending* Payment and opens Paystack's real hosted checkout
-// in a new tab; escrow isn't credited until the buyer completes it there
-// and this form's own "I've paid — verify" button confirms it server-side
-// against Paystack directly. The other three providers stay exactly what
-// they always were: an instant simulation, never actually charged.
+// "paystack"/"flutterwave"/"paypal" are real gateway integrations
+// (Section 16) — see each one's own service file for why there's no
+// webhook. Submitting creates a *pending* Payment and opens that
+// gateway's real hosted checkout in a new tab; escrow isn't credited
+// until the buyer completes it there and this form's own "I've paid —
+// verify" button confirms it server-side against the gateway directly.
+// "stripe" behaves the same way once STRIPE_SECRET_KEY is set server-side
+// (see StripeService's own comment) — until then it 400s, same as any
+// other unconfigured real gateway. "manual" stays what it always was: an
+// instant simulation, never actually charged.
 function DepositForm({ projectId, defaultCurrency, onCreated }: { projectId: string; defaultCurrency: string; onCreated: () => void }) {
   const auth = useAuth();
   const [amount, setAmount] = useState("");
@@ -707,7 +719,7 @@ function DepositForm({ projectId, defaultCurrency, onCreated }: { projectId: str
         setPendingPaymentId(null);
         onCreated();
       } else {
-        setError(`Paystack hasn't confirmed this payment yet (status: ${result.payment.status}). Complete checkout in the other tab, then try again.`);
+        setError(`${provider} hasn't confirmed this payment yet (status: ${result.payment.status}). Complete checkout in the other tab, then try again.`);
       }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't verify that payment.");
@@ -721,7 +733,7 @@ function DepositForm({ projectId, defaultCurrency, onCreated }: { projectId: str
       <div style={{ marginBottom: 12, display: "flex", flexDirection: "column", gap: 6 }}>
         {error && <div className="potg-error">{error}</div>}
         <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
-          Complete the payment in the Paystack tab that just opened, then come back and verify it here.
+          Complete the payment in the {provider} tab that just opened, then come back and verify it here.
         </p>
         <div style={{ display: "flex", gap: 8 }}>
           <button className="potg-btn potg-btn-primary" onClick={onVerify} disabled={busy}>
@@ -751,9 +763,9 @@ function DepositForm({ projectId, defaultCurrency, onCreated }: { projectId: str
       <select className="potg-input" value={provider} onChange={(e) => setProvider(e.target.value)} style={{ maxWidth: 200 }}>
         <option value="manual">Manual (simulated)</option>
         <option value="paystack">Paystack (real test payment)</option>
-        <option value="flutterwave">Flutterwave (simulated)</option>
-        <option value="stripe">Stripe (simulated)</option>
-        <option value="paypal">PayPal (simulated)</option>
+        <option value="flutterwave">Flutterwave (real test payment)</option>
+        <option value="paypal">PayPal (real test payment)</option>
+        <option value="stripe">Stripe (real once configured)</option>
       </select>
       <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ flexShrink: 0 }}>
         {busy ? "…" : "Deposit"}

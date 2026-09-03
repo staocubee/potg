@@ -471,6 +471,12 @@ export type Vendor = {
   bankAccountNumber?: string | null;
   bankCode?: string | null;
   bankAccountName?: string | null;
+  // Which real payout gateway bankAccountNumber/bankCode/bankAccountName
+  // (or paypalPayoutEmail) are currently set up for — "paystack" |
+  // "flutterwave" | "paypal" | null. Null falls back to a simulated
+  // payout, same as no bank details on file at all.
+  payoutProvider?: string | null;
+  paypalPayoutEmail?: string | null;
   createdAt: string;
   reviews?: VendorReview[];
   trustScore?: VendorTrustScore;
@@ -550,6 +556,7 @@ export type Payout = {
   currency: string;
   status: "pending" | "processing" | "paid" | "failed" | string;
   payoutMethod: string;
+  provider: "manual" | "paystack" | "flutterwave" | "paypal" | string;
   providerReference?: string | null;
   createdAt: string;
   paidAt?: string | null;
@@ -1280,11 +1287,20 @@ export class ApiClient {
   myPayouts() {
     return request<Payout[]>("/vendors/me/payouts", { token: this.token, accountId: this.accountId });
   }
-  listBanks() {
-    return request<PaystackBank[]>("/vendors/banks", { token: this.token, accountId: this.accountId });
+  listBanks(provider?: string) {
+    const qs = provider ? `?provider=${encodeURIComponent(provider)}` : "";
+    return request<PaystackBank[]>(`/vendors/banks${qs}`, { token: this.token, accountId: this.accountId });
   }
-  setVendorBankDetails(input: { bankAccountNumber: string; bankCode: string }) {
+  setVendorBankDetails(input: { bankAccountNumber: string; bankCode: string; provider?: string }) {
     return request<Vendor>("/vendors/me/bank-details", {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  setPaypalPayoutEmail(input: { email: string }) {
+    return request<Vendor>("/vendors/me/paypal-payout-email", {
       method: "PATCH",
       body: input,
       token: this.token,

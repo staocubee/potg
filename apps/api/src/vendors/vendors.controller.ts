@@ -14,6 +14,7 @@ import { SubmitDisputeEvidenceDto } from '../payments/dto/submit-dispute-evidenc
 import { ReplyToReviewDto } from './dto/reply-to-review.dto';
 import { SetVendorVerificationDto } from './dto/set-vendor-verification.dto';
 import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
+import { SetPaypalPayoutEmailDto } from './dto/set-paypal-payout-email.dto';
 import { FlagReviewDto } from './dto/flag-review.dto';
 import { ModerateReviewDto } from './dto/moderate-review.dto';
 
@@ -35,17 +36,28 @@ export class VendorsController {
   }
 
   // The real half of Section 16's payout integration — see
-  // VendorsService.setBankDetails.
+  // VendorsService.setBankDetails. dto.provider picks Paystack or
+  // Flutterwave (defaults to "paystack").
   @RequirePermissions('vendor:write')
   @Patch('me/bank-details')
   setBankDetails(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: SetVendorBankDetailsDto) {
     return this.vendors.setBankDetails(member.accountId, dto);
   }
 
+  // The PayPal counterpart — see VendorsService.setPaypalPayoutEmail.
+  @RequirePermissions('vendor:write')
+  @Patch('me/paypal-payout-email')
+  setPaypalPayoutEmail(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: SetPaypalPayoutEmailDto) {
+    return this.vendors.setPaypalPayoutEmail(member.accountId, dto);
+  }
+
+  // ?provider=flutterwave for Flutterwave's own (different) bank list —
+  // omitted/anything else defaults to Paystack's, same default
+  // setBankDetails uses.
   @RequirePermissions('vendor:read')
   @Get('banks')
-  listBanks() {
-    return this.vendors.listBanks();
+  listBanks(@Query('provider') provider?: string) {
+    return this.vendors.listBanks(provider);
   }
 
   // Marketplace browse (Module 7): ?serviceCategory=plumbing

@@ -9,6 +9,29 @@ import { ArbitrateDisputeDto } from './dto/arbitrate-dispute.dto';
 import { SubmitDisputeEvidenceDto } from './dto/submit-dispute-evidence.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
 import { PaystackService } from './paystack.service';
+import { FlutterwaveService } from './flutterwave.service';
+import { PaypalService } from './paypal.service';
+import { StripeService } from './stripe.service';
+
+// The shape every real deposit gateway besides Paystack shares closely
+// enough to dispatch on generically (Paystack keeps its own, unchanged
+// branch below — see deposit()/verifyDeposit()'s own comments for why).
+// Note "amount" here is always the currency's MAJOR unit (e.g. 5000
+// meaning 5000 NGN) — unlike PaystackVerifyResult.amountKobo, since
+// Flutterwave/PayPal/Stripe don't share Paystack's minor-unit convention
+// (Stripe does use minor units internally, but StripeService itself
+// already converts back before returning here).
+interface DepositGateway {
+  initializeTransaction(params: {
+    email: string;
+    amount: number;
+    currency: string;
+    reference: string;
+    callbackUrl: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<{ authorizationUrl: string; reference: string }>;
+  verifyTransaction(reference: string): Promise<{ status: string; amount: number; currency: string }>;
+}
 
 function receiptNumber(): string {
   // Not sequential/invoice-grade (a real one would need a per-account
@@ -40,11 +63,33 @@ function payableEmail(email: string): string {
 
 @Injectable()
 export class PaymentsService {
+  // Every provider name deposit() might dispatch to besides "paystack"
+  // (which keeps its own separate, unchanged branch) and "manual" (the
+  // simulated fallback) — built once in the constructor rather than a
+  // fresh object literal per call.
+  private readonly depositGateways: Record<string, DepositGateway>;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly paystack: PaystackService,
+    private readonly flutterwave: FlutterwaveService,
+    private readonly paypal: PaypalService,
+    private readonly stripe: StripeService,
     private readonly config: ConfigService,
-  ) {}
+  ) {
+    this.depositGateways = {
+      flutterwave: this.flutterwave,
+      stripe: this.stripe,
+      // PaypalService.initializeTransaction doesn't take `email`/`metadata`
+      // (PayPal Orders don't carry either) — adapted to DepositGateway's
+      // shared shape here rather than forcing PaypalService's own method
+      // signature to accept parameters it would just ignore.
+      paypal: {
+        initializeTransaction: (params) => this.paypal.initializeTransaction(params),
+        verifyTransaction: (reference) => this.paypal.verifyTransaction(reference),
+      },
+    };
+  }
 
   private async getOrCreateEscrowAccount(projectId: string, currency: string) {
     const existing = await this.prisma.escrowAccount.findUnique({ where: { projectId } });
@@ -66,14 +111,15 @@ export class PaymentsService {
   }
 
   // Deposit — provider "manual" is the original simulation (see the
-  // Payment model's schema comment), still used for demo/seed data and
-  // anyone without a Paystack key configured: it credits escrow instantly,
-  // as if a gateway had already confirmed it. provider "paystack" is a
-  // real gateway integration instead — see PaystackService's own comment.
-  // It does NOT credit escrow here; the Payment is created "pending" and
-  // escrow is only credited once verifyDeposit confirms the charge
-  // actually succeeded, so a buyer abandoning Paystack's checkout page
-  // never phantom-funds the project.
+  // Payment model's schema comment), still the fallback for demo/seed data
+  // and anyone without a real gateway key configured: it credits escrow
+  // instantly, as if a gateway had already confirmed it. "paystack",
+  // "flutterwave", "stripe", and "paypal" are real gateway integrations
+  // instead — see PaystackService/FlutterwaveService/StripeService/
+  // PaypalService's own comments. None of them credit escrow here; the
+  // Payment is created "pending" and escrow is only credited once
+  // verifyDeposit confirms the charge actually succeeded, so a buyer
+  // abandoning a gateway's checkout page never phantom-funds the project.
   async deposit(accountId: string, projectId: string, email: string, dto: DepositDto) {
     const project = await this.prisma.project.findFirst({ where: { id: projectId, accountId } });
     if (!project) throw new NotFoundException('Project not found');
@@ -89,7 +135,7 @@ export class PaymentsService {
         amount: dto.amount,
         currency,
         reference,
-        callbackUrl: `${webAppUrl}/projects/${projectId}?paystackReference=${reference}`,
+        callbackUrl: `${webAppUrl}/projects/${projectId}?depositReference=${reference}`,
         metadata: { projectId, accountId },
       });
       const payment = await this.prisma.payment.create({
@@ -105,6 +151,44 @@ export class PaymentsService {
         },
       });
       return { payment, authorizationUrl };
+    }
+
+    // Flutterwave/Stripe/PayPal — same shape as the Paystack branch above,
+    // dispatched generically via DepositGateway rather than three more
+    // copies of it. Stripe's own gateway naturally throws here (via
+    // isConfigured) until STRIPE_SECRET_KEY is set — see StripeService's
+    // own comment — so this falls through to the manual simulation below
+    // exactly as it always did, with no special-casing needed.
+    const gateway = dto.provider ? this.depositGateways[dto.provider] : undefined;
+    if (gateway) {
+      const escrowAccount = await this.getOrCreateEscrowAccount(projectId, currency);
+      const reference = `potg_dep_${randomUUID()}`;
+      const webAppUrl = this.config.get<string>('WEB_APP_URL', 'http://localhost:3000');
+      const init = await gateway.initializeTransaction({
+        email: payableEmail(email),
+        amount: dto.amount,
+        currency,
+        reference,
+        callbackUrl: `${webAppUrl}/projects/${projectId}?depositReference=${reference}`,
+        metadata: { projectId, accountId },
+      });
+      // The reference actually persisted is whatever the gateway returned
+      // — Paystack echoes back the same one this scaffold generated, but
+      // PayPal/Stripe assign their own id (an Order id / Checkout Session
+      // id) that has to be used for verification instead.
+      const payment = await this.prisma.payment.create({
+        data: {
+          accountId,
+          projectId,
+          escrowAccountId: escrowAccount.id,
+          amount: dto.amount,
+          currency,
+          provider: dto.provider!,
+          providerReference: init.reference,
+          status: 'pending',
+        },
+      });
+      return { payment, authorizationUrl: init.authorizationUrl };
     }
 
     const escrowAccount = await this.getOrCreateEscrowAccount(projectId, currency);
@@ -167,8 +251,53 @@ export class PaymentsService {
   async verifyDeposit(accountId: string, projectId: string, paymentId: string) {
     const payment = await this.prisma.payment.findFirst({ where: { id: paymentId, projectId, accountId } });
     if (!payment) throw new NotFoundException('Payment not found on this project');
-    if (payment.provider !== 'paystack') {
-      throw new BadRequestException('Only a Paystack deposit needs verification');
+
+    if (payment.provider === 'paystack') {
+      if (payment.status === 'completed') {
+        const receipt = await this.prisma.receipt.findUnique({ where: { paymentId: payment.id } });
+        return { payment, receipt, alreadyVerified: true };
+      }
+      if (payment.status !== 'pending' || !payment.providerReference) {
+        throw new BadRequestException(`This payment is "${payment.status}" — nothing to verify`);
+      }
+
+      const result = await this.paystack.verifyTransaction(payment.providerReference);
+      if (result.status === 'failed') {
+        // A genuinely declined/failed charge — terminal, same as any other
+        // failed Payment elsewhere in this schema.
+        const updated = await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'failed' } });
+        return { payment: updated, receipt: null, alreadyVerified: false };
+      }
+      if (result.status !== 'success') {
+        // "abandoned" (checkout not completed yet) or anything else that
+        // isn't a final answer — leave the payment "pending" rather than
+        // marking it failed, so a buyer who verifies too early (or closes
+        // the tab and comes back later) can still complete the same
+        // checkout session and verify again afterward.
+        return { payment, receipt: null, alreadyVerified: false };
+      }
+
+      const expectedKobo = Math.round(Number(payment.amount) * 100);
+      if (result.amountKobo !== expectedKobo || result.currency !== payment.currency) {
+        // Paystack confirmed a charge, but not for the amount/currency this
+        // payment recorded — refuse to credit escrow for a mismatch rather
+        // than trusting the reference alone.
+        throw new BadRequestException(
+          `Paystack confirmed a different amount/currency than expected (got ${result.amountKobo / 100} ${result.currency})`,
+        );
+      }
+
+      const completed = await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'completed' } });
+      const receipt = await this.creditEscrowForDeposit(payment.escrowAccountId, completed, accountId);
+      return { payment: completed, receipt, alreadyVerified: false };
+    }
+
+    // Flutterwave/Stripe/PayPal — same shape as the Paystack branch above,
+    // just comparing amounts in major units (see DepositGateway's own
+    // comment for why) instead of Paystack's kobo-specific comparison.
+    const gateway = this.depositGateways[payment.provider];
+    if (!gateway) {
+      throw new BadRequestException('Only a real-gateway deposit needs verification');
     }
     if (payment.status === 'completed') {
       const receipt = await this.prisma.receipt.findUnique({ where: { paymentId: payment.id } });
@@ -178,29 +307,19 @@ export class PaymentsService {
       throw new BadRequestException(`This payment is "${payment.status}" — nothing to verify`);
     }
 
-    const result = await this.paystack.verifyTransaction(payment.providerReference);
+    const result = await gateway.verifyTransaction(payment.providerReference);
     if (result.status === 'failed') {
-      // A genuinely declined/failed charge — terminal, same as any other
-      // failed Payment elsewhere in this schema.
       const updated = await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'failed' } });
       return { payment: updated, receipt: null, alreadyVerified: false };
     }
     if (result.status !== 'success') {
-      // "abandoned" (checkout not completed yet) or anything else that
-      // isn't a final answer — leave the payment "pending" rather than
-      // marking it failed, so a buyer who verifies too early (or closes
-      // the tab and comes back later) can still complete the same
-      // checkout session and verify again afterward.
       return { payment, receipt: null, alreadyVerified: false };
     }
 
-    const expectedKobo = Math.round(Number(payment.amount) * 100);
-    if (result.amountKobo !== expectedKobo || result.currency !== payment.currency) {
-      // Paystack confirmed a charge, but not for the amount/currency this
-      // payment recorded — refuse to credit escrow for a mismatch rather
-      // than trusting the reference alone.
+    const expectedAmount = Number(payment.amount);
+    if (Math.abs(result.amount - expectedAmount) > 0.01 || result.currency !== payment.currency) {
       throw new BadRequestException(
-        `Paystack confirmed a different amount/currency than expected (got ${result.amountKobo / 100} ${result.currency})`,
+        `${payment.provider} confirmed a different amount/currency than expected (got ${result.amount} ${result.currency})`,
       );
     }
 
@@ -322,12 +441,14 @@ export class PaymentsService {
     }
     const vendor = await this.prisma.vendor.findUniqueOrThrow({ where: { id: assignment.vendorId } });
 
-    // Real Paystack Transfer path — only once a vendor has actually set
-    // up bank details (VendorsService.setBankDetails) and the server has
-    // a Paystack key; otherwise this falls through to the original
-    // instant simulation below, same "manual" vs "paystack" branch
-    // deposit() already makes.
-    if (vendor.bankAccountNumber && vendor.bankCode && this.paystack.isConfigured) {
+    // Real Paystack Transfer path — only once a vendor has actually set up
+    // bank details for Paystack specifically (VendorsService.setBankDetails,
+    // which now records which gateway they were resolved against in
+    // vendor.payoutProvider) and the server has a Paystack key; otherwise
+    // this falls through to the Flutterwave/PayPal branches below it, and
+    // finally the original instant simulation, same "manual" vs "paystack"
+    // branch deposit() already makes.
+    if (vendor.bankAccountNumber && vendor.bankCode && vendor.payoutProvider === 'paystack' && this.paystack.isConfigured) {
       let recipientCode = vendor.paystackRecipientCode;
       if (!recipientCode) {
         recipientCode = await this.paystack.createTransferRecipient({
@@ -356,6 +477,7 @@ export class PaymentsService {
           currency: escrowAccount.currency,
           status: transfer.status === 'success' ? 'paid' : 'processing',
           payoutMethod: 'bank_transfer',
+          provider: 'paystack',
           providerReference: transfer.transferCode,
         },
       });
@@ -365,6 +487,69 @@ export class PaymentsService {
         // stays untouched and the milestone stays open until verifyPayout
         // confirms it, same pessimistic-until-confirmed shape
         // verifyDeposit already uses for the other direction.
+        return { payout, receipt: null };
+      }
+      return this.finalizePayout(escrowAccount, milestone, payout, vendor.accountId, amount);
+    }
+
+    // Real Flutterwave Transfer path — structurally simpler than
+    // Paystack's: one call, no separate recipient object to create/cache
+    // first (see FlutterwaveService's own comment).
+    if (vendor.bankAccountNumber && vendor.bankCode && vendor.payoutProvider === 'flutterwave' && this.flutterwave.isConfigured) {
+      const reference = `potg_payout_${randomUUID()}`;
+      const transfer = await this.flutterwave.initiateTransfer({
+        amount,
+        currency: escrowAccount.currency,
+        accountNumber: vendor.bankAccountNumber,
+        bankCode: vendor.bankCode,
+        accountName: vendor.bankAccountName ?? vendor.businessName,
+        reference,
+        reason: `Milestone released: ${milestone.title}`,
+      });
+      const payout = await this.prisma.payout.create({
+        data: {
+          vendorId: vendor.id,
+          projectId,
+          milestoneId,
+          amount,
+          currency: escrowAccount.currency,
+          status: transfer.status === 'success' ? 'paid' : 'processing',
+          payoutMethod: 'bank_transfer',
+          provider: 'flutterwave',
+          providerReference: transfer.transferReference,
+        },
+      });
+      if (transfer.status !== 'success') {
+        return { payout, receipt: null };
+      }
+      return this.finalizePayout(escrowAccount, milestone, payout, vendor.accountId, amount);
+    }
+
+    // Real PayPal Payout path — pays vendor.paypalPayoutEmail directly,
+    // not a bank account at all (see PaypalService's own comment).
+    if (vendor.paypalPayoutEmail && vendor.payoutProvider === 'paypal' && this.paypal.isConfigured) {
+      const reference = `potg_payout_${randomUUID()}`;
+      const transfer = await this.paypal.initiateTransfer({
+        amount,
+        currency: escrowAccount.currency,
+        email: vendor.paypalPayoutEmail,
+        reference,
+        reason: `Milestone released: ${milestone.title}`,
+      });
+      const payout = await this.prisma.payout.create({
+        data: {
+          vendorId: vendor.id,
+          projectId,
+          milestoneId,
+          amount,
+          currency: escrowAccount.currency,
+          status: transfer.status === 'success' ? 'paid' : 'processing',
+          payoutMethod: 'bank_transfer',
+          provider: 'paypal',
+          providerReference: transfer.transferReference,
+        },
+      });
+      if (transfer.status !== 'success') {
         return { payout, receipt: null };
       }
       return this.finalizePayout(escrowAccount, milestone, payout, vendor.accountId, amount);
@@ -423,15 +608,17 @@ export class PaymentsService {
     return { payout: updatedPayout, receipt };
   }
 
-  // The other half of the real Paystack payout path — asks Paystack
-  // directly whether a "processing" transfer actually succeeded, rather
-  // than trusting anything the client claims. Callable more than once
-  // safely: a payout that's already "paid" just returns its existing
-  // receipt instead of debiting escrow twice.
+  // The other half of the real payout path — asks whichever gateway
+  // actually created this payout (payout.provider — see the schema
+  // comment on why that field exists) directly whether a "processing"
+  // transfer actually succeeded, rather than trusting anything the client
+  // claims. Callable more than once safely: a payout that's already
+  // "paid" just returns its existing receipt instead of debiting escrow
+  // twice.
   async verifyPayout(projectId: string, payoutId: string) {
-    const payout = await this.requireProcessingBankTransferPayout(projectId, payoutId);
+    const payout = await this.requireProcessingGatewayPayout(projectId, payoutId);
     if ('alreadyVerified' in payout) return payout;
-    const result = await this.paystack.fetchTransfer(payout.providerReference!);
+    const result = await this.getPayoutGateway(payout.provider).fetchTransfer(payout.providerReference!);
     return this.applyTransferResult(projectId, payout, result);
   }
 
@@ -441,18 +628,30 @@ export class PaymentsService {
   // initiateTransfer in releaseMilestone came back "otp", not "success".
   // This relays whatever OTP the vendor/owner was sent (Paystack emails
   // or texts it to the account holder, not to this app) straight through.
+  // Paystack-specific — Flutterwave/PayPal transfers don't have an OTP
+  // step in this integration, so this refuses any payout that isn't
+  // Paystack's rather than silently doing nothing useful with an OTP no
+  // other gateway asked for.
   async finalizePayoutOtp(projectId: string, payoutId: string, otp: string) {
-    const payout = await this.requireProcessingBankTransferPayout(projectId, payoutId);
+    const payout = await this.requireProcessingGatewayPayout(projectId, payoutId);
     if ('alreadyVerified' in payout) return payout;
+    if (payout.provider !== 'paystack') {
+      throw new BadRequestException(`A "${payout.provider}" payout doesn't use OTP finalization — check its status instead`);
+    }
     const result = await this.paystack.finalizeTransferOtp(payout.providerReference!, otp);
     return this.applyTransferResult(projectId, payout, result);
   }
 
-  private async requireProcessingBankTransferPayout(projectId: string, payoutId: string) {
+  // provider !== 'manual' is the correct "does this need real-gateway
+  // verification" check now that a real payout can come from more than
+  // one gateway — payoutMethod alone (the check this replaced) only ever
+  // said "bank_transfer", which stopped being enough to know which
+  // gateway's API to call once Flutterwave/PayPal could also produce one.
+  private async requireProcessingGatewayPayout(projectId: string, payoutId: string) {
     const payout = await this.prisma.payout.findFirst({ where: { id: payoutId, projectId } });
     if (!payout) throw new NotFoundException('Payout not found on this project');
-    if (payout.payoutMethod !== 'bank_transfer') {
-      throw new BadRequestException('Only a bank transfer payout needs verification');
+    if (payout.provider === 'manual') {
+      throw new BadRequestException('Only a real-gateway payout needs verification');
     }
     if (payout.status === 'paid') {
       const receipt = await this.prisma.receipt.findUnique({ where: { payoutId: payout.id } });
@@ -462,6 +661,13 @@ export class PaymentsService {
       throw new BadRequestException(`This payout is "${payout.status}" — nothing to verify`);
     }
     return payout;
+  }
+
+  private getPayoutGateway(provider: string): { fetchTransfer(reference: string): Promise<{ status: string }> } {
+    if (provider === 'paystack') return this.paystack;
+    if (provider === 'flutterwave') return this.flutterwave;
+    if (provider === 'paypal') return this.paypal;
+    throw new BadRequestException(`Unknown payout provider "${provider}"`);
   }
 
   private async applyTransferResult(

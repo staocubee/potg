@@ -2149,6 +2149,143 @@ has to survive a real bank's own OTP confirmation step.
   reach the `"otp"` state this section already handles, with nothing
   left to change in this codebase.
 
+## Flutterwave and PayPal: a second and third real gateway (this pass)
+
+Section 16 named four gateways ("Paystack, Flutterwave, Stripe, PayPal");
+every deposit and payout route stayed hardcoded to Paystack's own
+`PaystackService` — a concrete class, not an interface, injected directly
+into `PaymentsService`/`VendorsService` — until now. This closes that:
+Flutterwave and PayPal both process real deposits and real payouts,
+Stripe gets a correctly-shaped deposit gateway that's deliberately left
+inactive (see its own section below), and `Payout` gained the `provider`
+column `Payment` already had, fixing a real bug the redesign surfaced —
+see "The bug this surfaced" below.
+
+- **`FlutterwaveService`** (`src/payments/flutterwave.service.ts`) — same
+  "plain fetch, no SDK, `isConfigured` gate" shape `PaystackService`
+  already established. One real structural difference: Flutterwave's
+  Transfer API takes the destination bank account directly on every
+  transfer call, no separate "create a recipient, cache its id" step the
+  way Paystack's does — so there's no Flutterwave equivalent of
+  `Vendor.paystackRecipientCode`. Another: Flutterwave amounts are
+  already in the currency's major unit (5000 means 5000 NGN), not kobo
+  like Paystack's — every method here reflects that directly.
+- **`PaypalService`** (`src/payments/paypal.service.ts`) — structurally
+  the most different of the three: OAuth2 client-credentials (cached,
+  refreshed near expiry) instead of a static bearer key; deposits go
+  through the Orders API, where `verifyTransaction` doesn't just *read*
+  a status, it *captures* the order — a capture only succeeds once the
+  buyer has approved it via the returned link, so an unapproved order
+  correctly reports "pending" rather than erroring, and an
+  already-captured order is looked up read-only on a second call instead
+  of erroring on it; payouts go through the Payouts API, targeting an
+  email address directly — there's no bank code/account number involved
+  at all, hence `Vendor.paypalPayoutEmail` existing as its own field.
+- **`Vendor` gained `payoutProvider`** (`"paystack" | "flutterwave" |
+  "paypal" | null`) **and `paypalPayoutEmail`** — `bankAccountNumber`/
+  `bankCode`/`bankAccountName` are now shared between Paystack and
+  Flutterwave rather than Paystack-only, disambiguated by
+  `payoutProvider`, since **Paystack's and Flutterwave's bank code lists
+  are not interchangeable for the same physical bank** — confirmed live:
+  Flutterwave's own bank list (`GET /vendors/banks?provider=flutterwave`)
+  came back a materially different, differently-coded list than
+  Paystack's. `VendorsService.setBankDetails` now takes an optional
+  `provider` (defaults to `"paystack"` for existing callers) and resolves
+  against whichever gateway that names; `setPaypalPayoutEmail` is the
+  email-based counterpart with no resolve step to make first — PayPal
+  itself validates the receiver when a payout is actually sent.
+- **The bug this surfaced**: `Payout` had no equivalent of
+  `Payment.provider` at all — only `payoutMethod` (`manual |
+  bank_transfer | mobile_money`), which `PaymentsService.verifyPayout`/
+  `finalizePayoutOtp` used to mean "call Paystack," unconditionally,
+  because Paystack was the only gateway that could ever produce a
+  `"bank_transfer"` payout. The moment a second one could, that
+  assumption would have made every Flutterwave/PayPal payout's "check
+  status" silently call Paystack's API against a reference Paystack never
+  issued. Fixed by adding `Payout.provider` (mirroring `Payment.provider`,
+  backfilled `"paystack"` for every existing `bank_transfer` row in the
+  migration) and switching the verification gate from `payoutMethod ===
+  'bank_transfer'` to `provider !== 'manual'`, with a small
+  `getPayoutGateway(provider)` lookup replacing the old unconditional
+  `this.paystack.*` calls. `finalizePayoutOtp` now explicitly refuses any
+  payout that isn't Paystack's rather than silently doing nothing useful
+  with an OTP no other gateway asked for.
+- **Web UI**: `DepositForm`'s provider dropdown
+  (`pages/projects/[id].tsx`) now offers Flutterwave and PayPal as real
+  options alongside Paystack, with Stripe labeled "real once configured";
+  the Paystack-specific `?paystackReference=` checkout-return query param
+  is now the gateway-agnostic `?depositReference=`, read the same way for
+  all four. `PayoutRow` only shows "Enter OTP" when the payout's own
+  `provider` is `"paystack"` — Flutterwave/PayPal payouts in this
+  integration only ever need "Check status" to move past "processing".
+  `BankDetailsForm` (`pages/vendors/me.tsx`) gained a Paystack/
+  Flutterwave/PayPal toggle that swaps between the bank-account form
+  (re-fetching that gateway's own bank list) and a plain email field for
+  PayPal.
+- **Verified live end-to-end against both gateways' real sandbox APIs** —
+  not simulated, not mocked:
+  - **Flutterwave**: a real deposit returned a genuine
+    `checkout-v2.dev-flutterwave.com` hosted-payment URL; verifying it
+    before completing checkout correctly stayed "pending"; resolving
+    Flutterwave's own sandbox "Test bank" account number against its real
+    `/accounts/resolve` endpoint correctly returned a real account name
+    ("Forrest Green"); releasing a milestone to that account correctly
+    dispatched to Flutterwave (not Paystack) and returned a real transfer
+    reference in `"processing"`; checking its status called Flutterwave's
+    real `/transfers` endpoint and correctly marked the payout `"failed"`
+    once Flutterwave's own settlement rejected the test destination — and
+    confirmed escrow's balance was untouched by the failed payout, same
+    "nothing moves until success is confirmed" guarantee the Paystack
+    path already had.
+  - **PayPal**: a real deposit against this demo project's own NGN
+    project currency failed with PayPal's own real validation error
+    (NGN isn't a currency PayPal supports) — switching to USD via a
+    direct API call (bypassing the UI, which always uses the project's
+    own currency) confirmed the integration itself is correct: PayPal
+    returned a real Order id and a genuine `sandbox.paypal.com`
+    checkout-now URL, and verifying it before approval correctly stayed
+    "pending". A real payout attempt hit the identical NGN constraint on
+    the Payouts API side (`items[0].amount.currency`, confirmed via a
+    detailed PayPal error response), the same real external limitation
+    as the deposit side, not a bug — this scaffold's demo data just
+    happens to be NGN-denominated and PayPal's supported-currency list
+    doesn't include it, the same category of constraint the Paystack
+    section above already documents for reserved test-TLD emails.
+
+## Stripe: correctly shaped, deliberately inactive (this pass)
+
+The fourth gateway Section 16 named. Unlike Flutterwave/PayPal above,
+this one was never turned on — no credentials were ready for it yet —
+but it's not a stub either: `StripeService`
+(`src/payments/stripe.service.ts`) is a real, correctly-shaped deposit
+gateway gated by the exact `isConfigured` pattern `PaystackService`
+already established, so setting `STRIPE_SECRET_KEY` later makes it start
+working with no code changes, the same way that key being unset already
+leaves every deposit on the "manual" simulated path with nothing
+breaking.
+
+- **Deposit-only, on purpose.** Paystack/Flutterwave/PayPal all pay a
+  vendor directly from this platform's own gateway balance (a bank
+  account or an email address); Stripe's equivalent is Stripe Connect, a
+  materially different product requiring each vendor to onboard their own
+  connected account through a separate flow before this platform could
+  ever pay one through it. That's not something one service class can
+  "complete in advance" the way a checkout integration can — building a
+  payout path against the wrong API shape would be worse than not
+  building one at all, so this scaffold doesn't pretend to. If Stripe
+  payouts are ever wanted, that's Connect onboarding as its own real
+  workstream, not a gap in this file.
+- **One real API-shape difference from the other three**: Stripe's REST
+  API takes `application/x-www-form-urlencoded` bodies with
+  bracket-notation keys for nested objects/arrays (e.g.
+  `line_items[0][price_data][unit_amount]`), not JSON. `toFormBody`
+  exists only to build that encoding correctly for the one request shape
+  this file actually sends (a Checkout Session).
+- **Not live-tested** — deliberately, per instruction, since credentials
+  for it aren't considered ready yet even though a `STRIPE_SECRET_KEY`
+  value exists in this environment's `.env` as of this pass (worth a
+  second look before treating it as active).
+
 ## Accepting a listing-description draft now saves it (this pass)
 
 Closes the "Not built yet" list's own pointer — "`generate_listing_description`
@@ -2719,15 +2856,19 @@ blueprint, or explicitly cut from it:
   arguments (e.g. "model a 10% rent increase" → `{ scenario:
   "rent_increase", rentIncreasePercent: 10 }`); the no-API-key stub doesn't
   attempt that.
-- **Payouts are real too now, code-complete but not fully verified
-  end-to-end.** See "A real payout gateway — Paystack Transfers" above —
-  a payout now goes through Paystack's actual Transfer API rather than
-  being simulated, verified live up to the account-holder OTP step,
-  which is currently blocked on external Paystack account activation.
-  Flutterwave/Stripe/PayPal integration (Section 16 named all four) and
-  the licensing/compliance workstream the blueprint says to run
-  alongside it (Section 15) are both still open — this pass only covers
-  Paystack.
+- **Payouts are real, and Section 16's "at least one gateway" is now three
+  of the four it named.** See "A real payout gateway — Paystack
+  Transfers" and "Flutterwave and PayPal: a second and third real
+  gateway" above — Paystack, Flutterwave, and PayPal all process real
+  deposits and payouts now, each verified live against its own real API
+  (Paystack's own payout still blocked on external account activation at
+  the OTP step; Flutterwave and PayPal both verified further, including a
+  real payout attempt). Stripe is the one gateway still not live —
+  deposit-only and code-complete (see StripeService's own comment for why
+  payouts specifically are out of scope, not just unfinished), inactive
+  until `STRIPE_SECRET_KEY` is set. The licensing/compliance workstream
+  the blueprint says to run alongside all of this (Section 15) is still
+  entirely open — that was never code this pass could close.
 - **Dispute arbitration's evidence gap is closed on both sides now.** See
   "Extending the neutral reviewer to dispute arbitration", "An
   evidence-request step for dispute arbitration", and "Submitting

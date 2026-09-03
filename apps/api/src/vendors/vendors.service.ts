@@ -9,15 +9,28 @@ import { FlagReviewDto } from './dto/flag-review.dto';
 import { ModerateReviewDto } from './dto/moderate-review.dto';
 import { SetVendorVerificationDto } from './dto/set-vendor-verification.dto';
 import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
+import { SetPaypalPayoutEmailDto } from './dto/set-paypal-payout-email.dto';
 import { getVendorTrustScore } from './trust-score';
 import { PaystackService } from '../payments/paystack.service';
+import { FlutterwaveService } from '../payments/flutterwave.service';
 
 @Injectable()
 export class VendorsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly paystack: PaystackService,
+    private readonly flutterwave: FlutterwaveService,
   ) {}
+
+  // Paystack and Flutterwave bank codes are not interchangeable for the
+  // same physical bank (see the schema comment on Vendor.bankCode) — this
+  // is the one place that resolves "which gateway's bank list/resolver"
+  // for a given provider name, shared by setBankDetails and listBanks so
+  // they can never disagree about it.
+  private bankGatewayFor(provider?: string) {
+    if (provider === 'flutterwave') return this.flutterwave;
+    return this.paystack;
+  }
 
   // One Vendor profile per account (@@unique accountId on the model) — the
   // account is what auth/RBAC already understands, this is the
@@ -32,30 +45,55 @@ export class VendorsService {
 
   // The real half of Section 16's payout integration — see
   // PaymentsService.releaseMilestone's own comment. Resolves the account
-  // number against Paystack's own records first (never trusting a
-  // client-supplied account holder name), so bankAccountName is always
-  // whatever Paystack itself says the account belongs to. Clears any
-  // cached paystackRecipientCode: a changed bank account needs a new
-  // Transfer Recipient, the old one no longer applies.
+  // number against the chosen gateway's own records first (never trusting
+  // a client-supplied account holder name), so bankAccountName is always
+  // whatever the gateway itself says the account belongs to. Records
+  // which gateway these details are for (payoutProvider) — Paystack's own
+  // bank codes and Flutterwave's are not interchangeable, so
+  // PaymentsService.releaseMilestone needs to know which one to route a
+  // payout through. Always clears any cached paystackRecipientCode: a
+  // changed or re-targeted bank account needs a fresh Transfer Recipient
+  // if it ends up going through Paystack again, the old one no longer
+  // applies.
   async setBankDetails(accountId: string, dto: SetVendorBankDetailsDto) {
     const vendor = await this.prisma.vendor.findUnique({ where: { accountId } });
     if (!vendor) {
       throw new BadRequestException('This account has no vendor profile yet — create one with POST /vendors first');
     }
-    const resolved = await this.paystack.resolveAccountNumber(dto.bankAccountNumber, dto.bankCode);
+    const provider = dto.provider ?? 'paystack';
+    const resolved = await this.bankGatewayFor(provider).resolveAccountNumber(dto.bankAccountNumber, dto.bankCode);
     return this.prisma.vendor.update({
       where: { id: vendor.id },
       data: {
         bankAccountNumber: dto.bankAccountNumber,
         bankCode: dto.bankCode,
         bankAccountName: resolved.accountName,
+        payoutProvider: provider,
         paystackRecipientCode: null,
       },
     });
   }
 
-  listBanks() {
-    return this.paystack.listBanks('NGN');
+  listBanks(provider?: string) {
+    return this.bankGatewayFor(provider).listBanks('NGN');
+  }
+
+  // The PayPal counterpart to setBankDetails — a payout email instead of
+  // a bank account, since PayPal's Payouts API pays a receiver by email,
+  // not a local bank rail (see PaypalService's own comment). No
+  // resolve/verify step exists for this the way bank details get one:
+  // PayPal itself validates the receiver when a payout is actually sent,
+  // there's no equivalent "confirm this account is real" call to make
+  // ahead of time.
+  async setPaypalPayoutEmail(accountId: string, dto: SetPaypalPayoutEmailDto) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { accountId } });
+    if (!vendor) {
+      throw new BadRequestException('This account has no vendor profile yet — create one with POST /vendors first');
+    }
+    return this.prisma.vendor.update({
+      where: { id: vendor.id },
+      data: { paypalPayoutEmail: dto.email, payoutProvider: 'paypal' },
+    });
   }
 
   // Marketplace browse — Module 7's "search/filter vendors by service

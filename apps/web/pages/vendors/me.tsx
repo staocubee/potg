@@ -656,37 +656,56 @@ function VendorDisputeRow({ dispute, onResolved }: { dispute: Dispute; onResolve
 }
 
 // The real half of Section 16's payout integration — see
-// VendorsService.setBankDetails. Resolving the account number against
-// Paystack happens server-side; this form only ever shows back whatever
-// name Paystack itself confirmed, never a name the vendor typed in.
+// VendorsService.setBankDetails/setPaypalPayoutEmail. Resolving a bank
+// account happens server-side against whichever gateway is selected; this
+// form only ever shows back whatever name that gateway itself confirmed,
+// never a name the vendor typed in. Three gateways can each hold a
+// payout target, but only one is ever "active" at a time (vendor.payoutProvider)
+// — switching the toggle below and saving replaces whichever was set up
+// before, the same one-record-at-a-time shape the original Paystack-only
+// version of this form already had.
 function BankDetailsForm({ vendor, onUpdated }: { vendor: Vendor; onUpdated: () => void }) {
   const auth = useAuth();
-  const [banks, setBanks] = useState<PaystackBank[] | null>(null);
   const [editing, setEditing] = useState(false);
+  const [provider, setProvider] = useState<"paystack" | "flutterwave" | "paypal">(
+    vendor.payoutProvider === "flutterwave" || vendor.payoutProvider === "paypal" ? vendor.payoutProvider : "paystack",
+  );
+  const [banks, setBanks] = useState<PaystackBank[] | null>(null);
   const [bankCode, setBankCode] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
+  const [paypalEmail, setPaypalEmail] = useState(vendor.paypalPayoutEmail ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const hasBankDetails = !!(vendor.bankAccountNumber && vendor.bankCode);
+  const hasPayoutSetup =
+    ((vendor.payoutProvider === "paystack" || vendor.payoutProvider === "flutterwave") && !!vendor.bankAccountNumber) ||
+    (vendor.payoutProvider === "paypal" && !!vendor.paypalPayoutEmail);
 
   function startEditing() {
     setEditing(true);
     setError(null);
-    if (!banks) {
-      auth.api
-        .listBanks()
-        .then(setBanks)
-        .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load the bank list."));
-    }
   }
 
-  async function onSubmit(e: FormEvent) {
+  // Re-fetches whenever the provider toggle changes — Paystack's and
+  // Flutterwave's bank lists (and bank codes) are different, so a bank
+  // picked from one list is never valid for the other (see the schema
+  // comment on Vendor.bankCode).
+  useEffect(() => {
+    if (!editing || provider === "paypal") return;
+    setBanks(null);
+    auth.api
+      .listBanks(provider)
+      .then(setBanks)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load the bank list."));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, provider]);
+
+  async function onSubmitBank(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setBusy(true);
     try {
-      await auth.api.setVendorBankDetails({ bankAccountNumber: accountNumber, bankCode });
+      await auth.api.setVendorBankDetails({ bankAccountNumber: accountNumber, bankCode, provider });
       setEditing(false);
       onUpdated();
     } catch (err) {
@@ -696,59 +715,124 @@ function BankDetailsForm({ vendor, onUpdated }: { vendor: Vendor; onUpdated: () 
     }
   }
 
+  async function onSubmitPaypal(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await auth.api.setPaypalPayoutEmail({ email: paypalEmail });
+      setEditing(false);
+      onUpdated();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't save that PayPal email.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <h3 style={{ fontSize: 14, margin: 0 }}>Payout bank details</h3>
+        <h3 style={{ fontSize: 14, margin: 0 }}>Payout details</h3>
         {!editing && (
           <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={startEditing}>
-            {hasBankDetails ? "Change" : "+ Add"}
+            {hasPayoutSetup ? "Change" : "+ Add"}
           </button>
         )}
       </div>
-      {!editing && !hasBankDetails && (
+      {!editing && !hasPayoutSetup && (
         <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
-          No payout bank account on file yet — a milestone released to you will fall back to a simulated payout until
-          you add one.
+          No payout details on file yet — a milestone released to you will fall back to a simulated payout until you
+          add some.
         </p>
       )}
-      {!editing && hasBankDetails && (
+      {!editing && hasPayoutSetup && vendor.payoutProvider !== "paypal" && (
         <p style={{ fontSize: 13, margin: 0 }}>
           {vendor.bankAccountName} · •••• {vendor.bankAccountNumber?.slice(-4)}
+          <span className="potg-badge" style={{ marginLeft: 6, textTransform: "capitalize" }}>
+            {vendor.payoutProvider}
+          </span>
+        </p>
+      )}
+      {!editing && hasPayoutSetup && vendor.payoutProvider === "paypal" && (
+        <p style={{ fontSize: 13, margin: 0 }}>
+          {vendor.paypalPayoutEmail}
+          <span className="potg-badge" style={{ marginLeft: 6 }}>PayPal</span>
         </p>
       )}
       {editing && (
-        <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: hasBankDetails ? 8 : 0 }}>
-          {error && <div className="potg-error">{error}</div>}
-          <select className="potg-input" required value={bankCode} onChange={(e) => setBankCode(e.target.value)} disabled={!banks}>
-            <option value="">{banks ? "Select your bank" : "Loading banks…"}</option>
-            {banks?.map((b) => (
-              <option key={b.code} value={b.code}>
-                {b.name}
-              </option>
+        <div style={{ marginTop: hasPayoutSetup ? 8 : 0 }}>
+          {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+          <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+            {(["paystack", "flutterwave", "paypal"] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                className={provider === p ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
+                style={{ padding: "3px 8px", fontSize: 11, textTransform: "capitalize" }}
+                onClick={() => setProvider(p)}
+              >
+                {p}
+              </button>
             ))}
-          </select>
-          <input
-            className="potg-input"
-            required
-            placeholder="Account number"
-            value={accountNumber}
-            onChange={(e) => setAccountNumber(e.target.value)}
-          />
-          <div style={{ display: "flex", gap: 6 }}>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !banks} style={{ padding: "4px 9px", fontSize: 11 }}>
-              {busy ? "Verifying…" : "Verify & save"}
-            </button>
-            <button
-              className="potg-btn potg-btn-secondary"
-              type="button"
-              onClick={() => setEditing(false)}
-              style={{ padding: "4px 9px", fontSize: 11 }}
-            >
-              Cancel
-            </button>
           </div>
-        </form>
+          {provider !== "paypal" ? (
+            <form onSubmit={onSubmitBank} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <select className="potg-input" required value={bankCode} onChange={(e) => setBankCode(e.target.value)} disabled={!banks}>
+                <option value="">{banks ? "Select your bank" : "Loading banks…"}</option>
+                {banks?.map((b) => (
+                  <option key={b.code} value={b.code}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="potg-input"
+                required
+                placeholder="Account number"
+                value={accountNumber}
+                onChange={(e) => setAccountNumber(e.target.value)}
+              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !banks} style={{ padding: "4px 9px", fontSize: 11 }}>
+                  {busy ? "Verifying…" : "Verify & save"}
+                </button>
+                <button
+                  className="potg-btn potg-btn-secondary"
+                  type="button"
+                  onClick={() => setEditing(false)}
+                  style={{ padding: "4px 9px", fontSize: 11 }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={onSubmitPaypal} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <input
+                className="potg-input"
+                type="email"
+                required
+                placeholder="PayPal email"
+                value={paypalEmail}
+                onChange={(e) => setPaypalEmail(e.target.value)}
+              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
+                  {busy ? "Saving…" : "Save"}
+                </button>
+                <button
+                  className="potg-btn potg-btn-secondary"
+                  type="button"
+                  onClick={() => setEditing(false)}
+                  style={{ padding: "4px 9px", fontSize: 11 }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       )}
     </div>
   );
