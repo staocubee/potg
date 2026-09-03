@@ -2581,6 +2581,56 @@ any of them, each one still requiring its own separate Accept.
   reloaded thread and confirmed the decision recorded correctly, same as
   before this pass.
 
+## An ROI & valuation dashboard (this pass)
+
+Closes the "valuation/ROI dashboards" half of the "Deeper AI" gap under
+"Not built yet" — `model_roi_scenario`'s "current" scenario already
+computed a property's simple ROI, but only ever as AI-narrated text
+buried in a chat reply or a quick-action draft, one snapshot at a time
+with no history alongside it. This is that same computation surfaced as
+an actual dashboard: real numbers in stat tiles, plus a chart of the
+property's valuation history, both live on the property page rather than
+something you have to ask the AI for.
+
+- **`PropertiesService.getRoiSummary`** (`GET
+  /properties/:propertyId/roi-summary`, gated by the same `property:read`
+  the valuations it's built from already use) — deliberately mirrors
+  `model_roi_scenario`'s "current" scenario's current-value/invested
+  computation exactly (latest `PropertyValuation`, or
+  `Property.estimatedValue` as a fallback; `Property.estimatedValue`
+  doubles as an acquisition-cost stand-in the same way that skill treats
+  it), so the dashboard and the AI skill can never quietly disagree about
+  what a property's ROI is. Adds one figure the skill doesn't compute at
+  all: gross rental yield, summed across every currently active lease
+  (annualized by `rentFrequency`) against the current value — "no active
+  lease" rather than a misleading 0% when there's nothing to divide.
+- **`ValuationTrendChart`** (`pages/properties/[id].tsx`) — a hand-rolled
+  inline SVG line chart, not a new dependency: this app has no charting
+  library (see `apps/web/package.json`), the same lean-footprint choice
+  `AnthropicLlmProvider` makes calling the Messages API with `fetch`
+  instead of pulling in the Anthropic SDK. Only renders once there are
+  two or more valuations to draw a trend between; with zero or one, the
+  card says so instead of drawing a flat or empty chart.
+- **Self-fetching, like `AskAiPanel`** — this is the one card on the
+  property page whose data no other card already has loaded, so it fetches
+  its own `roi-summary` independently rather than folding a fourth
+  `Promise.all` entry into `PropertyDetailPage.load()`. Takes a
+  `refreshToken` prop (the parent's `valuations.length`) so adding a
+  valuation elsewhere on the page invalidates its fetch — caught live
+  during testing: without it, a freshly added valuation left the card
+  showing the old current value and the stale "add another valuation to
+  see a chart" message until a full page reload, since nothing told this
+  independently-fetching card that the data it depends on had changed.
+- **Verified live end-to-end**: loaded the dashboard against the demo
+  property's existing single valuation and confirmed the stat tiles
+  matched `model_roi_scenario`'s own numbers exactly (current value,
+  invested, simple ROI all identical) and gross yield matched a manual
+  calculation from its two active leases; added a second valuation
+  through the existing "+ Add valuation" form and confirmed the card
+  updated without a reload — current value, ROI, and a genuine
+  two-point trend line all changed correctly, labeled with both
+  valuation dates.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -2693,8 +2743,9 @@ blueprint, or explicitly cut from it:
   being replaced by it.
 - **Deeper AI (Priority 6)** — natural-language project summaries beyond
   what `summarize_property`/`draft_project_status_update` already do,
-  financial modeling chat, listing/risk summaries, valuation/ROI
-  dashboards, AI-generated renovation visualizations (needs AR/VR first).
+  listing/risk summaries beyond `assess_listing_risk`, AI-generated
+  renovation visualizations (needs AR/VR first). Valuation/ROI dashboards
+  are no longer on this list — see "An ROI & valuation dashboard" above.
 - **The rest of the web app.** Several passes now built the app shell, the
   reusable `AskAiPanel`, and screens for portfolio + projects + vendor
   marketplace + payments/escrow + property/materials marketplace +

@@ -60,6 +60,15 @@ export class PropertiesController {
     return this.properties.findValuations(propertyId);
   }
 
+  // Same gate as the valuations it's built from — a real numbers-and-chart
+  // dashboard on top of model_roi_scenario's "current" scenario, not a new
+  // permission area.
+  @RequirePermissions('property:read')
+  @Get(':propertyId/roi-summary')
+  getRoiSummary(@Param('propertyId') propertyId: string) {
+    return this.properties.getRoiSummary(propertyId);
+  }
+
   // Module 8 — its own permission pair (not property:read/write) since
   // "who can see a property" and "who can schedule/complete an inspection
   // on it" are reasonable to grant separately, unlike valuations above

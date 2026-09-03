@@ -265,6 +265,18 @@ export type PropertyValuation = {
   valuedAt: string;
 };
 
+export type RoiSummary = {
+  currency: string;
+  currentValue: number;
+  acquisitionValue: number;
+  totalProjectSpend: number;
+  invested: number;
+  simpleRoiPercent: number;
+  totalAnnualRent: number;
+  grossYieldPercent: number;
+  valuationHistory: { id: string; estimatedValue: number; currency: string; source: string; valuedAt: string }[];
+};
+
 export type InspectionFinding = {
   id: string;
   inspectionId: string;
@@ -967,6 +979,12 @@ export class ApiClient {
   }
   listValuations(propertyId: string) {
     return request<PropertyValuation[]>(`/properties/${propertyId}/valuations`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  getRoiSummary(propertyId: string) {
+    return request<RoiSummary>(`/properties/${propertyId}/roi-summary`, {
       token: this.token,
       accountId: this.accountId,
     });

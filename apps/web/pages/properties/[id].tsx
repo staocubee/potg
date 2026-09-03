@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Lease, MaintenanceRequest, Project, Property, PropertyInspection, PropertyValuation, Vendor } from "../../lib/api";
+import { ApiError, Lease, MaintenanceRequest, Project, Property, PropertyInspection, PropertyValuation, RoiSummary, Vendor } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -195,6 +195,8 @@ export default function PropertyDetailPage() {
             </div>
           </div>
 
+          {id && <RoiSummaryCard propertyId={id} refreshToken={valuations.length} />}
+
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <h3 style={{ fontSize: 14 }}>Valuations</h3>
@@ -326,6 +328,127 @@ export default function PropertyDetailPage() {
         </div>
       )}
     </AppShell>
+  );
+}
+
+// Module 15's "do financials" surface as a real dashboard — stat tiles
+// plus a trend chart built from real numbers (GET .../roi-summary), not
+// AI-narrated text buried in a chat reply the way model_roi_scenario's
+// "current" scenario reads. Self-fetching (like AskAiPanel) rather than
+// folded into PropertyDetailPage's own load(), since this is the one
+// card whose data no other card on this page already has loaded.
+function RoiSummaryCard({ propertyId, refreshToken }: { propertyId: string; refreshToken: number }) {
+  const auth = useAuth();
+  const [summary, setSummary] = useState<RoiSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // refreshToken is the parent's valuations.length — this card fetches
+  // its own data independently of PropertyDetailPage's load(), so without
+  // it, adding a valuation elsewhere on the page would leave this card
+  // showing stale numbers (and the wrong "add another valuation" message)
+  // until a full page reload.
+  useEffect(() => {
+    let cancelled = false;
+    auth.api
+      .getRoiSummary(propertyId)
+      .then((s) => {
+        if (!cancelled) setSummary(s);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof ApiError ? err.message : "Couldn't load the ROI dashboard.");
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId, refreshToken]);
+
+  return (
+    <div className="potg-card" style={{ padding: 18 }}>
+      <h3 style={{ fontSize: 14, marginBottom: 10 }}>ROI &amp; valuation</h3>
+      {error && <div className="potg-error">{error}</div>}
+      {!summary && !error && <p className="potg-muted" style={{ fontSize: 12 }}>Loading…</p>}
+      {summary && (
+        <>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+            <RoiStatTile label="Current value" value={formatMoney(String(summary.currentValue), summary.currency) ?? "—"} />
+            <RoiStatTile label="Total invested" value={formatMoney(String(summary.invested), summary.currency) ?? "—"} />
+            <RoiStatTile label="Simple ROI" value={`${summary.simpleRoiPercent.toFixed(1)}%`} warn={summary.simpleRoiPercent < 0} />
+            <RoiStatTile
+              label="Gross rental yield"
+              value={summary.totalAnnualRent > 0 ? `${summary.grossYieldPercent.toFixed(1)}%` : "No active lease"}
+            />
+          </div>
+          {summary.valuationHistory.length >= 2 ? (
+            <ValuationTrendChart points={summary.valuationHistory} />
+          ) : (
+            <p className="potg-muted" style={{ fontSize: 12 }}>
+              Add at least two valuations above to see a value-over-time chart.
+            </p>
+          )}
+          <p className="potg-muted" style={{ fontSize: 11, marginTop: 8 }}>
+            Total invested = original estimated value (acquisition stand-in) + everything released from escrow on
+            this property's projects. Simplified, undiscounted — not professional financial advice.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function RoiStatTile({ label, value, warn }: { label: string; value: string; warn?: boolean }) {
+  return (
+    <div
+      className="potg-card"
+      style={{ padding: 12, flex: 1, minWidth: 140, background: warn ? "var(--potg-warn-bg)" : undefined, borderColor: warn ? "var(--potg-warn-border)" : undefined }}
+    >
+      <p className="potg-muted" style={{ margin: "0 0 4px", fontSize: 11 }}>
+        {label}
+      </p>
+      <div style={{ fontWeight: 700, fontSize: 16 }}>{value}</div>
+    </div>
+  );
+}
+
+// A hand-rolled inline SVG line chart — this app has no charting library
+// dependency (see package.json), same lean-footprint choice
+// AnthropicLlmProvider makes calling the Messages API with fetch instead
+// of pulling in an SDK. Only rendered once there are >=2 points (a single
+// point has no trend to draw — the caller shows a message instead).
+function ValuationTrendChart({ points }: { points: { valuedAt: string; estimatedValue: number }[] }) {
+  const width = 400;
+  const height = 120;
+  const padding = { top: 10, right: 10, bottom: 20, left: 10 };
+
+  const times = points.map((p) => new Date(p.valuedAt).getTime());
+  const values = points.map((p) => p.estimatedValue);
+  const minTime = Math.min(...times);
+  const maxTime = Math.max(...times);
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const timeRange = maxTime - minTime || 1;
+  const valueRange = maxValue - minValue || 1;
+
+  const xOf = (t: number) => padding.left + ((t - minTime) / timeRange) * (width - padding.left - padding.right);
+  const yOf = (v: number) => height - padding.bottom - ((v - minValue) / valueRange) * (height - padding.top - padding.bottom);
+
+  const pathD = points
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${xOf(new Date(p.valuedAt).getTime()).toFixed(1)} ${yOf(p.estimatedValue).toFixed(1)}`)
+    .join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: 120, display: "block" }} role="img" aria-label="Estimated value over time">
+      <path d={pathD} fill="none" stroke="var(--potg-teal)" strokeWidth={2} />
+      {points.map((p, i) => (
+        <circle key={p.valuedAt + i} cx={xOf(new Date(p.valuedAt).getTime())} cy={yOf(p.estimatedValue)} r={3} fill="var(--potg-teal)" />
+      ))}
+      <text x={padding.left} y={height - 4} fontSize={10} fill="var(--potg-text-muted)">
+        {new Date(points[0].valuedAt).toLocaleDateString()}
+      </text>
+      <text x={width - padding.right} y={height - 4} fontSize={10} fill="var(--potg-text-muted)" textAnchor="end">
+        {new Date(points[points.length - 1].valuedAt).toLocaleDateString()}
+      </text>
+    </svg>
   );
 }
 

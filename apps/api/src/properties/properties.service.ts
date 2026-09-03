@@ -85,6 +85,73 @@ export class PropertiesService {
     });
   }
 
+  // Module 15's "do financials" surface as a real dashboard, not just
+  // model_roi_scenario's chat-narrated numbers — same current-value/
+  // invested computation that AI skill uses, deliberately kept in sync
+  // (latest PropertyValuation, or Property.estimatedValue as a fallback;
+  // Property.estimatedValue also doubles as an acquisition-cost stand-in
+  // — this scaffold has no separate purchase-price field), but returned
+  // as real numbers for stat tiles and a chart instead of AI-narrated
+  // text, plus the full valuation history and a rental-yield figure the
+  // skill doesn't compute at all.
+  async getRoiSummary(propertyId: string) {
+    const property = await this.prisma.property.findUnique({
+      where: { id: propertyId },
+      include: { account: { select: { currency: true } } },
+    });
+    if (!property) throw new NotFoundException('Property not found');
+
+    const valuationHistory = await this.prisma.propertyValuation.findMany({
+      where: { propertyId },
+      orderBy: { valuedAt: 'asc' },
+    });
+    const latestValuation = valuationHistory[valuationHistory.length - 1];
+    const currentValue = latestValuation ? Number(latestValuation.estimatedValue) : Number(property.estimatedValue ?? 0);
+    const currency = latestValuation?.currency ?? property.account.currency;
+
+    const projects = await this.prisma.project.findMany({ where: { propertyId }, select: { id: true } });
+    const projectIds = projects.map((p) => p.id);
+    const payouts = projectIds.length
+      ? await this.prisma.payout.findMany({ where: { projectId: { in: projectIds }, status: { not: 'failed' } } })
+      : [];
+    const totalProjectSpend = payouts.reduce((sum, p) => sum + Number(p.amount), 0);
+    const acquisitionValue = Number(property.estimatedValue ?? currentValue);
+    const invested = acquisitionValue + totalProjectSpend;
+    const simpleRoiPercent = invested > 0 ? ((currentValue - invested) / invested) * 100 : 0;
+
+    // Gross rental yield across every currently active lease — Lease has
+    // no constraint tying a property to at most one active tenancy at a
+    // time (same plural "active leases" handling
+    // summarize-lease-status.skill.ts already gives), so this sums
+    // annualized rent across all of them rather than assuming there's
+    // exactly one.
+    const activeLeases = await this.prisma.lease.findMany({ where: { propertyId, status: 'active' } });
+    const annualMultiplier: Record<string, number> = { weekly: 52, monthly: 12, annually: 1 };
+    const totalAnnualRent = activeLeases.reduce(
+      (sum, l) => sum + Number(l.rentAmount) * (annualMultiplier[l.rentFrequency] ?? 12),
+      0,
+    );
+    const grossYieldPercent = currentValue > 0 ? (totalAnnualRent / currentValue) * 100 : 0;
+
+    return {
+      currency,
+      currentValue,
+      acquisitionValue,
+      totalProjectSpend,
+      invested,
+      simpleRoiPercent,
+      totalAnnualRent,
+      grossYieldPercent,
+      valuationHistory: valuationHistory.map((v) => ({
+        id: v.id,
+        estimatedValue: Number(v.estimatedValue),
+        currency: v.currency,
+        source: v.source,
+        valuedAt: v.valuedAt,
+      })),
+    };
+  }
+
   // Module 8. If dto.projectId is set, it must actually be a project on
   // this same property — same "don't let a caller wire two unrelated
   // records together just because both ids are technically valid" check
