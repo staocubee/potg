@@ -1150,12 +1150,13 @@ this checks the property itself.
   only for `viewer`) — kept separate from the property permissions
   themselves since "who can see a property" and "who can schedule an
   inspection on it" are reasonable to grant independently.
-- **No separate Inspector identity.** `inspectorName` is freeform text,
-  not a relation — this scaffold has no licensed-inspector account type
-  (Modules 1-24 stop at what's actually implemented here; see the
-  "Not built yet" list below). A real deployment doing this for real
-  would need one, the same way document verification's own "not a real
-  neutral reviewer" limitation would.
+- **No separate Inspector identity — but the inspector can now be a
+  platform vendor.** `inspectorVendorId` optionally links to `Vendor`
+  (see "Linking inspectors and maintenance assignees to real vendor
+  accounts" below); `inspectorName` stays freeform text for a
+  non-platform inspector or a licensed-inspector role this scaffold
+  still doesn't have (Modules 1-24 stop at what's actually implemented
+  here; see the "Not built yet" list below).
 - **`summarize_inspection_history`** (new AI skill, `property` context)
   — reads a property's full inspection history and drafts what it
   actually says about the property's condition (how many came back
@@ -1251,13 +1252,13 @@ optionally be reported against).
   permission pair, granted like `inspection:read`/`write` and
   `lease:read`/`write` — its own pair, same reasoning Module 8 and Module
   13 both give.
-- **No separate Contractor/Vendor-assignment identity.** `assignedTo` is
-  freeform text, not a relation to `Vendor` — this module doesn't reuse
-  Module 9's vendor marketplace at all, the same "record what's true, no
-  forced workflow" tradeoff `Lease.tenantName` and
-  `PropertyInspection.inspectorName` already document. A real deployment
-  routing maintenance work through vendors would tie `assignedTo` to
-  `Vendor` instead.
+- **No separate Contractor identity — but the assignee can now be a
+  platform vendor.** `assignedVendorId` optionally links to `Vendor`,
+  reusing Module 9's marketplace directory (see "Linking inspectors and
+  maintenance assignees to real vendor accounts" below); `assignedTo`
+  stays freeform text for the owner doing it themselves or a contractor
+  off-platform, the same "record what's true, no forced workflow"
+  tradeoff `Lease.tenantName` still documents.
 - **`summarize_maintenance_backlog`** (new AI skill, `property` context)
   — reads a property's full maintenance history and drafts what it
   actually says: how many requests are open/in-progress out of the
@@ -2457,6 +2458,67 @@ arbitrator in one place.
   direct API call that submitting evidence to that now-resolved dispute
   correctly 400s instead of silently succeeding.
 
+## Linking inspectors and maintenance assignees to real vendor accounts (this pass)
+
+Closes half of a gap flagged three times when Modules 8, 12, and 13 were
+first built: "no separate Inspector, Contractor, or Tenant identity."
+Tenant stays out of scope — there's no Tenant account type or
+tenant-facing login anywhere in this scaffold, so `Lease.tenantName`
+would need a genuinely new role to become a relation, not just a field
+bolted onto an account type that already exists. Inspector and
+Contractor are different: `Vendor` already *is* a real, marketplace-wide
+professional-identity account type (Module 9), so an inspection's
+inspector or a maintenance request's assignee can now optionally *be*
+one, the same way a project's vendor assignment already works.
+
+- **`PropertyInspection.inspectorVendorId`** and
+  **`MaintenanceRequest.assignedVendorId`** (migration
+  `20260903120000_add_inspector_and_assignee_vendor_links`) — both
+  optional, both `onDelete: SetNull`, both reachable from the full
+  marketplace directory (`GET /vendors`, same reach picking a vendor for
+  a project quote already has — not scoped to vendors this property has
+  worked with before). Set instead of `inspectorName`/`assignedTo`,
+  never alongside it — `PropertiesService` clears whichever of the pair
+  isn't given, so a row is never left with both a vendor and stale
+  freeform text disagreeing about who's responsible.
+- **`PropertiesService.requireVendor`** — the referential-integrity
+  check every route accepting `inspectorVendorId`/`assignedVendorId`
+  runs first (400s if the id doesn't resolve to a real `Vendor`), same
+  spirit as the existing `projectId`/`leaseId` cross-reference checks
+  just against the marketplace-wide `Vendor` table instead of a
+  property-scoped one.
+- **`scheduleInspection`/`updateInspection`/`reportMaintenanceRequest`/
+  `startMaintenanceRequest`** all accept the new field alongside the old
+  one; every inspection/maintenance-request read (`find*`, and now the
+  `create` responses themselves) `include`s the linked vendor's
+  `id`/`businessName`/`serviceCategory`/`verificationStatus` so the web
+  UI never has to make a second round-trip to show who's assigned.
+- **Web UI**: a shared `VendorOrNameField` (vendor `<select>` sourced
+  from `GET /vendors`, with a freeform-text fallback that disables
+  itself once a vendor is picked) appears on the inspection schedule/edit
+  forms and the maintenance report/start forms in
+  `pages/properties/[id].tsx`. A vendor-assigned row now reads "vendor"
+  next to the business name so it's visually distinct from a freeform
+  name.
+- **Verified live end-to-end**: scheduled an inspection and reported a
+  maintenance request each with a real seeded vendor picked from the
+  dropdown, confirmed both showed the vendor's name immediately on
+  creation (not just after a reload — this caught a real bug, below);
+  opened the maintenance "Start" form on an already vendor-assigned
+  request and confirmed it pre-filled the existing vendor rather than
+  showing it unassigned; confirmed the freeform-text path (an existing
+  seeded "Plumber Joe" assignment) still renders correctly alongside the
+  new vendor-linked rows.
+- **Bug caught and fixed during testing**: `scheduleInspection` and
+  `reportMaintenanceRequest`'s `prisma.create()` calls didn't `include`
+  the new vendor relation, so a freshly created row's own API response
+  came back with `inspectorVendorId`/`assignedVendorId` set but no
+  joined `inspectorVendor`/`assignedVendor` object — the UI's "Assigned
+  to: ..." line silently didn't render until the next full list reload.
+  Fixed by adding the same `include` the `find*` methods already used
+  (factored into one shared `vendorSummarySelect` field so the two can't
+  drift apart again) to both `create()` calls.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -2470,9 +2532,12 @@ blueprint, or explicitly cut from it:
   of reports, admin operations, ...) — this scaffold now proves the
   pattern for Modules 1, 2, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12,
   13, 15, and 23, not the full 24. Modules 8, 12, and 13 are slices, not
-  the full modules, because there's no separate Inspector, Contractor, or
-  Tenant identity — see "Property inspections", "Maintenance requests",
-  and "Leases" above. Module 6 is still a slice — only review
+  the full modules: 8 and 12 can now point an inspector/assignee at a
+  real `Vendor` account (see "Linking inspectors and maintenance
+  assignees to real vendor accounts" above) but still fall back to
+  freeform text for a non-platform professional, and 13 has no Tenant
+  identity to link to at all, platform vendor or otherwise. Module 6 is
+  still a slice — only review
   `moderationStatus` doesn't carry reviewer-context/evidence-request
   semantics the way the other three `platform_reviewer` actions now do
   (dispute arbitration, document verification, vendor/supplier
@@ -2482,19 +2547,27 @@ blueprint, or explicitly cut from it:
   plays a similar role for reviews, just raised by the reviewed party
   rather than the reviewer.
 - **Property inspections — one gap left in the new module.** No separate
-  Inspector identity (see "Property inspections" above — `inspectorName`
-  is freeform text, not an account relation). Editing a scheduled
-  inspection's date/type/project/inspector is now possible — see "Edit
-  endpoints for Inspections, Leases, and Maintenance requests" below.
+  licensed-Inspector account type — `inspectorVendorId` can point at a
+  platform `Vendor` now, but there's still no inspector-specific role for
+  the non-vendor case, only freeform `inspectorName` text (see "Property
+  inspections" and "Linking inspectors and maintenance assignees to real
+  vendor accounts" above). Editing a scheduled inspection's
+  date/type/project/inspector is now possible — see "Edit endpoints for
+  Inspections, Leases, and Maintenance requests" below.
 - **Leases — one gap left in the new module.** No separate Tenant
-  identity (see "Leases" above). Editing a lease's rent/dates/deposit,
-  and overdue-rent detection, are now possible — see "Edit endpoints"
-  and "Overdue-rent detection" below.
+  identity, and no existing account type to link one to the way
+  Inspector/Contractor now link to `Vendor` — a real deployment would
+  need a genuinely new Tenant role and tenant-facing login (see "Leases"
+  above). Editing a lease's rent/dates/deposit, and overdue-rent
+  detection, are now possible — see "Edit endpoints" and "Overdue-rent
+  detection" below.
 - **Maintenance requests — one gap left in the new module.** No separate
-  Contractor identity or link to Module 9's vendor marketplace (see
-  "Maintenance requests" above — `assignedTo` is freeform text). Editing
-  a request's title/description/priority is now possible — see "Edit
-  endpoints" below.
+  licensed-Contractor account type — `assignedVendorId` can point at a
+  platform `Vendor` now (see "Maintenance requests" and "Linking
+  inspectors and maintenance assignees to real vendor accounts" above),
+  but `assignedTo` is still freeform text for anyone off-platform.
+  Editing a request's title/description/priority is now possible — see
+  "Edit endpoints" below.
 - **Vendor and supplier trust scores are still the platform's own
   arithmetic.** See "Vendor trust score" and "Supplier trust score"
   above: the *score* is computed from data the vendor/supplier's own

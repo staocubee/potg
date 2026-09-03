@@ -274,6 +274,8 @@ export type InspectionFinding = {
   createdAt: string;
 };
 
+export type AssignedVendor = { id: string; businessName: string; serviceCategory: string; verificationStatus: string };
+
 export type PropertyInspection = {
   id: string;
   propertyId: string;
@@ -281,6 +283,8 @@ export type PropertyInspection = {
   inspectionType: "general" | "pre_purchase" | "move_in" | "move_out" | "safety" | "post_renovation" | string;
   status: "scheduled" | "completed" | "cancelled" | string;
   scheduledFor: string;
+  inspectorVendorId?: string | null;
+  inspectorVendor?: AssignedVendor | null;
   inspectorName?: string | null;
   overallResult?: "pass" | "needs_attention" | "fail" | string | null;
   summary?: string | null;
@@ -331,6 +335,8 @@ export type MaintenanceRequest = {
   priority: "low" | "normal" | "high" | "urgent" | string;
   status: "open" | "in_progress" | "resolved" | "cancelled" | string;
   reportedBy?: string | null;
+  assignedVendorId?: string | null;
+  assignedVendor?: AssignedVendor | null;
   assignedTo?: string | null;
   resolutionNotes?: string | null;
   resolvedAt?: string | null;
@@ -965,7 +971,10 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
-  scheduleInspection(propertyId: string, input: { inspectionType: string; scheduledFor: string; projectId?: string; inspectorName?: string }) {
+  scheduleInspection(
+    propertyId: string,
+    input: { inspectionType: string; scheduledFor: string; projectId?: string; inspectorName?: string; inspectorVendorId?: string },
+  ) {
     return request<PropertyInspection>(`/properties/${propertyId}/inspections`, {
       method: "POST",
       body: input,
@@ -982,7 +991,7 @@ export class ApiClient {
   updateInspection(
     propertyId: string,
     inspectionId: string,
-    input: { inspectionType?: string; scheduledFor?: string; projectId?: string; inspectorName?: string },
+    input: { inspectionType?: string; scheduledFor?: string; projectId?: string; inspectorName?: string; inspectorVendorId?: string },
   ) {
     return request<PropertyInspection>(`/properties/${propertyId}/inspections/${inspectionId}`, {
       method: "PATCH",
@@ -1079,7 +1088,15 @@ export class ApiClient {
   }
   reportMaintenanceRequest(
     propertyId: string,
-    input: { title: string; description: string; priority?: string; leaseId?: string; reportedBy?: string; assignedTo?: string },
+    input: {
+      title: string;
+      description: string;
+      priority?: string;
+      leaseId?: string;
+      reportedBy?: string;
+      assignedTo?: string;
+      assignedVendorId?: string;
+    },
   ) {
     return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests`, {
       method: "POST",
@@ -1102,7 +1119,7 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
-  startMaintenanceRequest(propertyId: string, requestId: string, input: { assignedTo?: string }) {
+  startMaintenanceRequest(propertyId: string, requestId: string, input: { assignedTo?: string; assignedVendorId?: string }) {
     return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests/${requestId}/start`, {
       method: "POST",
       body: input,

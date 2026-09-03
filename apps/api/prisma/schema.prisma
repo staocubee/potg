@@ -406,11 +406,13 @@ model Vendor {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
-  account     Account                   @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  quotes      VendorQuote[]
-  assignments ProjectVendorAssignment[]
-  reviews     VendorReview[]
-  payouts     Payout[]
+  account                Account                   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  quotes                 VendorQuote[]
+  assignments            ProjectVendorAssignment[]
+  reviews                VendorReview[]
+  payouts                Payout[]
+  inspections            PropertyInspection[]
+  maintenanceAssignments MaintenanceRequest[]
 
   @@map("vendors")
 }
@@ -1040,29 +1042,34 @@ model PropertyValuation {
 // distinct from Module 4's document verification (which checks paperwork,
 // not the property itself). No separate "Inspector" account type exists in
 // this scaffold (Modules 1-24 stop at the ones this codebase actually
-// implements — see the README), so `inspectorName` is freeform text rather
-// than a relation; a real deployment might tie this to a vendor or a
-// licensed-inspector role instead. Same accountId-free, :propertyId-ABAC
+// implements — see the README): `inspectorVendorId` optionally ties the
+// inspector to a real Vendor account (any marketplace vendor, not just one
+// with a project on this property — the same "pick from GET /vendors"
+// reach VendorsService.createReview already allows), and `inspectorName`
+// stays freeform text for a non-platform inspector or a licensed-inspector
+// role a real deployment would add. Same accountId-free, :propertyId-ABAC
 // shape as PropertyValuation above — PermissionsGuard already enforces
 // tenant isolation on any route nested under /properties/:propertyId, so
 // there's no separate ownership check to duplicate here.
 model PropertyInspection {
-  id             String    @id @default(uuid())
-  propertyId     String
-  projectId      String? // set when this inspection is tied to a renovation project (e.g. a post-work inspection)
-  inspectionType String // general | pre_purchase | move_in | move_out | safety | post_renovation
-  status         String    @default("scheduled") // scheduled | completed | cancelled
-  scheduledFor   DateTime
-  inspectorName  String?
-  overallResult  String? // pass | needs_attention | fail — set on completion
-  summary        String?
-  completedAt    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                String    @id @default(uuid())
+  propertyId        String
+  projectId         String? // set when this inspection is tied to a renovation project (e.g. a post-work inspection)
+  inspectionType    String // general | pre_purchase | move_in | move_out | safety | post_renovation
+  status            String    @default("scheduled") // scheduled | completed | cancelled
+  scheduledFor      DateTime
+  inspectorVendorId String? // set instead of inspectorName when the inspector is a platform vendor
+  inspectorName     String?
+  overallResult     String? // pass | needs_attention | fail — set on completion
+  summary           String?
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
-  property Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  project  Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  findings InspectionFinding[]
+  property        Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  project         Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  inspectorVendor Vendor?              @relation(fields: [inspectorVendorId], references: [id], onDelete: SetNull)
+  findings        InspectionFinding[]
 
   @@map("property_inspections")
 }
@@ -1090,8 +1097,13 @@ model InspectionFinding {
 // start from an owner recording an existing tenancy that predates this
 // software), same "record what's true, don't force a specific prior
 // workflow" reasoning `PropertyValuation.source: "manual"` already uses.
-// No separate Tenant account/identity, same reasoning `PropertyInspection`
-// gives for `inspectorName` being freeform text instead of a relation.
+// No separate Tenant account/identity — unlike `PropertyInspection.inspectorVendorId`
+// and `MaintenanceRequest.assignedVendorId`, there's no existing account
+// type a tenant could be linked to (Vendor is a marketplace-professional
+// profile, not a resident); a real deployment would need a genuinely new
+// Tenant role and a tenant-facing login before `tenantName` could become a
+// relation, not just a field added onto an account type that already
+// exists. `tenantName`/`tenantEmail`/`tenantPhone` stay freeform text.
 model Lease {
   id            String    @id @default(uuid())
   propertyId    String
@@ -1147,28 +1159,32 @@ model LeaseRentPayment {
 // something anyone wants to spin up for "the kitchen faucet is leaking."
 // This is the lightweight ticket that machinery was never meant to cover
 // — open a request, optionally note who's handling it, resolve or cancel
-// it. No formal relation for who reported it or who's fixing it
-// (`reportedBy`/`assignedTo` are freeform text) — same reasoning
-// `PropertyInspection.inspectorName` and `Lease.tenantName` already give,
-// extended to "whoever's assigned" too rather than forcing a Vendor
-// relation on what might just be the owner doing it themselves.
+// it. No formal relation for who reported it (`reportedBy` stays freeform
+// text — same reasoning `Lease.tenantName` gives). Who's fixing it can now
+// be either: `assignedVendorId` when it's a platform vendor (same
+// marketplace-wide reach `PropertyInspection.inspectorVendorId` gets), or
+// `assignedTo` freeform text when it's the owner doing it themselves or
+// someone off-platform — the two are set mutually exclusively by
+// PropertiesService, never both at once.
 model MaintenanceRequest {
-  id              String    @id @default(uuid())
-  propertyId      String
-  leaseId         String? // set when reported against an active tenancy
-  title           String
-  description     String
-  priority        String    @default("normal") // low | normal | high | urgent
-  status          String    @default("open") // open | in_progress | resolved | cancelled
-  reportedBy      String?
-  assignedTo      String?
-  resolutionNotes String?
-  resolvedAt      DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id               String    @id @default(uuid())
+  propertyId       String
+  leaseId          String? // set when reported against an active tenancy
+  title            String
+  description      String
+  priority         String    @default("normal") // low | normal | high | urgent
+  status           String    @default("open") // open | in_progress | resolved | cancelled
+  reportedBy       String?
+  assignedVendorId String? // set instead of assignedTo when the assignee is a platform vendor
+  assignedTo       String?
+  resolutionNotes  String?
+  resolvedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  lease    Lease?   @relation(fields: [leaseId], references: [id], onDelete: SetNull)
+  property       Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  lease          Lease?   @relation(fields: [leaseId], references: [id], onDelete: SetNull)
+  assignedVendor Vendor?  @relation(fields: [assignedVendorId], references: [id], onDelete: SetNull)
 
   @@map("maintenance_requests")
 }

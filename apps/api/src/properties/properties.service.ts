@@ -18,6 +18,10 @@ import { ResolveMaintenanceRequestDto } from './dto/resolve-maintenance-request.
 export class PropertiesService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // Shared by every inspectorVendor/assignedVendor include below, so a
+  // just-created row and a re-fetched one carry the same shape.
+  private readonly vendorSummarySelect = { id: true, businessName: true, serviceCategory: true, verificationStatus: true } as const;
+
   async create(accountId: string, dto: CreatePropertyDto) {
     const property = await this.prisma.property.create({
       data: { accountId, ...dto },
@@ -91,15 +95,28 @@ export class PropertiesService {
       const project = await this.prisma.project.findFirst({ where: { id: dto.projectId, propertyId } });
       if (!project) throw new BadRequestException('That project does not belong to this property');
     }
+    if (dto.inspectorVendorId) await this.requireVendor(dto.inspectorVendorId);
     return this.prisma.propertyInspection.create({
       data: {
         propertyId,
         projectId: dto.projectId,
         inspectionType: dto.inspectionType,
         scheduledFor: new Date(dto.scheduledFor),
-        inspectorName: dto.inspectorName,
+        inspectorVendorId: dto.inspectorVendorId,
+        inspectorName: dto.inspectorVendorId ? undefined : dto.inspectorName,
       },
+      include: { inspectorVendor: { select: this.vendorSummarySelect } },
     });
+  }
+
+  // Referential-integrity check for an optional Vendor cross-reference —
+  // used wherever inspectorVendorId/assignedVendorId is accepted, same
+  // spirit as the propertyId-scoped project/lease checks above but a
+  // Vendor is a marketplace-wide profile, not scoped to this property.
+  private async requireVendor(vendorId: string) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { id: vendorId } });
+    if (!vendor) throw new BadRequestException('That vendor does not exist');
+    return vendor;
   }
 
   // Closes the "no way to edit a scheduled inspection" gap the README
@@ -116,13 +133,15 @@ export class PropertiesService {
       const project = await this.prisma.project.findFirst({ where: { id: dto.projectId, propertyId } });
       if (!project) throw new BadRequestException('That project does not belong to this property');
     }
+    if (dto.inspectorVendorId) await this.requireVendor(dto.inspectorVendorId);
     return this.prisma.propertyInspection.update({
       where: { id: inspectionId },
       data: {
         inspectionType: dto.inspectionType ?? undefined,
         scheduledFor: dto.scheduledFor ? new Date(dto.scheduledFor) : undefined,
         projectId: dto.projectId !== undefined ? dto.projectId || null : undefined,
-        inspectorName: dto.inspectorName !== undefined ? dto.inspectorName : undefined,
+        inspectorVendorId: dto.inspectorVendorId !== undefined ? dto.inspectorVendorId || null : dto.inspectorName ? null : undefined,
+        inspectorName: dto.inspectorName !== undefined ? dto.inspectorName : dto.inspectorVendorId ? null : undefined,
       },
     });
   }
@@ -130,7 +149,7 @@ export class PropertiesService {
   findInspections(propertyId: string) {
     return this.prisma.propertyInspection.findMany({
       where: { propertyId },
-      include: { findings: true },
+      include: { findings: true, inspectorVendor: { select: this.vendorSummarySelect } },
       orderBy: { scheduledFor: 'desc' },
     });
   }
@@ -138,7 +157,7 @@ export class PropertiesService {
   findInspection(propertyId: string, inspectionId: string) {
     return this.prisma.propertyInspection.findFirst({
       where: { id: inspectionId, propertyId },
-      include: { findings: true },
+      include: { findings: true, inspectorVendor: { select: this.vendorSummarySelect } },
     });
   }
 
@@ -308,6 +327,7 @@ export class PropertiesService {
       const lease = await this.prisma.lease.findFirst({ where: { id: dto.leaseId, propertyId } });
       if (!lease) throw new BadRequestException('That lease does not belong to this property');
     }
+    if (dto.assignedVendorId) await this.requireVendor(dto.assignedVendorId);
     return this.prisma.maintenanceRequest.create({
       data: {
         propertyId,
@@ -316,8 +336,10 @@ export class PropertiesService {
         description: dto.description,
         priority: dto.priority ?? 'normal',
         reportedBy: dto.reportedBy,
-        assignedTo: dto.assignedTo,
+        assignedVendorId: dto.assignedVendorId,
+        assignedTo: dto.assignedVendorId ? undefined : dto.assignedTo,
       },
+      include: { assignedVendor: { select: this.vendorSummarySelect } },
     });
   }
 
@@ -344,12 +366,16 @@ export class PropertiesService {
   findMaintenanceRequests(propertyId: string) {
     return this.prisma.maintenanceRequest.findMany({
       where: { propertyId },
+      include: { assignedVendor: { select: this.vendorSummarySelect } },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   findMaintenanceRequest(propertyId: string, requestId: string) {
-    return this.prisma.maintenanceRequest.findFirst({ where: { id: requestId, propertyId } });
+    return this.prisma.maintenanceRequest.findFirst({
+      where: { id: requestId, propertyId },
+      include: { assignedVendor: { select: this.vendorSummarySelect } },
+    });
   }
 
   async startMaintenanceRequest(propertyId: string, requestId: string, dto: StartMaintenanceRequestDto) {
@@ -358,9 +384,14 @@ export class PropertiesService {
     if (request.status !== 'open') {
       throw new BadRequestException(`This request is already "${request.status}"`);
     }
+    if (dto.assignedVendorId) await this.requireVendor(dto.assignedVendorId);
     return this.prisma.maintenanceRequest.update({
       where: { id: requestId },
-      data: { status: 'in_progress', assignedTo: dto.assignedTo ?? request.assignedTo },
+      data: {
+        status: 'in_progress',
+        assignedVendorId: dto.assignedVendorId !== undefined ? dto.assignedVendorId || null : dto.assignedTo ? null : request.assignedVendorId,
+        assignedTo: dto.assignedTo !== undefined ? dto.assignedTo : dto.assignedVendorId ? null : request.assignedTo,
+      },
     });
   }
 

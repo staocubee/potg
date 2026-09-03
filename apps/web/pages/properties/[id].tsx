@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Lease, MaintenanceRequest, Project, Property, PropertyInspection, PropertyValuation } from "../../lib/api";
+import { ApiError, Lease, MaintenanceRequest, Project, Property, PropertyInspection, PropertyValuation, Vendor } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -50,6 +50,7 @@ export default function PropertyDetailPage() {
   const [inspections, setInspections] = useState<PropertyInspection[]>([]);
   const [leases, setLeases] = useState<Lease[]>([]);
   const [maintenanceRequests, setMaintenanceRequests] = useState<MaintenanceRequest[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showValuationForm, setShowValuationForm] = useState(false);
   const [showInspectionForm, setShowInspectionForm] = useState(false);
@@ -66,8 +67,11 @@ export default function PropertyDetailPage() {
       auth.api.listInspections(id),
       auth.api.listLeases(id),
       auth.api.listMaintenanceRequests(id),
+      // Marketplace-wide, not scoped to this property — same reach picking
+      // a vendor for a project quote already gets (VendorsController#findAll).
+      auth.api.listVendors(),
     ])
-      .then(([p, v, allProjects, i, l, m]) => {
+      .then(([p, v, allProjects, i, l, m, vd]) => {
         setProperty(p);
         setValuations(v);
         // No GET /properties/:id/projects endpoint — Project doesn't need
@@ -77,6 +81,7 @@ export default function PropertyDetailPage() {
         setInspections(i);
         setLeases(l);
         setMaintenanceRequests(m);
+        setVendors(vd);
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this property."));
   }
@@ -245,6 +250,7 @@ export default function PropertyDetailPage() {
               <ScheduleInspectionForm
                 propertyId={id}
                 projects={projects}
+                vendors={vendors}
                 onCreated={(i) => {
                   setInspections((prev) => [i, ...prev]);
                   setShowInspectionForm(false);
@@ -258,7 +264,7 @@ export default function PropertyDetailPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: showInspectionForm ? 12 : 0 }}>
               {id &&
                 inspections.map((i) => (
-                  <InspectionRow key={i.id} propertyId={id} inspection={i} projects={projects} onChanged={load} />
+                  <InspectionRow key={i.id} propertyId={id} inspection={i} projects={projects} vendors={vendors} onChanged={load} />
                 ))}
             </div>
           </div>
@@ -299,6 +305,7 @@ export default function PropertyDetailPage() {
               <ReportMaintenanceRequestForm
                 propertyId={id}
                 leases={leases}
+                vendors={vendors}
                 onCreated={(m) => {
                   setMaintenanceRequests((prev) => [m, ...prev]);
                   setShowMaintenanceForm(false);
@@ -312,7 +319,7 @@ export default function PropertyDetailPage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: showMaintenanceForm ? 12 : 0 }}>
               {id &&
                 maintenanceRequests.map((m) => (
-                  <MaintenanceRequestRow key={m.id} propertyId={id} request={m} onChanged={load} />
+                  <MaintenanceRequestRow key={m.id} propertyId={id} request={m} vendors={vendors} onChanged={load} />
                 ))}
             </div>
           </div>
@@ -381,13 +388,63 @@ function AddValuationForm({ propertyId, onCreated }: { propertyId: string; onCre
 
 const INSPECTION_TYPES = ["general", "pre_purchase", "move_in", "move_out", "safety", "post_renovation"];
 
+// Shared by the inspector/assignee pickers on both the Inspections and
+// Maintenance sections: a vendor <select> (marketplace-wide, same reach
+// GET /vendors already has) with a freeform text fallback for a
+// non-platform professional — picking a vendor clears the text and vice
+// versa, since PropertiesService stores the two as mutually exclusive.
+function VendorOrNameField({
+  vendors,
+  vendorId,
+  setVendorId,
+  name,
+  setName,
+  namePlaceholder,
+}: {
+  vendors: Vendor[];
+  vendorId: string;
+  setVendorId: (id: string) => void;
+  name: string;
+  setName: (n: string) => void;
+  namePlaceholder: string;
+}) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+      <select
+        className="potg-input"
+        value={vendorId}
+        onChange={(e) => {
+          setVendorId(e.target.value);
+          if (e.target.value) setName("");
+        }}
+      >
+        <option value="">Not a platform vendor</option>
+        {vendors.map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.businessName} ({v.serviceCategory})
+          </option>
+        ))}
+      </select>
+      <input
+        className="potg-input"
+        placeholder={namePlaceholder}
+        value={name}
+        disabled={!!vendorId}
+        onChange={(e) => setName(e.target.value)}
+      />
+    </div>
+  );
+}
+
 function ScheduleInspectionForm({
   propertyId,
   projects,
+  vendors,
   onCreated,
 }: {
   propertyId: string;
   projects: Project[];
+  vendors: Vendor[];
   onCreated: (i: PropertyInspection) => void;
 }) {
   const auth = useAuth();
@@ -395,6 +452,7 @@ function ScheduleInspectionForm({
   const [scheduledFor, setScheduledFor] = useState("");
   const [projectId, setProjectId] = useState("");
   const [inspectorName, setInspectorName] = useState("");
+  const [inspectorVendorId, setInspectorVendorId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -407,7 +465,8 @@ function ScheduleInspectionForm({
         inspectionType,
         scheduledFor: new Date(scheduledFor).toISOString(),
         projectId: projectId || undefined,
-        inspectorName: inspectorName || undefined,
+        inspectorName: inspectorVendorId ? undefined : inspectorName || undefined,
+        inspectorVendorId: inspectorVendorId || undefined,
       });
       onCreated(i);
     } catch (err) {
@@ -436,22 +495,22 @@ function ScheduleInspectionForm({
           onChange={(e) => setScheduledFor(e.target.value)}
         />
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <select className="potg-input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-          <option value="">Not tied to a project</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.title}
-            </option>
-          ))}
-        </select>
-        <input
-          className="potg-input"
-          placeholder="Inspector name (optional)"
-          value={inspectorName}
-          onChange={(e) => setInspectorName(e.target.value)}
-        />
-      </div>
+      <select className="potg-input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+        <option value="">Not tied to a project</option>
+        {projects.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.title}
+          </option>
+        ))}
+      </select>
+      <VendorOrNameField
+        vendors={vendors}
+        vendorId={inspectorVendorId}
+        setVendorId={setInspectorVendorId}
+        name={inspectorName}
+        setName={setInspectorName}
+        namePlaceholder="Inspector name (optional)"
+      />
       <div>
         <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
           {busy ? "Scheduling…" : "Schedule inspection"}
@@ -465,11 +524,13 @@ function InspectionRow({
   propertyId,
   inspection,
   projects,
+  vendors,
   onChanged,
 }: {
   propertyId: string;
   inspection: PropertyInspection;
   projects: Project[];
+  vendors: Vendor[];
   onChanged: () => void;
 }) {
   const auth = useAuth();
@@ -484,7 +545,8 @@ function InspectionRow({
   const [editType, setEditType] = useState(inspection.inspectionType);
   const [editScheduledFor, setEditScheduledFor] = useState(inspection.scheduledFor.slice(0, 10));
   const [editProjectId, setEditProjectId] = useState(inspection.projectId ?? "");
-  const [editInspectorName, setEditInspectorName] = useState(inspection.inspectorName ?? "");
+  const [editInspectorName, setEditInspectorName] = useState(inspection.inspectorVendorId ? "" : inspection.inspectorName ?? "");
+  const [editInspectorVendorId, setEditInspectorVendorId] = useState(inspection.inspectorVendorId ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"complete" | "cancel" | "edit" | null>(null);
 
@@ -536,7 +598,8 @@ function InspectionRow({
         inspectionType: editType,
         scheduledFor: new Date(editScheduledFor).toISOString(),
         projectId: editProjectId,
-        inspectorName: editInspectorName,
+        inspectorName: editInspectorVendorId ? "" : editInspectorName,
+        inspectorVendorId: editInspectorVendorId,
       });
       setEditing(false);
       onChanged();
@@ -554,7 +617,8 @@ function InspectionRow({
           <div style={{ fontWeight: 600, textTransform: "capitalize" }}>{inspection.inspectionType.replace(/_/g, " ")}</div>
           <div className="potg-muted" style={{ fontSize: 11 }}>
             {new Date(inspection.scheduledFor).toLocaleDateString()}
-            {inspection.inspectorName && ` · ${inspection.inspectorName}`}
+            {inspection.inspectorVendor && ` · ${inspection.inspectorVendor.businessName} (vendor)`}
+            {!inspection.inspectorVendor && inspection.inspectorName && ` · ${inspection.inspectorName}`}
           </div>
           {inspection.summary && <div style={{ marginTop: 4 }}>{inspection.summary}</div>}
           {inspection.findings && inspection.findings.length > 0 && (
@@ -602,22 +666,22 @@ function InspectionRow({
             </select>
             <input className="potg-input" type="date" required value={editScheduledFor} onChange={(e) => setEditScheduledFor(e.target.value)} />
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            <select className="potg-input" value={editProjectId} onChange={(e) => setEditProjectId(e.target.value)}>
-              <option value="">Not tied to a project</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.title}
-                </option>
-              ))}
-            </select>
-            <input
-              className="potg-input"
-              placeholder="Inspector name (optional)"
-              value={editInspectorName}
-              onChange={(e) => setEditInspectorName(e.target.value)}
-            />
-          </div>
+          <select className="potg-input" value={editProjectId} onChange={(e) => setEditProjectId(e.target.value)}>
+            <option value="">Not tied to a project</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.title}
+              </option>
+            ))}
+          </select>
+          <VendorOrNameField
+            vendors={vendors}
+            vendorId={editInspectorVendorId}
+            setVendorId={setEditInspectorVendorId}
+            name={editInspectorName}
+            setName={setEditInspectorName}
+            namePlaceholder="Inspector name (optional)"
+          />
           <div style={{ display: "flex", gap: 6 }}>
             <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
               {busy === "edit" ? "Saving…" : "Save changes"}
@@ -929,10 +993,12 @@ const MAINTENANCE_PRIORITIES = ["low", "normal", "high", "urgent"];
 function ReportMaintenanceRequestForm({
   propertyId,
   leases,
+  vendors,
   onCreated,
 }: {
   propertyId: string;
   leases: Lease[];
+  vendors: Vendor[];
   onCreated: (m: MaintenanceRequest) => void;
 }) {
   const auth = useAuth();
@@ -940,6 +1006,8 @@ function ReportMaintenanceRequestForm({
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("normal");
   const [leaseId, setLeaseId] = useState("");
+  const [assignedTo, setAssignedTo] = useState("");
+  const [assignedVendorId, setAssignedVendorId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -953,6 +1021,8 @@ function ReportMaintenanceRequestForm({
         description,
         priority,
         leaseId: leaseId || undefined,
+        assignedTo: assignedVendorId ? undefined : assignedTo || undefined,
+        assignedVendorId: assignedVendorId || undefined,
       });
       onCreated(m);
     } catch (err) {
@@ -984,6 +1054,14 @@ function ReportMaintenanceRequestForm({
           ))}
         </select>
       </div>
+      <VendorOrNameField
+        vendors={vendors}
+        vendorId={assignedVendorId}
+        setVendorId={setAssignedVendorId}
+        name={assignedTo}
+        setName={setAssignedTo}
+        namePlaceholder="Assign to (optional)"
+      />
       <div>
         <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
           {busy ? "Reporting…" : "Report issue"}
@@ -996,27 +1074,37 @@ function ReportMaintenanceRequestForm({
 function MaintenanceRequestRow({
   propertyId,
   request,
+  vendors,
   onChanged,
 }: {
   propertyId: string;
   request: MaintenanceRequest;
+  vendors: Vendor[];
   onChanged: () => void;
 }) {
   const auth = useAuth();
+  const [starting, setStarting] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [resolutionNotes, setResolutionNotes] = useState("");
   const [editTitle, setEditTitle] = useState(request.title);
   const [editDescription, setEditDescription] = useState(request.description);
   const [editPriority, setEditPriority] = useState(request.priority);
+  const [startAssignedTo, setStartAssignedTo] = useState(request.assignedVendorId ? "" : request.assignedTo ?? "");
+  const [startAssignedVendorId, setStartAssignedVendorId] = useState(request.assignedVendorId ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"start" | "resolve" | "cancel" | "edit" | null>(null);
 
-  async function onStart() {
+  async function onStart(e: FormEvent) {
+    e.preventDefault();
     setBusy("start");
     setError(null);
     try {
-      await auth.api.startMaintenanceRequest(propertyId, request.id, {});
+      await auth.api.startMaintenanceRequest(propertyId, request.id, {
+        assignedTo: startAssignedVendorId ? undefined : startAssignedTo || undefined,
+        assignedVendorId: startAssignedVendorId || undefined,
+      });
+      setStarting(false);
       onChanged();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't start that request.");
@@ -1083,6 +1171,11 @@ function MaintenanceRequestRow({
             {request.priority} priority · {new Date(request.createdAt).toLocaleDateString()}
           </div>
           <div style={{ marginTop: 4 }}>{request.description}</div>
+          {(request.assignedVendor || request.assignedTo) && (
+            <div className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Assigned to: {request.assignedVendor ? `${request.assignedVendor.businessName} (vendor)` : request.assignedTo}
+            </div>
+          )}
           {request.resolutionNotes && (
             <div className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
               Resolution: {request.resolutionNotes}
@@ -1096,11 +1189,11 @@ function MaintenanceRequestRow({
 
       {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
 
-      {isOpen && !resolving && !editing && (
+      {isOpen && !starting && !resolving && !editing && (
         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
           {request.status === "open" && (
-            <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={onStart}>
-              {busy === "start" ? "…" : "Start"}
+            <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setStarting(true)}>
+              Start
             </button>
           )}
           <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setEditing(true)}>
@@ -1113,6 +1206,27 @@ function MaintenanceRequestRow({
             {busy === "cancel" ? "…" : "Cancel"}
           </button>
         </div>
+      )}
+
+      {request.status === "open" && starting && (
+        <form onSubmit={onStart} style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+          <VendorOrNameField
+            vendors={vendors}
+            vendorId={startAssignedVendorId}
+            setVendorId={setStartAssignedVendorId}
+            name={startAssignedTo}
+            setName={setStartAssignedTo}
+            namePlaceholder="Assign to (optional)"
+          />
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
+              {busy === "start" ? "Starting…" : "Start"}
+            </button>
+            <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setStarting(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
+              Cancel
+            </button>
+          </div>
+        </form>
       )}
 
       {isOpen && resolving && (

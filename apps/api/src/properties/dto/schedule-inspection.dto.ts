@@ -16,4 +16,10 @@ export class ScheduleInspectionDto {
   @IsOptional()
   @IsString()
   inspectorName?: string;
+
+  // Set instead of inspectorName when the inspector is a platform vendor —
+  // PropertiesService clears whichever of the two isn't given.
+  @IsOptional()
+  @IsString()
+  inspectorVendorId?: string;
 }
