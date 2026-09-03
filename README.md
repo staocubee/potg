@@ -1791,9 +1791,10 @@ the queue the moment anything ever wrote it. Nothing did, until now.
 - **No document-revision model exists**, so "more evidence" today means
   whatever the account does outside this specific flow (re-upload as a
   new `Document`, update the file at the same `fileUrl`) — there's no
-  structured way to attach a resubmission to the original request. Same
-  limitation the dispute version has (no evidence/attachment model on
-  `Dispute` either), noted honestly rather than papered over.
+  structured way to attach a resubmission to the original request, unlike
+  the dispute version of this same gap — see "Submitting evidence on a
+  dispute" further down for the `DisputeEvidence` channel that closed it
+  there; nothing analogous exists for documents yet.
 - **Web UI**: `DocumentArbitrationRow` (`pages/documents/index.tsx`)
   replaces its old `rejecting: boolean` with a `pendingAction: "reject" |
   "evidence" | null`, so "Reject" and the new "Request more evidence"
@@ -2408,6 +2409,54 @@ half.
   ordinary path still works end to end, not just the security-specific
   edge cases.
 
+## Submitting evidence on a dispute (this pass)
+
+Closes a gap flagged twice — in "An evidence-request step for dispute
+arbitration" and again under "Not built yet" — once the arbitrator could
+say `under_review`, there was still no dedicated way for either party to
+*submit* more evidence in response, only whatever general tool they
+happened to reach for (a project update, a reply somewhere else entirely)
+that had nothing to do with the dispute itself and wasn't visible to the
+arbitrator in one place.
+
+- **New `DisputeEvidence` model** (migration
+  `20260903100000_add_dispute_evidence`) — `note` plus an optional
+  `fileUrl` (same "URL you provide yourself" shape as `Document.fileUrl`,
+  no object storage in this scaffold), who submitted it and when.
+- **`PaymentsService.requireDisputeParty`** — new shared check: either
+  the account owns the dispute's project, or it's a vendor assigned to
+  it. Deliberately *not* `applyDisputeResolution`'s
+  `raisedByAccountId`-excludes-itself check — submitting evidence isn't a
+  decision either side could tilt in its own favor the way resolving one
+  could, so the account that raised a dispute can still add to its own
+  record, unlike resolving it.
+- **`POST`/`GET .../disputes/:disputeId/evidence`** on both
+  `PaymentsController` (nested under `/projects/:projectId`, matching
+  every other owner-side dispute route) and `VendorsController`
+  (`/vendors/me/disputes/:disputeId/evidence`, matching its vendor-side
+  counterpart) — both funnel into the same service methods.
+  `submitDisputeEvidence` 400s once a dispute is `resolved`/`rejected`,
+  same "nothing more to decide" shape `arbitrateDispute` already uses.
+- **The neutral reviewer never has to ask for it separately** —
+  `findOpenDisputesForArbitration` now `include`s the evidence thread
+  directly, the same "arbitrating blind wouldn't be arbitrating
+  anything" reasoning `DocumentsService.findPendingForArbitration`
+  already uses for uploader/property context.
+- **Web UI**: `DisputeRow` (`pages/projects/[id].tsx`) and
+  `VendorDisputeRow` (`pages/vendors/me.tsx`) both get a lazily-loaded
+  "View/add evidence" toggle — not fetched for every dispute on page
+  load, only once expanded — with a submit form shown while the dispute
+  is still open. `ArbitrationRow` (`pages/payments/index.tsx`) renders
+  the thread read-only, straight from the queue response it already had.
+- **Verified live end-to-end**: raised a fresh dispute as the project
+  owner, submitted evidence with a note and a supporting link, confirmed
+  it rendered correctly (clickable link, timestamp) and the form reset
+  for a second submission; switched to the platform reviewer and
+  confirmed the exact same evidence appeared in the arbitration queue
+  with no extra fetch, resolved the dispute from there; confirmed via a
+  direct API call that submitting evidence to that now-resolved dispute
+  correctly 400s instead of silently succeeding.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -2497,19 +2546,19 @@ blueprint, or explicitly cut from it:
   the licensing/compliance workstream the blueprint says to run
   alongside it (Section 15) are both still open — this pass only covers
   Paystack.
-- **Dispute arbitration's evidence-request gap is closed; a narrower one
-  remains.** See "Extending the neutral reviewer to dispute arbitration"
-  and "An evidence-request step for dispute arbitration" above —
-  `platform_reviewer` can arbitrate any open dispute platform-wide
-  without ever having raised it, and can now set it `under_review` with a
-  note instead of only ever resolving/rejecting outright. What's still
-  missing: there's no dedicated way for either party to *submit* more
-  evidence in response beyond the general tools already available to them
-  (a project update, replying wherever the dispute lives) — no
-  evidence/attachment model on `Dispute` itself — and the two-party path
-  ("Two-party dispute resolution" above — the account that raised a
-  dispute can't resolve it, an open dispute holds its milestone/payment)
-  still exists alongside arbitration rather than being replaced by it.
+- **Dispute arbitration's evidence gap is closed on both sides now.** See
+  "Extending the neutral reviewer to dispute arbitration", "An
+  evidence-request step for dispute arbitration", and "Submitting
+  evidence on a dispute" above — `platform_reviewer` can arbitrate any
+  open dispute platform-wide without ever having raised it, set it
+  `under_review` with a note requesting more, and either party can now
+  submit evidence in response through a real `DisputeEvidence` channel
+  the arbitrator sees inline, not just general tools like a project
+  update that had nothing to do with the dispute itself. What's still
+  open: the two-party path ("Two-party dispute resolution" above — the
+  account that raised a dispute can't resolve it, an open dispute holds
+  its milestone/payment) still exists alongside arbitration rather than
+  being replaced by it.
 - **Deeper AI (Priority 6)** — natural-language project summaries beyond
   what `summarize_property`/`draft_project_status_update` already do,
   financial modeling chat, listing/risk summaries, valuation/ROI

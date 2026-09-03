@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Dispute, Payout, PaystackBank, Vendor, VendorQuote, VendorReview } from "../../lib/api";
+import { ApiError, Dispute, DisputeEvidence, Payout, PaystackBank, Vendor, VendorQuote, VendorReview } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 const SERVICE_CATEGORIES = [
@@ -489,6 +489,16 @@ function VendorDisputeRow({ dispute, onResolved }: { dispute: Dispute; onResolve
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"resolved" | "rejected" | null>(null);
 
+  // Same evidence-thread shape as projects/[id].tsx's DisputeRow — see
+  // PaymentsService.submitDisputeEvidence.
+  const [evidence, setEvidence] = useState<DisputeEvidence[] | null>(null);
+  const [showEvidence, setShowEvidence] = useState(false);
+  const [addingEvidence, setAddingEvidence] = useState(false);
+  const [evidenceNote, setEvidenceNote] = useState("");
+  const [evidenceFileUrl, setEvidenceFileUrl] = useState("");
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  const [evidenceBusy, setEvidenceBusy] = useState(false);
+
   const open = dispute.status === "open" || dispute.status === "under_review";
   const canResolve = dispute.raisedByAccountId !== auth.currentAccountId;
 
@@ -502,6 +512,37 @@ function VendorDisputeRow({ dispute, onResolved }: { dispute: Dispute; onResolve
       setError(err instanceof ApiError ? err.message : "Couldn't resolve that dispute.");
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function loadEvidence() {
+    setEvidenceError(null);
+    try {
+      setEvidence(await auth.api.findDisputeEvidenceAsVendor(dispute.id));
+    } catch (err) {
+      setEvidenceError(err instanceof ApiError ? err.message : "Couldn't load evidence.");
+    }
+  }
+
+  function onToggleEvidence() {
+    if (!showEvidence && evidence === null) loadEvidence();
+    setShowEvidence((v) => !v);
+  }
+
+  async function onSubmitEvidence(e: FormEvent) {
+    e.preventDefault();
+    setEvidenceBusy(true);
+    setEvidenceError(null);
+    try {
+      await auth.api.submitDisputeEvidenceAsVendor(dispute.id, { note: evidenceNote, fileUrl: evidenceFileUrl || undefined });
+      setEvidenceNote("");
+      setEvidenceFileUrl("");
+      setAddingEvidence(false);
+      await loadEvidence();
+    } catch (err) {
+      setEvidenceError(err instanceof ApiError ? err.message : "Couldn't submit that evidence.");
+    } finally {
+      setEvidenceBusy(false);
     }
   }
 
@@ -540,6 +581,74 @@ function VendorDisputeRow({ dispute, onResolved }: { dispute: Dispute; onResolve
               {busy === "rejected" ? "…" : "Reject"}
             </button>
           </div>
+        </div>
+      )}
+      <button
+        className="potg-btn potg-btn-secondary"
+        style={{ padding: "3px 8px", fontSize: 11, marginTop: 6 }}
+        onClick={onToggleEvidence}
+      >
+        {showEvidence ? "Hide evidence" : "View/add evidence"}
+      </button>
+      {showEvidence && (
+        <div style={{ marginTop: 8, borderTop: "1px solid var(--potg-border)", paddingTop: 8 }}>
+          {evidenceError && <div className="potg-error" style={{ marginBottom: 6 }}>{evidenceError}</div>}
+          {evidence === null && <p className="potg-muted" style={{ fontSize: 11 }}>Loading…</p>}
+          {evidence && evidence.length === 0 && <p className="potg-muted" style={{ fontSize: 11 }}>No evidence submitted yet.</p>}
+          {evidence && evidence.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
+              {evidence.map((item) => (
+                <div key={item.id} style={{ fontSize: 12 }}>
+                  <div>{item.note}</div>
+                  {item.fileUrl && (
+                    <a href={item.fileUrl} target="_blank" rel="noreferrer" style={{ color: "var(--potg-teal)" }}>
+                      {item.fileUrl}
+                    </a>
+                  )}
+                  <div className="potg-muted" style={{ fontSize: 10, marginTop: 2 }}>
+                    {new Date(item.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {open && !addingEvidence && (
+            <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setAddingEvidence(true)}>
+              + Add evidence
+            </button>
+          )}
+          {open && addingEvidence && (
+            <form onSubmit={onSubmitEvidence} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <textarea
+                className="potg-input"
+                rows={2}
+                required
+                autoFocus
+                placeholder="Describe the evidence"
+                value={evidenceNote}
+                onChange={(e) => setEvidenceNote(e.target.value)}
+              />
+              <input
+                className="potg-input"
+                placeholder="Supporting link (optional)"
+                value={evidenceFileUrl}
+                onChange={(e) => setEvidenceFileUrl(e.target.value)}
+              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="potg-btn potg-btn-primary" type="submit" disabled={evidenceBusy} style={{ padding: "3px 8px", fontSize: 11 }}>
+                  {evidenceBusy ? "…" : "Submit"}
+                </button>
+                <button
+                  className="potg-btn potg-btn-secondary"
+                  type="button"
+                  onClick={() => setAddingEvidence(false)}
+                  style={{ padding: "3px 8px", fontSize: 11 }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       )}
     </div>

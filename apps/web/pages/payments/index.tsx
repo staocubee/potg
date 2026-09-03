@@ -220,6 +220,31 @@ function ArbitrationRow({ dispute, onChanged }: { dispute: Dispute; onChanged: (
               What's needed: {dispute.resolutionNotes}
             </p>
           )}
+          {/* Already included in GET /payments/disputes/open's own
+              response — see PaymentsService.findOpenDisputesForArbitration
+              — so arbitrating never means deciding blind. */}
+          {dispute.evidence && dispute.evidence.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <p className="potg-muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", margin: 0 }}>
+                Evidence ({dispute.evidence.length})
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+                {dispute.evidence.map((item) => (
+                  <div key={item.id} style={{ fontSize: 12, borderLeft: "2px solid var(--potg-border)", paddingLeft: 8 }}>
+                    <div>{item.note}</div>
+                    {item.fileUrl && (
+                      <a href={item.fileUrl} target="_blank" rel="noreferrer" style={{ color: "var(--potg-teal)" }}>
+                        {item.fileUrl}
+                      </a>
+                    )}
+                    <div className="potg-muted" style={{ fontSize: 10, marginTop: 2 }}>
+                      {new Date(item.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         <span className="potg-badge">{dispute.status.replace(/_/g, " ")}</span>
       </div>

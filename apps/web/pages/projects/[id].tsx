@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Dispute, EscrowAccount, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, Receipt, Vendor, VendorReview } from "../../lib/api";
+import { ApiError, Dispute, DisputeEvidence, EscrowAccount, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, Receipt, Vendor, VendorReview } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -845,6 +845,18 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"resolved" | "rejected" | null>(null);
 
+  // The structured "submit more evidence" channel the arbitration
+  // evidence-request step (under_review) was missing — see
+  // PaymentsService.submitDisputeEvidence. Lazily loaded on first
+  // expand, not fetched for every dispute on page load.
+  const [evidence, setEvidence] = useState<DisputeEvidence[] | null>(null);
+  const [showEvidence, setShowEvidence] = useState(false);
+  const [addingEvidence, setAddingEvidence] = useState(false);
+  const [evidenceNote, setEvidenceNote] = useState("");
+  const [evidenceFileUrl, setEvidenceFileUrl] = useState("");
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  const [evidenceBusy, setEvidenceBusy] = useState(false);
+
   const open = dispute.status === "open" || dispute.status === "under_review";
   // The account that raised a dispute can't be the one that resolves it —
   // the API 403s that, this just avoids showing a button that can't work.
@@ -862,6 +874,37 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
       setError(err instanceof ApiError ? err.message : "Couldn't resolve that dispute.");
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function loadEvidence() {
+    setEvidenceError(null);
+    try {
+      setEvidence(await auth.api.findDisputeEvidence(projectId, dispute.id));
+    } catch (err) {
+      setEvidenceError(err instanceof ApiError ? err.message : "Couldn't load evidence.");
+    }
+  }
+
+  function onToggleEvidence() {
+    if (!showEvidence && evidence === null) loadEvidence();
+    setShowEvidence((v) => !v);
+  }
+
+  async function onSubmitEvidence(e: FormEvent) {
+    e.preventDefault();
+    setEvidenceBusy(true);
+    setEvidenceError(null);
+    try {
+      await auth.api.submitDisputeEvidence(projectId, dispute.id, { note: evidenceNote, fileUrl: evidenceFileUrl || undefined });
+      setEvidenceNote("");
+      setEvidenceFileUrl("");
+      setAddingEvidence(false);
+      await loadEvidence();
+    } catch (err) {
+      setEvidenceError(err instanceof ApiError ? err.message : "Couldn't submit that evidence.");
+    } finally {
+      setEvidenceBusy(false);
     }
   }
 
@@ -900,6 +943,74 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
               Cancel
             </button>
           </div>
+        </div>
+      )}
+      <button
+        className="potg-btn potg-btn-secondary"
+        style={{ padding: "3px 8px", fontSize: 11, marginTop: 6 }}
+        onClick={onToggleEvidence}
+      >
+        {showEvidence ? "Hide evidence" : "View/add evidence"}
+      </button>
+      {showEvidence && (
+        <div style={{ marginTop: 8, borderTop: "1px solid var(--potg-border)", paddingTop: 8 }}>
+          {evidenceError && <div className="potg-error" style={{ marginBottom: 6 }}>{evidenceError}</div>}
+          {evidence === null && <p className="potg-muted" style={{ fontSize: 11 }}>Loading…</p>}
+          {evidence && evidence.length === 0 && <p className="potg-muted" style={{ fontSize: 11 }}>No evidence submitted yet.</p>}
+          {evidence && evidence.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
+              {evidence.map((item) => (
+                <div key={item.id} style={{ fontSize: 12 }}>
+                  <div>{item.note}</div>
+                  {item.fileUrl && (
+                    <a href={item.fileUrl} target="_blank" rel="noreferrer" style={{ color: "var(--potg-teal)" }}>
+                      {item.fileUrl}
+                    </a>
+                  )}
+                  <div className="potg-muted" style={{ fontSize: 10, marginTop: 2 }}>
+                    {new Date(item.createdAt).toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {open && !addingEvidence && (
+            <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setAddingEvidence(true)}>
+              + Add evidence
+            </button>
+          )}
+          {open && addingEvidence && (
+            <form onSubmit={onSubmitEvidence} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <textarea
+                className="potg-input"
+                rows={2}
+                required
+                autoFocus
+                placeholder="Describe the evidence"
+                value={evidenceNote}
+                onChange={(e) => setEvidenceNote(e.target.value)}
+              />
+              <input
+                className="potg-input"
+                placeholder="Supporting link (optional)"
+                value={evidenceFileUrl}
+                onChange={(e) => setEvidenceFileUrl(e.target.value)}
+              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="potg-btn potg-btn-primary" type="submit" disabled={evidenceBusy} style={{ padding: "3px 8px", fontSize: 11 }}>
+                  {evidenceBusy ? "…" : "Submit"}
+                </button>
+                <button
+                  className="potg-btn potg-btn-secondary"
+                  type="button"
+                  onClick={() => setAddingEvidence(false)}
+                  style={{ padding: "3px 8px", fontSize: 11 }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       )}
     </div>

@@ -3,13 +3,14 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
-import { CurrentAccountMember } from '../common/decorators/current-user.decorator';
+import { CurrentAccountMember, CurrentUser } from '../common/decorators/current-user.decorator';
 import { VendorsService } from './vendors.service';
 import { PaymentsService } from '../payments/payments.service';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { SubmitQuoteDto } from './dto/submit-quote.dto';
 import { RaiseDisputeAsVendorDto } from './dto/raise-dispute-as-vendor.dto';
 import { ResolveDisputeDto } from '../payments/dto/resolve-dispute.dto';
+import { SubmitDisputeEvidenceDto } from '../payments/dto/submit-dispute-evidence.dto';
 import { ReplyToReviewDto } from './dto/reply-to-review.dto';
 import { SetVendorVerificationDto } from './dto/set-vendor-verification.dto';
 import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
@@ -17,6 +18,7 @@ import { FlagReviewDto } from './dto/flag-review.dto';
 import { ModerateReviewDto } from './dto/moderate-review.dto';
 
 type AccountMemberCtx = { accountId: string };
+type UserCtx = { id: string; email: string };
 
 @UseGuards(JwtAuthGuard, AccountContextGuard, PermissionsGuard)
 @Controller('vendors')
@@ -106,6 +108,26 @@ export class VendorsController {
     @Body() dto: ResolveDisputeDto,
   ) {
     return this.payments.resolveDisputeAsVendor(member.accountId, disputeId, dto);
+  }
+
+  // The vendor-side counterpart to PaymentsController's identical route —
+  // see PaymentsService.submitDisputeEvidence/requireDisputeParty, which
+  // both sides funnel into.
+  @RequirePermissions('dispute:write')
+  @Post('me/disputes/:disputeId/evidence')
+  submitDisputeEvidence(
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @CurrentUser() user: UserCtx,
+    @Param('disputeId') disputeId: string,
+    @Body() dto: SubmitDisputeEvidenceDto,
+  ) {
+    return this.payments.submitDisputeEvidence(disputeId, member.accountId, user.id, dto);
+  }
+
+  @RequirePermissions('dispute:read')
+  @Get('me/disputes/:disputeId/evidence')
+  findDisputeEvidence(@CurrentAccountMember() member: AccountMemberCtx, @Param('disputeId') disputeId: string) {
+    return this.payments.findDisputeEvidence(disputeId, member.accountId);
   }
 
   // The vendor's own reply to a review on its profile — see the comment on

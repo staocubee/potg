@@ -9,6 +9,7 @@ import { DepositDto } from './dto/deposit.dto';
 import { RaiseDisputeDto } from './dto/raise-dispute.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { ArbitrateDisputeDto } from './dto/arbitrate-dispute.dto';
+import { SubmitDisputeEvidenceDto } from './dto/submit-dispute-evidence.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
 import { FinalizePayoutOtpDto } from './dto/finalize-payout-otp.dto';
 
@@ -132,6 +133,31 @@ export class PaymentsController {
   @Get('disputes')
   findDisputes(@Param('projectId') projectId: string) {
     return this.payments.findDisputes(projectId);
+  }
+
+  // The structured "submit more evidence" channel — see
+  // PaymentsService.submitDisputeEvidence/requireDisputeParty. Still
+  // nested under /projects/:projectId like every other route here (so
+  // PermissionsGuard's existing ABAC check keeps applying), but the
+  // service call itself only ever needs disputeId — requireDisputeParty
+  // re-derives and checks the dispute's own project independently, the
+  // same shape VendorsController's identical route (below, via
+  // vendors.controller.ts) relies on with no :projectId at all.
+  @RequirePermissions('dispute:write')
+  @Post('disputes/:disputeId/evidence')
+  submitDisputeEvidence(
+    @Param('disputeId') disputeId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @CurrentUser() user: UserCtx,
+    @Body() dto: SubmitDisputeEvidenceDto,
+  ) {
+    return this.payments.submitDisputeEvidence(disputeId, member.accountId, user.id, dto);
+  }
+
+  @RequirePermissions('dispute:read')
+  @Get('disputes/:disputeId/evidence')
+  findDisputeEvidence(@Param('disputeId') disputeId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.payments.findDisputeEvidence(disputeId, member.accountId);
   }
 
   @RequirePermissions('dispute:write')

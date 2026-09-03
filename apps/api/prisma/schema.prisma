@@ -693,11 +693,32 @@ model Dispute {
   createdAt         DateTime  @default(now())
   resolvedAt        DateTime?
 
-  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
-  payout  Payout?  @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+  project  Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  payment  Payment?          @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  payout   Payout?           @relation(fields: [payoutId], references: [id], onDelete: SetNull)
+  evidence DisputeEvidence[]
 
   @@map("disputes")
+}
+
+// The structured "submit more evidence" channel the arbitration
+// evidence-request step (Dispute.status "under_review") was missing —
+// before this, "more evidence" meant whatever general tool a party
+// happened to reach for (a project update, a reply somewhere else
+// entirely), nothing tied to the dispute itself or visible to the
+// arbitrator in one place.
+model DisputeEvidence {
+  id                String   @id @default(uuid())
+  disputeId         String
+  accountId         String // which party submitted this — owner's or vendor's account
+  submittedByUserId String
+  note              String
+  fileUrl           String? // optional supporting link — same "URL you provide yourself" shape as Document.fileUrl
+  createdAt         DateTime @default(now())
+
+  dispute Dispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+
+  @@map("dispute_evidence")
 }
 
 // --- Modules 5 & 10: Property Marketplace & Materials Marketplace -------

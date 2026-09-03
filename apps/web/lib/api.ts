@@ -608,6 +608,24 @@ export type Dispute = {
   // open — the owner-side /projects/:projectId/disputes routes already
   // know the project.
   project?: { id: string; title: string; accountId?: string };
+  // Only present on GET /payments/disputes/open — the neutral reviewer's
+  // queue includes it directly so arbitrating isn't done blind; the
+  // owner/vendor-side dispute lists fetch it separately via
+  // findDisputeEvidence/findDisputeEvidenceAsVendor (see DisputeEvidence
+  // below) once a specific dispute is opened.
+  evidence?: DisputeEvidence[];
+};
+
+// The structured "submit more evidence" channel for a dispute under
+// arbitration — see PaymentsService.submitDisputeEvidence.
+export type DisputeEvidence = {
+  id: string;
+  disputeId: string;
+  accountId: string;
+  submittedByUserId: string;
+  note: string;
+  fileUrl?: string | null;
+  createdAt: string;
 };
 
 // GET /payments/overview — the account-wide rollup that finally backs the
@@ -1265,6 +1283,20 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  submitDisputeEvidenceAsVendor(disputeId: string, input: { note: string; fileUrl?: string }) {
+    return request<DisputeEvidence>(`/vendors/me/disputes/${disputeId}/evidence`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  findDisputeEvidenceAsVendor(disputeId: string) {
+    return request<DisputeEvidence[]>(`/vendors/me/disputes/${disputeId}/evidence`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
 
   // --- Payments & escrow (per-project routes below; the account-wide
   // rollup is getPaymentsOverview() further down) ---
@@ -1340,6 +1372,20 @@ export class ApiClient {
     return request<Dispute>(`/projects/${projectId}/disputes/${disputeId}/resolve`, {
       method: "POST",
       body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  submitDisputeEvidence(projectId: string, disputeId: string, input: { note: string; fileUrl?: string }) {
+    return request<DisputeEvidence>(`/projects/${projectId}/disputes/${disputeId}/evidence`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  findDisputeEvidence(projectId: string, disputeId: string) {
+    return request<DisputeEvidence[]>(`/projects/${projectId}/disputes/${disputeId}/evidence`, {
       token: this.token,
       accountId: this.accountId,
     });

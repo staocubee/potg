@@ -6,6 +6,7 @@ import { DepositDto } from './dto/deposit.dto';
 import { RaiseDisputeDto } from './dto/raise-dispute.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { ArbitrateDisputeDto } from './dto/arbitrate-dispute.dto';
+import { SubmitDisputeEvidenceDto } from './dto/submit-dispute-evidence.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
 import { PaystackService } from './paystack.service';
 
@@ -662,6 +663,47 @@ export class PaymentsService {
     return this.applyDisputeResolution(dispute, resolvingAccountId, dto);
   }
 
+  // The structured "submit more evidence" channel the under_review
+  // evidence-request step was missing — see DisputeEvidence's own schema
+  // comment. Shared by both parties (owner and assigned vendor), unlike
+  // applyDisputeResolution's raisedByAccountId check: submitting evidence
+  // isn't a decision either side could tilt in its own favor the way
+  // resolving one could, so there's no reason to stop whichever side
+  // raised it from also adding to the record.
+  private async requireDisputeParty(disputeId: string, accountId: string) {
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { id: disputeId },
+      include: { project: { select: { id: true, accountId: true } } },
+    });
+    if (!dispute) throw new NotFoundException('Dispute not found');
+    if (dispute.project.accountId === accountId) return dispute;
+    const vendor = await this.prisma.vendor.findUnique({ where: { accountId } });
+    if (vendor) {
+      const assignment = await this.prisma.projectVendorAssignment.findFirst({
+        where: { projectId: dispute.projectId, vendorId: vendor.id },
+      });
+      // 404, not 403 — same "don't confirm this dispute exists" shape
+      // resolveDisputeAsVendor already uses for an unrelated vendor.
+      if (assignment) return dispute;
+    }
+    throw new NotFoundException('Dispute not found');
+  }
+
+  async submitDisputeEvidence(disputeId: string, accountId: string, userId: string, dto: SubmitDisputeEvidenceDto) {
+    const dispute = await this.requireDisputeParty(disputeId, accountId);
+    if (dispute.status === 'resolved' || dispute.status === 'rejected') {
+      throw new BadRequestException('This dispute has already been resolved — nothing more to submit');
+    }
+    return this.prisma.disputeEvidence.create({
+      data: { disputeId, accountId, submittedByUserId: userId, note: dto.note, fileUrl: dto.fileUrl },
+    });
+  }
+
+  async findDisputeEvidence(disputeId: string, accountId: string) {
+    await this.requireDisputeParty(disputeId, accountId);
+    return this.prisma.disputeEvidence.findMany({ where: { disputeId }, orderBy: { createdAt: 'asc' } });
+  }
+
   // Module 6's actual neutral-reviewer path for disputes, the payments
   // counterpart to VendorsService.setVerificationStatus /
   // MaterialsService.setSupplierVerificationStatus. Gated on
@@ -671,10 +713,17 @@ export class PaymentsService {
   // skips applyDisputeResolution's raisedByAccountId check entirely rather
   // than reusing it: that check exists to stop the *other* party
   // (owner/vendor) from self-resolving, which isn't the risk here.
+  // Includes the evidence thread directly — an arbitrator deciding blind
+  // wouldn't be arbitrating anything, same reasoning
+  // DocumentsService.findPendingForArbitration includes the uploading
+  // account's and property's names for.
   findOpenDisputesForArbitration() {
     return this.prisma.dispute.findMany({
       where: { status: { in: ['open', 'under_review'] } },
-      include: { project: { select: { id: true, title: true, accountId: true } } },
+      include: {
+        project: { select: { id: true, title: true, accountId: true } },
+        evidence: { orderBy: { createdAt: 'asc' } },
+      },
       orderBy: { createdAt: 'asc' },
     });
   }
