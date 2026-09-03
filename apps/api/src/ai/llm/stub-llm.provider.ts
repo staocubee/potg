@@ -34,6 +34,12 @@ const KEYWORD_ROUTES: Record<string, string[]> = {
   model_roi_scenario: ['roi', 'yield', 'rent increase', 'what if i', 'appreciation', 'sell now'],
   assess_listing_risk: ['risk', 'is this listing safe', 'red flag', 'safe to buy'],
   generate_portfolio_report: ['portfolio report', 'across my properties', 'across all my properties'],
+  summarize_inspection_history: ['inspection history', 'past inspections', 'inspection results', 'how did the inspection go'],
+  summarize_lease_status: ['lease status', 'lease summary', 'is rent overdue', 'lease ending', 'tenant status'],
+  summarize_maintenance_backlog: ['maintenance backlog', 'open maintenance', 'maintenance requests', 'anything urgent to fix'],
+  explain_vendor_trust_score: ['vendor trust score', 'why does this vendor', 'is this vendor trustworthy'],
+  explain_supplier_trust_score: ['supplier trust score', 'why does this supplier', 'is this supplier trustworthy'],
+  summarize_rental_bookings: ['rental bookings', 'rental backlog', 'anything overdue for return', 'bookings awaiting confirmation'],
 };
 
 // Default provider when no ANTHROPIC_API_KEY is configured — lets the AI
