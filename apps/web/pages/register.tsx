@@ -14,8 +14,17 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Real client-side validation beyond native required/minLength/
+  // type="email" — a mistyped password here used to go undetected until
+  // the very next sign-in failed, with no way to tell "wrong password"
+  // from "the account itself never got the password I meant to set."
+  // Only shown once there's something to compare against, so it doesn't
+  // flash an error before the user has even finished typing.
+  const passwordMismatch = confirmPassword.length > 0 && password !== confirmPassword;
 
   // If this registration came from an invite link, pre-fill (and lock)
   // the email to whatever the invite was actually sent to — accepting one
@@ -37,6 +46,7 @@ export default function RegisterPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (passwordMismatch) return;
     setError(null);
     setBusy(true);
     try {
@@ -113,8 +123,28 @@ export default function RegisterPage() {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
+          <p className="potg-muted" style={{ fontSize: 11, margin: "4px 0 0" }}>
+            At least 8 characters.
+          </p>
         </div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ marginTop: 6 }}>
+        <div>
+          <label className="potg-label" htmlFor="confirmPassword">
+            Confirm password
+          </label>
+          <input
+            id="confirmPassword"
+            className="potg-input"
+            type="password"
+            required
+            minLength={8}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+          />
+          {passwordMismatch && (
+            <p style={{ fontSize: 11, margin: "4px 0 0", color: "var(--potg-danger)" }}>Passwords don't match.</p>
+          )}
+        </div>
+        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || passwordMismatch} style={{ marginTop: 6 }}>
           {busy ? "Creating…" : invite ? "Create account & join" : "Create account"}
         </button>
       </form>

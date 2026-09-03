@@ -11,12 +11,18 @@ export default function ResetPasswordPage() {
   const token = typeof router.query.token === "string" ? router.query.token : "";
 
   const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
 
+  // Same real client-side check register.tsx got — a mistyped new
+  // password here previously wasn't caught until the next sign-in failed.
+  const passwordMismatch = confirmPassword.length > 0 && newPassword !== confirmPassword;
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (passwordMismatch) return;
     setError(null);
     setBusy(true);
     try {
@@ -65,8 +71,28 @@ export default function ResetPasswordPage() {
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
             />
+            <p className="potg-muted" style={{ fontSize: 11, margin: "4px 0 0" }}>
+              At least 8 characters.
+            </p>
           </div>
-          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ marginTop: 6 }}>
+          <div>
+            <label className="potg-label" htmlFor="confirmNewPassword">
+              Confirm new password
+            </label>
+            <input
+              id="confirmNewPassword"
+              className="potg-input"
+              type="password"
+              required
+              minLength={8}
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+            />
+            {passwordMismatch && (
+              <p style={{ fontSize: 11, margin: "4px 0 0", color: "var(--potg-danger)" }}>Passwords don't match.</p>
+            )}
+          </div>
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || passwordMismatch} style={{ marginTop: 6 }}>
             {busy ? "Saving…" : "Reset password"}
           </button>
         </form>

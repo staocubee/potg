@@ -2268,6 +2268,40 @@ who lost the email, had no way to discover an invite existed.
   account, switched into it, and redirected straight to the portfolio
   showing that account's own property.
 
+## Real client-side validation: catching a mistyped password (this pass)
+
+Closes the one concrete, checkable gap "no client-side validation beyond
+native `required`/`minLength`/`type=\"email\"`" actually named: a
+mistyped password on Register or Reset Password went completely
+uncaught client-side before this — the account (or the new password)
+would silently be set to whatever was typed, and the *first* sign a
+typo happened at all was the next sign-in failing with no way to tell
+"wrong password" from "the account never got the password I meant to
+set."
+
+- **`pages/register.tsx` and `pages/reset-password.tsx`** both gain a
+  "Confirm password" field. A live, styled inline message ("Passwords
+  don't match.") appears the moment the two differ — but only once the
+  confirm field actually has something in it, so it doesn't flash red
+  before the user has finished typing — and the submit button is
+  disabled for the same condition, on top of the check `onSubmit` itself
+  still does as a defense against a disabled button being bypassed
+  somehow. A live "At least 8 characters" hint sits under the password
+  field itself, replacing reliance on the browser's own (inconsistently
+  styled, easy to miss) `minLength` validation popup.
+- **Deliberately narrow**: email-format and required-field checks
+  already have real enforcement via native `type="email"`/`required`
+  *and* the backend's own `class-validator` decorators
+  (`@IsEmail()`/`@MinLength(8)` — see the DTOs in `src/auth/dto`) — this
+  pass didn't reimplement those client-side, since a mismatched
+  client/server regex would be a worse bug than no client-side copy at
+  all. The one thing native HTML genuinely can't check at all —
+  "did these two fields actually match" — is what needed real code.
+- **Verified live in the browser**: typed two different passwords into
+  Register, confirmed the inline message appeared and the submit button
+  was disabled; corrected the second field and confirmed both cleared
+  immediately.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -2391,12 +2425,14 @@ blueprint, or explicitly cut from it:
 - **Auth hardening that's still open.** The access token lives in
   `localStorage` (XSS-exposed) rather than an httpOnly cookie — a
   deliberate tradeoff, see "Web app auth hardening" above, not an
-  oversight. No client-side validation beyond native HTML `required`/
-  `minLength`/`type="email"`. Rate limiting and refresh-token revocation
-  are no longer on this list — see "Auth hardening: rate limiting,
-  refresh-token revocation, refunds" above — and neither is the
-  password-reset email, now actually sent — see "A real email provider —
-  Resend" above.
+  oversight. Rate limiting and refresh-token revocation are no longer on
+  this list — see "Auth hardening: rate limiting, refresh-token
+  revocation, refunds" above — and neither is client-side validation
+  (see "Real client-side validation" above — password-confirmation is
+  real now; email format and required fields still lean on native HTML
+  plus the backend's own validation, deliberately, see that section) or
+  the password-reset email, now actually sent — see "A real email
+  provider — Resend" above.
 - **Search, media, and vector layers** (Elasticsearch/OpenSearch, S3-
   compatible object storage, a vector DB for AI context retrieval) — the
   Technical Architecture section calls these out, none are wired up here.
