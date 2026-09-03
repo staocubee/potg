@@ -92,7 +92,8 @@ export class AuthService {
   // old one, at the cost of the client having to persist the new refresh
   // token every time it refreshes — apps/web's ApiClient does this
   // automatically, see its configureAuthSession().
-  async refresh(refreshToken: string) {
+  async refresh(refreshToken: string | undefined) {
+    if (!refreshToken) throw new UnauthorizedException('Missing refresh token');
     let payload: { sub: string; email: string; type: string; jti?: string };
     try {
       payload = this.jwt.verify(refreshToken);
@@ -121,7 +122,8 @@ export class AuthService {
   // caller" shape as forgotPassword: an already-invalid or unrecognized
   // token still gets a success response, since logout isn't a place to
   // leak whether a token was real.
-  async logout(refreshToken: string) {
+  async logout(refreshToken: string | undefined) {
+    if (!refreshToken) return { message: 'Logged out.' };
     let payload: { type: string; jti?: string };
     try {
       payload = this.jwt.verify(refreshToken);

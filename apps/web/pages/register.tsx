@@ -50,14 +50,17 @@ export default function RegisterPage() {
     setError(null);
     setBusy(true);
     try {
-      const { accessToken, refreshToken } = await auth.api.register({
+      await auth.api.register({
         name,
         email,
         phone: phone || undefined,
         password,
         inviteToken,
       });
-      auth.setTokens(accessToken, refreshToken);
+      // register() set the session as httpOnly cookies but hands back
+      // nothing sensitive in the body — ask who's actually signed in now.
+      const user = await auth.api.me();
+      auth.setSignedIn(user);
       // An invited user is joining an existing account, not starting from
       // zero — skip the "create your first account" onboarding step.
       router.push(inviteToken ? "/properties" : "/accounts/new");

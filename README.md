@@ -327,14 +327,17 @@ piece explicitly left as a documented tradeoff rather than built:
   .forgotPassword`'s own comment flags that the `resetToken` field must be
   deleted before this ships for real, since returning it defeats the
   point of the flow.
-- **What's still open**: the JWT (now the short-lived access token) still
-  lives in `localStorage`, not an httpOnly cookie — moving to cookies
-  would mean the API setting them itself (CORS + `credentials: 'include'`
-  + CSRF protection, none of which exists here) and stops working cleanly
-  for non-browser API callers (curl, the eventual mobile app) the way a
-  bearer header does. That tradeoff is deliberate for this pass, not an
-  oversight, but it's still the reason `localStorage` XSS exposure is
-  listed under "Not built yet" rather than closed.
+- **What was still open as of this pass**: the JWT (now the short-lived
+  access token) still lived in `localStorage`, not an httpOnly cookie —
+  moving to cookies would mean the API setting them itself (CORS +
+  `credentials: 'include'` + CSRF protection, none of which existed yet)
+  and losing the clean bearer-header story for non-browser callers (curl,
+  the eventual mobile app). That tradeoff was deliberate for this pass,
+  not an oversight — see "Moving auth off localStorage: httpOnly cookies
+  + CSRF" further down for where a later pass this session actually did
+  it, CSRF protection and all, and what the bearer-header loss above
+  turned into a real, explicitly accepted tradeoff rather than a deferred
+  one.
 
 ### Per-skill AI input schemas (this pass)
 
@@ -2302,6 +2305,109 @@ set."
   was disabled; corrected the second field and confirmed both cleared
   immediately.
 
+## Moving auth off localStorage: httpOnly cookies + CSRF (this pass)
+
+Closes the tradeoff "Web app auth hardening" above flagged as deliberate
+but open: the access token moves out of `localStorage` (XSS-exposed —
+any script that runs on the page, including one smuggled in through a
+dependency or a stored-XSS bug, could read it and exfiltrate the whole
+session) into an httpOnly cookie neither this app's own JS nor an
+attacker's ever gets to read. Doing that without also adding CSRF
+protection would trade one vulnerability for another — a cookie the
+browser attaches automatically is exactly what a forged cross-site
+request rides on — so this pass is the two together, not just the first
+half.
+
+- **`src/auth/cookie.util.ts`** — one place both halves of the session
+  get set (`access_token`, `refresh_token`, both httpOnly) and cleared,
+  plus a third, deliberately non-httpOnly `csrf_token` cookie for the
+  double-submit pattern below. `sameSite: "lax"` with no `secure` flag in
+  dev works for this scaffold's own topology — the web app and API run on
+  `localhost` at different *ports*, which `SameSite` treats as the same
+  *site* (site is scoped by registrable domain, not port, unlike the
+  CORS/fetch *origin* check that still needs `credentials: true` to send
+  the cookie cross-port at all) — a genuinely cross-*site* production
+  deployment (different registrable domains) would need `sameSite: "none"`
+  + `secure: true` instead, which only works over HTTPS.
+- **`CsrfGuard`** (`src/common/guards/csrf.guard.ts`), wired in globally
+  via `APP_GUARD` in `AppModule` rather than added to every controller's
+  own `@UseGuards(...)` list — the risk it closes applies uniformly to
+  every mutating endpoint, so one central guard is far less likely to
+  miss a spot than repeating it across 15+ controllers. Double-submit
+  cookie pattern: `cookie.util.ts` sets a random `csrf_token` cookie
+  alongside the auth ones; every mutating request (anything but
+  GET/HEAD/OPTIONS) must echo that exact value back as an `X-CSRF-Token`
+  header. A cross-site attacker's page can trigger the cookie-carrying
+  request but can't *read* this origin's cookies to know what to put in
+  the header, so the two only ever match for a request this app's own JS
+  actually made. Skips four unauthenticated routes
+  (`/auth/login`/`register`/`forgot-password`/`reset-password`) that act
+  on an explicit credential already in the request body, not a cookie's
+  ambient authority — there's nothing CSRF-shaped to exploit there.
+  `/auth/refresh` and `/auth/logout` *are* checked, even though both are
+  otherwise unauthenticated too, since both act on the `refresh_token`
+  cookie's ambient authority the same way any other mutating route acts
+  on `access_token`'s.
+- **`JwtAuthGuard`** now reads `req.cookies.access_token` instead of an
+  `Authorization` header — the whole point of httpOnly is that this app's
+  own JS never sees the token to attach it manually, the browser does
+  that on its own.
+- **`AuthController`** sets/clears cookies via `@Res({ passthrough: true
+  })` on register/login/refresh/logout, and none of the four hand back a
+  token string in the response body anymore — putting it there would
+  undo the XSS protection just as completely as `localStorage` did, since
+  any script that can read a fetch response can read a JSON body as
+  easily as `localStorage`. Login/register/refresh responses are
+  correspondingly thin; a new **`GET /auth/me`** (`{ id, email }`) is how
+  the client now finds out who's actually signed in, since it can no
+  longer decode its own JWT.
+- **`lib/auth.tsx`/`lib/api.ts`** lost every line that touched a real
+  token value — no more `decodeExpiryMs`/`decodeEmail` JWT-decoding, no
+  more `getRefreshToken`/`onRefreshed` in `configureAuthSession` (nothing
+  left to persist, cookies just update themselves via `Set-Cookie`).
+  `AuthContextValue.token` stays in the interface — every existing
+  `if (!auth.token)` truthiness check across the app (`AppShell`,
+  `AccountSwitcher`, `accept-invite.tsx`, `accounts/new.tsx`,
+  `index.tsx`) keeps working completely unchanged — but it's now a
+  non-secret "is a session active" marker (the signed-in user's own id)
+  rather than the token itself, set from `GET /auth/me`'s response
+  instead of decoded from a stored string. `request()`'s existing
+  401-triggers-a-silent-refresh-then-retry logic (built in the
+  `localStorage` pass) needed almost no change — it never actually cared
+  what the token *was*, only whether the call was meant to be
+  authenticated — plus one small addition: it now skips even attempting
+  a refresh when the readable `csrf_token` cookie is absent, a reliable
+  "there was never a session to refresh" signal that avoids a doomed
+  round trip (and a misleading CSRF-guard 403 in the console) on every
+  page load for a visitor who was never signed in.
+- **What this costs, honestly**: the bearer-header story for non-browser
+  callers is gone. A `curl` request or a future mobile app can no longer
+  authenticate by attaching an `Authorization: Bearer <token>` header —
+  everything now goes through a browser holding the httpOnly cookies.
+  That's the real half of the "Web app auth hardening" tradeoff this pass
+  didn't undo, just relocated: a production system serving both a web app
+  and non-browser clients would need a second auth mechanism (API keys,
+  most likely) alongside this one, not a replacement for it.
+- **Verified live end-to-end** against the real dev servers, not just
+  typechecked: logged in and confirmed `document.cookie` only ever
+  exposed `csrf_token` (never the two httpOnly ones) and `localStorage`
+  held nothing but the non-secret account selection; created a document
+  through the real UI and confirmed the request carried a matching
+  `X-CSRF-Token`; sent the identical mutating request manually with
+  cookies but *no* CSRF header and confirmed a real `403`, then again
+  with the correct header read straight from `document.cookie` and
+  confirmed it succeeded — proving the guard actually blocks a forged
+  request rather than being a no-op; called `POST /auth/refresh` directly
+  and confirmed it rotated the cookies (a fresh `csrf_token` value) and
+  the new `access_token` worked on the very next call; signed out through
+  the real UI and confirmed the cookies were cleared server-side (`GET
+  /auth/me` correctly 401'd immediately after, not just "the client
+  forgot its copy"); confirmed a protected page redirects to `/login`
+  when genuinely logged out; and ran a full fresh registration →
+  create-account → portfolio flow through the browser to confirm the
+  ordinary path still works end to end, not just the security-specific
+  edge cases.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -2422,17 +2528,22 @@ blueprint, or explicitly cut from it:
   skills read reviews" below) — `assess_listing_risk` still doesn't, but
   that's because listings have no vendor/supplier relationship to read in
   the first place, not because it was skipped.
-- **Auth hardening that's still open.** The access token lives in
-  `localStorage` (XSS-exposed) rather than an httpOnly cookie — a
-  deliberate tradeoff, see "Web app auth hardening" above, not an
-  oversight. Rate limiting and refresh-token revocation are no longer on
-  this list — see "Auth hardening: rate limiting, refresh-token
-  revocation, refunds" above — and neither is client-side validation
-  (see "Real client-side validation" above — password-confirmation is
-  real now; email format and required fields still lean on native HTML
-  plus the backend's own validation, deliberately, see that section) or
-  the password-reset email, now actually sent — see "A real email
-  provider — Resend" above.
+- **Auth hardening — down to one real tradeoff, explicitly accepted
+  rather than deferred.** Rate limiting and refresh-token revocation are
+  no longer on this list — see "Auth hardening: rate limiting,
+  refresh-token revocation, refunds" above — and neither is client-side
+  validation (see "Real client-side validation" above — password-
+  confirmation is real now; email format and required fields still lean
+  on native HTML plus the backend's own validation, deliberately, see
+  that section), the password-reset email (now actually sent — see "A
+  real email provider — Resend" above), or the access token living in
+  `localStorage` (see "Moving auth off localStorage: httpOnly cookies +
+  CSRF" above — it's in an httpOnly cookie now, with real CSRF
+  protection alongside it). What that pass's own comment flags as the
+  cost, not a gap: a `curl` request or a future mobile app can no longer
+  authenticate with a bearer header, only a browser holding the httpOnly
+  cookies can — a production system serving non-browser clients too would
+  need a second auth mechanism (API keys) alongside this one.
 - **Search, media, and vector layers** (Elasticsearch/OpenSearch, S3-
   compatible object storage, a vector DB for AI context retrieval) — the
   Technical Architecture section calls these out, none are wired up here.

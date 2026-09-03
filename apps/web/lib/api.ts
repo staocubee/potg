@@ -2,12 +2,17 @@
 // endpoint, so every screen and the Ask AI panel share the exact same
 // request/response contracts instead of each hand-rolling fetch calls.
 //
-// Auth pattern (mirrors apps/api/src/common/guards): a bearer JWT
-// identifies the user, and a separate `X-Account-Id` header says which
-// account they're currently acting as (Module 1 — one user can belong to
-// several accounts). Both are threaded through here rather than read from
-// storage directly, so this file has no dependency on how the caller
-// persists them (see lib/auth.tsx).
+// Auth pattern (mirrors apps/api/src/common/guards): the actual access
+// token lives in an httpOnly cookie this JS can never read — every fetch
+// below just sends `credentials: "include"` and the browser attaches it
+// automatically. `ApiClient`'s own `token` field is NOT a credential
+// anymore; it's a non-secret "does the caller believe a session is
+// active" marker (see lib/auth.tsx's AuthProvider), kept only so the
+// 401-triggers-a-refresh-then-retry logic below still has something to
+// gate on. A separate `X-Account-Id` header says which account the user
+// is currently acting as (Module 1 — one user can belong to several
+// accounts) — that one really is just plumbed straight through, since
+// it's not a secret.
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
 
@@ -23,11 +28,15 @@ export class ApiError extends Error {
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
   body?: unknown;
+  // NOT sent anywhere — the real credential lives in an httpOnly cookie
+  // the browser attaches on its own. This only gates whether request()
+  // believes the call was meant to be authenticated, i.e. whether a 401
+  // is worth retrying after a silent refresh. See the module comment.
   token?: string | null;
   accountId?: string | null;
-  // Internal — set when request() re-issues a call with a freshly refreshed
-  // access token, so a second 401 (refresh token also expired/invalid, or
-  // the server rejects the new token for some other reason) fails instead
+  // Internal — set when request() re-issues a call after a successful
+  // silent refresh, so a second 401 (refresh token also expired/invalid,
+  // or the server rejects the retry for some other reason) fails instead
   // of looping forever.
   _isRetry?: boolean;
 };
@@ -35,51 +44,46 @@ type RequestOptions = {
 // ---- Access-token refresh -------------------------------------------------
 //
 // AuthService issues a short-lived (1h) access token plus a long-lived
-// (30d) refresh token (see apps/api/src/auth/auth.service.ts). Rather than
-// making every screen notice a 401 and handle it, request() below does it
-// once, centrally: on a 401 from an authenticated call, it transparently
-// swaps the refresh token for a new pair via POST /auth/refresh, retries
-// the original call with the new access token, and only surfaces an error
-// to the caller if that retry also fails (refresh token expired too, or
-// this account was otherwise signed out — either way, the right response
-// is a real logout).
+// (30d) refresh token (see apps/api/src/auth/auth.service.ts), both now
+// httpOnly cookies (see AuthController) — this module never sees either
+// token's actual value. Rather than making every screen notice a 401 and
+// handle it, request() below does it once, centrally: on a 401 from an
+// authenticated call, it transparently asks POST /auth/refresh to mint a
+// new pair (the browser sends the existing refresh_token cookie
+// automatically; the response Set-Cookie headers replace both cookies,
+// invisibly to this code), retries the original call, and only surfaces
+// an error to the caller if that retry also fails (refresh token expired
+// too, or this account was otherwise signed out — either way, the right
+// response is a real logout).
 //
 // lib/auth.tsx's AuthProvider is the only caller of configureAuthSession —
-// it's the one place that knows how to persist a refreshed pair and how to
-// force a logout, so this module never touches localStorage or routing
-// itself.
+// it's the one place that knows how to force a logout and redirect, so
+// this module never touches storage or routing itself.
 type AuthSessionHooks = {
-  getRefreshToken: () => string | null;
-  onRefreshed: (tokens: { accessToken: string; refreshToken: string }) => void;
   onRefreshFailed: () => void;
 };
 
 let authSessionHooks: AuthSessionHooks | null = null;
-let refreshInFlight: Promise<{ accessToken: string; refreshToken: string } | null> | null = null;
+let refreshInFlight: Promise<boolean> | null = null;
 
 export function configureAuthSession(hooks: AuthSessionHooks | null) {
   authSessionHooks = hooks;
 }
 
-// Endpoints that either don't take a token or ARE the refresh flow itself —
-// a 401 from any of these must never trigger another refresh attempt.
+// Endpoints that either don't need a session or ARE the refresh flow
+// itself — a 401 from any of these must never trigger another refresh
+// attempt.
 const NO_REFRESH_PATHS = ["/auth/login", "/auth/register", "/auth/refresh"];
 
-function performRefresh(): Promise<{ accessToken: string; refreshToken: string } | null> {
-  if (!authSessionHooks) return Promise.resolve(null);
-  const refreshToken = authSessionHooks.getRefreshToken();
-  if (!refreshToken) return Promise.resolve(null);
-
+function performRefresh(): Promise<boolean> {
   // Concurrent 401s (several requests firing around the same time, all
   // hitting the same expired access token) share one in-flight refresh
   // call instead of each racing their own — the check-and-set here is
   // synchronous, so it's safe without a lock.
   if (!refreshInFlight) {
-    refreshInFlight = request<{ accessToken: string; refreshToken: string }>("/auth/refresh", {
-      method: "POST",
-      body: { refreshToken },
-    })
-      .catch(() => null)
+    refreshInFlight = request<unknown>("/auth/refresh", { method: "POST" })
+      .then(() => true)
+      .catch(() => false)
       .finally(() => {
         refreshInFlight = null;
       });
@@ -87,14 +91,34 @@ function performRefresh(): Promise<{ accessToken: string; refreshToken: string }
   return refreshInFlight;
 }
 
+// Reads the CSRF double-submit cookie (see apps/api/src/common/guards/
+// csrf.guard.ts) so it can be echoed back as a header on mutating
+// requests — this cookie is deliberately NOT httpOnly, it carries no
+// authority on its own, only proof that this same-site page could read
+// it. SSR-safe: `document` doesn't exist server-side, and there's no
+// session to protect there either.
+function getCsrfToken(): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
+  const method = opts.method ?? "GET";
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (opts.token) headers["Authorization"] = `Bearer ${opts.token}`;
   if (opts.accountId) headers["X-Account-Id"] = opts.accountId;
+  if (method !== "GET") {
+    const csrf = getCsrfToken();
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+  }
 
   const res = await fetch(`${API_URL}${path}`, {
-    method: opts.method ?? "GET",
+    method,
     headers,
+    // Sends the httpOnly auth cookies (and the readable CSRF one) on
+    // every request, including cross-origin ones to the API's own port —
+    // see main.ts's CORS config for the other half of making that work.
+    credentials: "include",
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
 
@@ -102,11 +126,17 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const data = isJson ? await res.json().catch(() => undefined) : undefined;
 
   if (!res.ok) {
-    if (res.status === 401 && opts.token && !opts._isRetry && !NO_REFRESH_PATHS.includes(path)) {
+    // getCsrfToken() !== null is a "was there ever a session to refresh"
+    // check, not the actual credential — the csrf_token cookie is set and
+    // cleared in lockstep with refresh_token (see cookie.util.ts), so its
+    // absence is a reliable signal there's nothing to refresh, without
+    // this code ever needing to see the real refresh token. Skips a
+    // guaranteed-to-fail (and CSRF-guard-rejected, not even a clean 401)
+    // round trip on every page load for a visitor who was never signed in.
+    if (res.status === 401 && opts.token && !opts._isRetry && !NO_REFRESH_PATHS.includes(path) && getCsrfToken() !== null) {
       const refreshed = await performRefresh();
       if (refreshed) {
-        authSessionHooks?.onRefreshed(refreshed);
-        return request<T>(path, { ...opts, token: refreshed.accessToken, _isRetry: true });
+        return request<T>(path, { ...opts, _isRetry: true });
       }
       authSessionHooks?.onRefreshFailed();
     }
@@ -122,7 +152,7 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
 
 // ---- Shapes -----------------------------------------------------------
 
-export type AuthResponse = { accessToken: string; refreshToken: string };
+export type CurrentUser = { id: string; email: string };
 
 export type AccountSummary = {
   accountId: string;
@@ -795,14 +825,28 @@ export class ApiClient {
   ) {}
 
   // --- Auth (no account context needed) ---
+  // register/login set the session as httpOnly cookies server-side (see
+  // AuthController) and hand back nothing sensitive — call me() right
+  // after to find out who's actually signed in. logout() clears them the
+  // same way; there's no client-side refresh() wrapper since the only
+  // caller is request()'s own silent-refresh retry, which calls the
+  // endpoint directly (see performRefresh above).
   register(input: { name: string; email: string; phone?: string; password: string; inviteToken?: string }) {
-    return request<AuthResponse>("/auth/register", { method: "POST", body: input });
+    return request<Record<string, never>>("/auth/register", { method: "POST", body: input });
   }
   login(email: string, password: string) {
-    return request<AuthResponse>("/auth/login", { method: "POST", body: { email, password } });
+    return request<Record<string, never>>("/auth/login", { method: "POST", body: { email, password } });
   }
-  refresh(refreshToken: string) {
-    return request<AuthResponse>("/auth/refresh", { method: "POST", body: { refreshToken } });
+  logout() {
+    return request<{ message: string }>("/auth/logout", { method: "POST" });
+  }
+  // token: "pending" here (rather than this.token, which the caller — see
+  // AuthProvider's hydrate effect — genuinely doesn't have yet) is what
+  // tells request() a 401 is worth a silent-refresh retry instead of just
+  // meaning "not signed in": the access-token cookie can be stale while
+  // the longer-lived refresh_token cookie is still good.
+  me() {
+    return request<CurrentUser>("/auth/me", { token: "pending" });
   }
   forgotPassword(email: string) {
     return request<{ message: string; resetToken?: string }>("/auth/forgot-password", { method: "POST", body: { email } });

@@ -7,11 +7,14 @@ export class JwtAuthGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest();
-    const header: string | undefined = req.headers['authorization'];
-    if (!header || !header.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Missing bearer token');
+    // Read from the httpOnly `access_token` cookie (see
+    // src/auth/cookie.util.ts) rather than an Authorization header — the
+    // whole point of httpOnly is that this app's own JS never sees the
+    // token to attach it manually, the browser does that automatically.
+    const token: string | undefined = req.cookies?.['access_token'];
+    if (!token) {
+      throw new UnauthorizedException('Missing access token');
     }
-    const token = header.slice('Bearer '.length);
     try {
       const payload = this.jwt.verify(token) as { sub: string; email: string; type?: string };
       // Refresh tokens are signed with the same secret (AuthService issues

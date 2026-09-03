@@ -1,49 +1,22 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
-import { AccountSummary, ApiClient, ApiError, configureAuthSession } from "./api";
+import { AccountSummary, ApiClient, ApiError, CurrentUser, configureAuthSession } from "./api";
 
-const ACCESS_TOKEN_KEY = "potg.accessToken";
-const REFRESH_TOKEN_KEY = "potg.refreshToken";
 const ACCOUNT_KEY = "potg.accountId";
 
-// Reads a JWT's `exp` claim (seconds since epoch, base64url-encoded in the
-// token's second segment) without verifying the signature — this is only
-// ever used for "is this obviously expired, is it even worth trying" UX
-// decisions on hydrate. The server remains the actual authority on
-// validity; a forged-but-unexpired token here still gets rejected by
-// JwtAuthGuard on the first real request.
-function decodeExpiryMs(token: string): number | null {
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return typeof payload.exp === "number" ? payload.exp * 1000 : null;
-  } catch {
-    return null;
-  }
-}
-
-function isExpired(token: string): boolean {
-  const exp = decodeExpiryMs(token);
-  return exp !== null && exp < Date.now();
-}
-
-// Same "read the claim, don't verify" caveat as decodeExpiryMs — this is
-// only ever used for the accept-invite page's "does this match who you're
-// signed in as" UX check, never as a substitute for a real server-side
-// check (AccountsService.acceptInvite does its own email comparison).
-function decodeEmail(token: string): string | null {
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return typeof payload.email === "string" ? payload.email : null;
-  } catch {
-    return null;
-  }
-}
-
 type AuthContextValue = {
-  // `hydrated` is true once we've checked localStorage on the client — pages
-  // should wait for it before deciding to redirect to /login, otherwise a
-  // logged-in user briefly bounces to the login page on every hard refresh.
+  // `hydrated` is true once the initial GET /auth/me probe (see below) has
+  // resolved either way — pages should wait for it before deciding to
+  // redirect to /login, otherwise a logged-in user briefly bounces to the
+  // login page on every hard refresh.
   hydrated: boolean;
+  // NOT a credential — the actual access/refresh tokens live in httpOnly
+  // cookies this app's JS never sees (see lib/api.ts's module comment).
+  // This is just a non-secret "is a session active" marker (the signed-in
+  // user's own id), kept under the same name so every existing
+  // `if (!auth.token)` truthiness check across the app keeps working
+  // unchanged — none of them ever needed the actual token value, only
+  // whether one existed.
   token: string | null;
   currentUserEmail: string | null;
   accounts: AccountSummary[];
@@ -51,7 +24,7 @@ type AuthContextValue = {
   currentAccountId: string | null;
   currentAccount: AccountSummary | null;
   api: ApiClient;
-  setTokens: (accessToken: string, refreshToken: string) => void;
+  setSignedIn: (user: CurrentUser) => void;
   switchAccount: (accountId: string) => void;
   refreshAccounts: () => Promise<AccountSummary[]>;
   logout: () => void;
@@ -62,69 +35,63 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [token, setTokenState] = useState<string | null>(null);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   // True once GET /auth/accounts has resolved at least once for the current
-  // token — lets pages/index.tsx tell "still checking" apart from
+  // session — lets pages/index.tsx tell "still checking" apart from
   // "confirmed zero accounts", send them to /accounts/new".
   const [accountsLoaded, setAccountsLoaded] = useState(false);
 
   // Every screen and the Ask AI panel read from this one client, kept in
-  // sync with whatever token/account is currently active — see
+  // sync with whatever session/account is currently active — see
   // lib/api.ts's note on why ApiClient takes both rather than reading
   // storage itself.
   const api = useMemo(() => new ApiClient(token, currentAccountId), [token, currentAccountId]);
 
   const logout = useCallback(() => {
-    window.localStorage.removeItem(ACCESS_TOKEN_KEY);
-    window.localStorage.removeItem(REFRESH_TOKEN_KEY);
     window.localStorage.removeItem(ACCOUNT_KEY);
     setTokenState(null);
+    setCurrentUserEmail(null);
     setCurrentAccountId(null);
     setAccounts([]);
+    // Best-effort: an httpOnly cookie can't be cleared by this code
+    // directly (that's the whole point), so the server has to do it —
+    // fire-and-forget, since the client-side state above is what every
+    // page actually gates rendering on regardless of whether this
+    // round-trip succeeds.
+    new ApiClient(null, null).logout().catch(() => undefined);
   }, []);
 
-  const setTokens = useCallback((accessToken: string, refreshToken: string) => {
-    window.localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
-    window.localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
-    setTokenState(accessToken);
+  const setSignedIn = useCallback((user: CurrentUser) => {
+    setTokenState(user.id);
+    setCurrentUserEmail(user.email);
   }, []);
 
-  // Wires lib/api.ts's request() up to this provider: on a 401, request()
-  // calls getRefreshToken() to see if it's worth trying a silent refresh,
-  // onRefreshed() to persist whatever it gets back, and onRefreshFailed()
-  // to force a real logout when the refresh token itself is no good
-  // anymore. See api.ts's own comment on configureAuthSession for the full
-  // request/retry flow — this file only owns the storage/state side of it.
+  // Wires lib/api.ts's request() up to this provider: on a 401 that a
+  // silent refresh couldn't fix, force a real logout. See api.ts's own
+  // comment on configureAuthSession for the full request/retry flow —
+  // this file only owns the "what happens when it's truly given up" side
+  // of it now; there's nothing left to persist, cookies handle that.
   useEffect(() => {
-    configureAuthSession({
-      getRefreshToken: () => window.localStorage.getItem(REFRESH_TOKEN_KEY),
-      onRefreshed: ({ accessToken, refreshToken }) => setTokens(accessToken, refreshToken),
-      onRefreshFailed: () => logout(),
-    });
+    configureAuthSession({ onRefreshFailed: () => logout() });
     return () => configureAuthSession(null);
-  }, [setTokens, logout]);
+  }, [logout]);
 
+  // No token string to read from storage anymore — the session lives in
+  // an httpOnly cookie this code can't see. Ask the server instead: GET
+  // /auth/me succeeds if there's a live session (or one request()'s own
+  // silent-refresh retry could revive), 401s if not. Runs once on mount.
   useEffect(() => {
-    const storedAccess = window.localStorage.getItem(ACCESS_TOKEN_KEY);
-    const storedRefresh = window.localStorage.getItem(REFRESH_TOKEN_KEY);
-    const storedAccount = window.localStorage.getItem(ACCOUNT_KEY);
-    // A stale-but-present access token with a still-valid refresh token is
-    // kept as-is on purpose: the next API call 401s and gets silently
-    // refreshed by request() (see api.ts), no extra logic needed here. But
-    // if the refresh token is missing or has itself expired, there's no
-    // way back in without a real login — clear everything rather than
-    // leaving a token around that would make pages briefly render as
-    // "signed in" only to bounce once the first request fails.
-    if (storedAccess && storedRefresh && !isExpired(storedRefresh)) {
-      setTokenState(storedAccess);
-      if (storedAccount) setCurrentAccountId(storedAccount);
-    } else if (storedAccess || storedRefresh) {
-      window.localStorage.removeItem(ACCESS_TOKEN_KEY);
-      window.localStorage.removeItem(REFRESH_TOKEN_KEY);
-      window.localStorage.removeItem(ACCOUNT_KEY);
-    }
-    setHydrated(true);
+    new ApiClient(null, null)
+      .me()
+      .then((user) => {
+        setSignedIn(user);
+        const storedAccount = window.localStorage.getItem(ACCOUNT_KEY);
+        if (storedAccount) setCurrentAccountId(storedAccount);
+      })
+      .catch(() => undefined)
+      .finally(() => setHydrated(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -161,7 +128,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const currentAccount = accounts.find((a) => a.accountId === currentAccountId) ?? null;
-  const currentUserEmail = useMemo(() => (token ? decodeEmail(token) : null), [token]);
 
   const value: AuthContextValue = {
     hydrated,
@@ -172,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     currentAccountId,
     currentAccount,
     api,
-    setTokens,
+    setSignedIn,
     switchAccount,
     refreshAccounts,
     logout,
@@ -187,7 +153,7 @@ export function useAuth(): AuthContextValue {
   return ctx;
 }
 
-// Redirects to /login once hydration has confirmed there's no token.
+// Redirects to /login once hydration has confirmed there's no session.
 // Screens call this instead of duplicating the same effect everywhere.
 export function useRequireAuth() {
   const auth = useAuth();

@@ -1,45 +1,78 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
-import { RefreshDto } from './dto/refresh.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { setAuthCookies, clearAuthCookies } from './cookie.util';
 
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
+  // Sets the session as httpOnly cookies (see cookie.util.ts) rather than
+  // returning the token pair in the response body — the latter would
+  // defeat the whole point (any XSS that can read a fetch response can
+  // read a JSON body just as easily as localStorage). The response body
+  // only ever carries non-sensitive info the client actually needs to
+  // render something.
   @Post('register')
-  register(@Body() dto: RegisterDto) {
-    return this.auth.register(dto);
+  async register(@Body() dto: RegisterDto, @Res({ passthrough: true }) res: Response) {
+    const { accessToken, refreshToken, ...rest } = await this.auth.register(dto);
+    setAuthCookies(res, { accessToken, refreshToken });
+    return rest;
   }
 
   // Credential-guessing target — 5 attempts/minute per IP, well under the
   // module-wide default (100/min) set in AppModule.
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto.email, dto.password);
+  async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
+    const { accessToken, refreshToken, ...rest } = await this.auth.login(dto.email, dto.password);
+    setAuthCookies(res, { accessToken, refreshToken });
+    return rest;
   }
 
   // Unauthenticated on purpose — the refresh token itself is the
   // credential, the same way a password is on /login. JwtAuthGuard would
-  // refuse it anyway (it only accepts type: 'access' tokens).
+  // refuse it anyway (it only accepts type: 'access' tokens). Reads the
+  // credential from the httpOnly refresh_token cookie now instead of the
+  // request body — there's nowhere else for it to have come from once
+  // this app's own JS can no longer see it. CsrfGuard (global, see
+  // AppModule) still checks this route: it acts on the cookie's ambient
+  // authority the same way any other mutating route does.
   @Post('refresh')
-  refresh(@Body() dto: RefreshDto) {
-    return this.auth.refresh(dto.refreshToken);
+  async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const { accessToken, refreshToken, ...rest } = await this.auth.refresh(req.cookies?.['refresh_token']);
+    setAuthCookies(res, { accessToken, refreshToken });
+    return rest;
   }
 
-  // Revokes the given refresh token early instead of leaving it valid
-  // until its own 30-day expiry. Unauthenticated for the same reason
-  // /refresh is: the refresh token itself is the credential this acts on.
+  // Revokes the current refresh token early instead of leaving it valid
+  // until its own 30-day expiry, and clears all three auth cookies.
+  // Unauthenticated for the same reason /refresh is: the refresh token
+  // itself is the credential this acts on, read from its cookie.
   @Post('logout')
-  logout(@Body() dto: RefreshDto) {
-    return this.auth.logout(dto.refreshToken);
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const result = await this.auth.logout(req.cookies?.['refresh_token']);
+    clearAuthCookies(res);
+    return result;
+  }
+
+  // The other half of moving the token out of the response body: the
+  // client used to decode its own JWT (see the old lib/auth.tsx) to know
+  // who's signed in and when the access token expires — it can't do that
+  // anymore, so it asks instead. Only ever needs to be called once after
+  // establishing a session (or on page load, to confirm one is still
+  // live), not on every request.
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  me(@CurrentUser() user: { id: string; email: string }) {
+    return user;
   }
 
   // Same reasoning as login: an unlimited forgot-password endpoint is both
