@@ -2252,17 +2252,15 @@ see "The bug this surfaced" below.
     doesn't include it, the same category of constraint the Paystack
     section above already documents for reserved test-TLD emails.
 
-## Stripe: correctly shaped, deliberately inactive (this pass)
+## Stripe: the fourth gateway, now live too (this pass)
 
-The fourth gateway Section 16 named. Unlike Flutterwave/PayPal above,
-this one was never turned on — no credentials were ready for it yet —
-but it's not a stub either: `StripeService`
-(`src/payments/stripe.service.ts`) is a real, correctly-shaped deposit
-gateway gated by the exact `isConfigured` pattern `PaystackService`
-already established, so setting `STRIPE_SECRET_KEY` later makes it start
-working with no code changes, the same way that key being unset already
-leaves every deposit on the "manual" simulated path with nothing
-breaking.
+The fourth gateway Section 16 named. Written first as a correctly-shaped
+but deliberately inactive deposit gateway (no credentials were ready for
+it yet), then activated and verified live in the same pass once they
+were: `StripeService` (`src/payments/stripe.service.ts`) is gated by the
+exact `isConfigured` pattern `PaystackService` already established, so it
+needed zero code changes between "inactive" and "live" — only
+`STRIPE_SECRET_KEY` going from unset to set.
 
 - **Deposit-only, on purpose.** Paystack/Flutterwave/PayPal all pay a
   vendor directly from this platform's own gateway balance (a bank
@@ -2281,10 +2279,22 @@ breaking.
   `line_items[0][price_data][unit_amount]`), not JSON. `toFormBody`
   exists only to build that encoding correctly for the one request shape
   this file actually sends (a Checkout Session).
-- **Not live-tested** — deliberately, per instruction, since credentials
-  for it aren't considered ready yet even though a `STRIPE_SECRET_KEY`
-  value exists in this environment's `.env` as of this pass (worth a
-  second look before treating it as active).
+- **Verified live, further than any of the other three gateways this
+  pass**: this is the only one of the four where completing the actual
+  buyer-side checkout was possible without an external sandbox account —
+  Stripe's own well-known test card (`4242 4242 4242 4242`) needs
+  nothing else. First confirmed the real minimum-charge constraint
+  Stripe enforces (a session has to convert to at least ~$0.50 — a ₦10
+  deposit correctly 400'd on that, not a bug), then ran the whole flow
+  for real at ₦50,000: a genuine `checkout.stripe.com` session showing
+  the right product name, the right amount, and `payableEmail`'s
+  reserved-test-TLD rewrite already applied to the prefilled email (the
+  same helper `deposit()` uses for every gateway); paid with the test
+  card through Stripe's actual hosted checkout; landed back on
+  `?depositReference=<id>` exactly like the other three gateways now do;
+  and confirmed server-side that `verifyDeposit` correctly captured it,
+  credited escrow by exactly ₦50,000, and issued a real receipt — the
+  full path, not just session creation.
 
 ## Accepting a listing-description draft now saves it (this pass)
 
@@ -2856,19 +2866,23 @@ blueprint, or explicitly cut from it:
   arguments (e.g. "model a 10% rent increase" → `{ scenario:
   "rent_increase", rentIncreasePercent: 10 }`); the no-API-key stub doesn't
   attempt that.
-- **Payouts are real, and Section 16's "at least one gateway" is now three
-  of the four it named.** See "A real payout gateway — Paystack
-  Transfers" and "Flutterwave and PayPal: a second and third real
-  gateway" above — Paystack, Flutterwave, and PayPal all process real
-  deposits and payouts now, each verified live against its own real API
-  (Paystack's own payout still blocked on external account activation at
-  the OTP step; Flutterwave and PayPal both verified further, including a
-  real payout attempt). Stripe is the one gateway still not live —
-  deposit-only and code-complete (see StripeService's own comment for why
-  payouts specifically are out of scope, not just unfinished), inactive
-  until `STRIPE_SECRET_KEY` is set. The licensing/compliance workstream
-  the blueprint says to run alongside all of this (Section 15) is still
-  entirely open — that was never code this pass could close.
+- **All four gateways Section 16 named are live now — deposits on all
+  four, payouts on three of them.** See "A real payout gateway —
+  Paystack Transfers", "Flutterwave and PayPal: a second and third real
+  gateway", and "Stripe: the fourth gateway, now live too" above.
+  Paystack, Flutterwave, and PayPal all process real deposits and
+  payouts, each verified live against its own real API (Paystack's own
+  payout still blocked on external account activation at the OTP step;
+  Flutterwave and PayPal both verified further, including a real payout
+  attempt). Stripe is deposit-only by design, not by omission — see
+  StripeService's own comment for why a payout path would need Stripe
+  Connect, a materially different product, rather than being something
+  this file could "complete in advance" — but its deposit side is fully
+  live and was verified furthest of all four: an actual test-card
+  checkout completed end to end, not just a session created. The
+  licensing/compliance workstream the blueprint says to run alongside
+  all of this (Section 15) is still entirely open — that was never code
+  this pass could close.
 - **Dispute arbitration's evidence gap is closed on both sides now.** See
   "Extending the neutral reviewer to dispute arbitration", "An
   evidence-request step for dispute arbitration", and "Submitting
