@@ -676,6 +676,16 @@ export type PaymentsOverview = {
   }[];
 };
 
+export type PortfolioOverview = {
+  currency: string;
+  properties: { total: number; byStatus: { status: string; count: number }[]; totalEstimatedValue: number };
+  projects: { total: number; byStatus: { status: string; count: number }[] };
+  maintenance: { total: number; open: number; resolved: number };
+  inspections: { total: number; scheduled: number; pass: number; needsAttention: number; fail: number };
+  vendorSpendByCurrency: { currency: string; total: number }[];
+  topVendors: { vendorId: string; businessName: string; currency: string; total: number }[];
+};
+
 export type Listing = {
   id: string;
   propertyId: string;
@@ -1443,6 +1453,9 @@ export class ApiClient {
   }
   getPaymentsOverview() {
     return request<PaymentsOverview>("/payments/overview", { token: this.token, accountId: this.accountId });
+  }
+  getPortfolioOverview() {
+    return request<PortfolioOverview>("/reports/portfolio-overview", { token: this.token, accountId: this.accountId });
   }
   findOpenDisputesForArbitration() {
     return request<Dispute[]>("/payments/disputes/open", { token: this.token, accountId: this.accountId });

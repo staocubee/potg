@@ -25,6 +25,7 @@ const KEYWORD_ROUTES: Record<string, string[]> = {
   verify_property_documents: ['verify', 'missing document', 'missing paper', 'checklist'],
   summarize_property: ['summarize', 'summary', 'overview of'],
   estimate_project_budget: ['estimate', 'budget', 'boq', 'bill of quantities'],
+  summarize_project: ['summarize', 'summary', 'project health', 'how is this project', 'overview of'],
   draft_project_status_update: ['status update', 'progress update', 'draft an update'],
   compare_vendor_quotes: ['compare quote', 'compare vendor', 'which vendor', 'which quote'],
   explain_fees: ['fee', 'escrow', 'explain the charge', 'explain the balance'],

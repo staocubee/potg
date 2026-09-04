@@ -18,6 +18,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/marketplace", label: "Marketplace", icon: "🏷️", enabled: true },
   { href: "/documents", label: "Documents", icon: "📄", enabled: true },
   { href: "/payments", label: "Payments", icon: "💳", enabled: true },
+  { href: "/reports", label: "Reports", icon: "📊", enabled: true },
 ];
 
 export default function AppShell({

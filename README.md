@@ -2778,6 +2778,64 @@ something you have to ask the AI for.
   two-point trend line all changed correctly, labeled with both
   valuation dates.
 
+## A project summary skill, and a real Reports dashboard (this pass)
+
+Two small, genuinely different gaps closed together — one AI-side, one
+deterministic — both under the "Deeper AI"/"the full fixed-dashboard
+side of reports" bullets that were still open.
+
+- **`summarize_project`** (new AI skill, `project` context) — every other
+  module already had a real "give me the whole picture" summary skill
+  (`summarize_property`, `summarize_inspection_history`,
+  `summarize_lease_status`, `summarize_maintenance_backlog`); Module 9
+  never did. Deliberately not a duplicate of `draft_project_status_update`
+  (which already covers stage progress and recent narrative updates) —
+  this one covers what that skill doesn't: vendor assignment, a
+  milestone/approval breakdown including overdue ones, budget vs. what's
+  actually been released so far, and any open disputes, with `warn: true`
+  set whenever either of the last two is non-zero.
+- **Fixed a real ambiguity this surfaced in `ChatService`**: the
+  keyword-matching stub LLM provider has no way to tell
+  `summarize_property` and `summarize_project` apart when both are
+  offered and the message just says "summarize" — a real model reasons
+  about which one fits the conversation, the stub can't. `ChatService`
+  now filters the tools it offers down to the current conversation's own
+  `moduleContext` prefix once one is set (an unscoped conversation still
+  sees everything, so the existing "this conversation isn't scoped to
+  anything yet" guidance still fires the same way it always did) — a
+  skill whose `moduleContextPrefix` doesn't match couldn't have run in
+  this conversation anyway, so this is also just less dead weight for a
+  real model to consider, not only a stub workaround.
+- **`GET /reports/portfolio-overview`** (`ReportsService`, new module) —
+  the deterministic counterpart to `generate_portfolio_report` (the
+  AI-narrated account-wide skill): real counts and totals across every
+  property an account owns — properties/projects by status, open vs.
+  resolved maintenance, inspection pass/fail/needs-attention breakdown,
+  and top vendors by amount paid. Vendor spend is grouped by (vendor,
+  currency), never summed across currencies — same caution
+  `PaymentsService.getAccountOverview` already applies to deposits/
+  releases, since one account can run projects in more than one currency
+  even though `Property.estimatedValue` itself is implicitly the
+  account's own single currency (no currency field of its own). Gated on
+  `property:read`, the same permission every owner-side role already
+  carries and vendor/supplier accounts don't — an owner-side report, not
+  a marketplace one, same reasoning `AccountPaymentsController.
+  getOverview` already uses for `payment:read`.
+- **Web**: a new `/reports` page and sidebar nav item — stat tiles, a
+  plain labeled-bar status breakdown (not another SVG chart: a handful of
+  counts against a total doesn't need an axis or points the way the ROI
+  dashboard's real time series did), and a top-vendors list.
+  Self-fetching, same pattern the ROI dashboard and `AskAiPanel` already
+  use.
+- **Verified live end-to-end**: ran `summarize_project` against the demo
+  Kitchen Renovation project and confirmed every figure (vendor name,
+  2/4 milestones completed, budget 2,500,000 NGN with 901,000 released —
+  36%) against the underlying data by hand; loaded `/reports` and
+  confirmed its numbers independently — including landing on the exact
+  same 901,000 NGN top-vendor total the AI skill had just computed
+  separately, a real cross-check that the two features can't quietly
+  disagree about the same underlying payouts.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -2787,11 +2845,15 @@ blueprint, or explicitly cut from it:
   workflow — the rest of risk flags/trust scores beyond listings and
   vendors/suppliers, an evidence-request step for the rest of the neutral
   reviewer's actions; the rest of valuation beyond `PropertyValuation`,
-  compliance, community management, AR/VR, the full fixed-dashboard side
-  of reports, admin operations, ...) — this scaffold now proves the
-  pattern for Modules 1, 2, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12,
-  13, 15, and 23, not the full 24. Modules 8, 12, and 13 are slices, not
-  the full modules: 8 and 12 can now point an inspector/assignee at a
+  compliance, community management, AR/VR, admin operations, ...) — this
+  scaffold now proves the pattern for Modules 1, 2, 4, 5, 7, 9, 10, 11,
+  and a slice of 6, 8, 12, 13, 14, 15, and 23, not the full 24. Module 14
+  (Reports) is a slice too now — see "A project summary skill, and a real
+  Reports dashboard" above for `GET /reports/portfolio-overview` — real
+  counts across a portfolio, not the full reports module (no export, no
+  scheduled/emailed reports, no report builder). Modules 8, 12, and 13
+  are slices, not the full modules: 8 and 12 can now point an
+  inspector/assignee at a
   real `Vendor` account (see "Linking inspectors and maintenance
   assignees to real vendor accounts" above) but still fall back to
   freeform text for a non-platform professional, and 13 has no Tenant
@@ -2896,15 +2958,16 @@ blueprint, or explicitly cut from it:
   account that raised a dispute can't resolve it, an open dispute holds
   its milestone/payment) still exists alongside arbitration rather than
   being replaced by it.
-- **Deeper AI (Priority 6)** — natural-language project summaries beyond
-  what `summarize_property`/`draft_project_status_update` already do,
-  listing/risk summaries beyond `assess_listing_risk`, AI-generated
-  renovation visualizations (needs AR/VR first). Valuation/ROI dashboards
-  are no longer on this list — see "An ROI & valuation dashboard" above.
+- **Deeper AI (Priority 6)** — listing/risk summaries beyond
+  `assess_listing_risk`, AI-generated renovation visualizations (needs
+  AR/VR first). Natural-language project summaries and valuation/ROI
+  dashboards are no longer on this list — see "A project summary skill,
+  and a real Reports dashboard" and "An ROI & valuation dashboard" above.
 - **The rest of the web app.** Several passes now built the app shell, the
   reusable `AskAiPanel`, and screens for portfolio + projects + vendor
   marketplace + payments/escrow + property/materials marketplace +
-  documents + reviews + a payments rollup (see "Web app" above). Document
+  documents + reviews + a payments rollup + a portfolio reports dashboard
+  (see "Web app" above). Document
   verification is no longer on this list — see "Document verification"
   above — though it's still an account's own admin doing the verifying,
   not an independent reviewer.

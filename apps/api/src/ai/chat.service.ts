@@ -79,10 +79,26 @@ export class ChatService {
 
     // Only offer tools this account member could already reach directly —
     // the AI layer never sees more than the human already could (Section 8
-    // applied identically here, not just on /ai/actions).
+    // applied identically here, not just on /ai/actions) — and, once this
+    // conversation has a moduleContext, only ones that could ever actually
+    // run in it. A skill whose moduleContextPrefix doesn't match is dead
+    // weight to offer either way (its own run() would reject it), but the
+    // sharper reason this matters now: two skills can share very similar
+    // trigger phrasing (e.g. "summarize_property" and "summarize_project"
+    // both respond to "summarize"), and the keyword-matching stub provider
+    // has no way to break that tie by reasoning about intent the way a
+    // real model would — narrowing the offered list by context is what
+    // actually disambiguates it. An unscoped conversation still sees
+    // everything, so the "this conversation isn't scoped to anything yet"
+    // guidance below still fires instead of the model just seeing no tools
+    // at all.
     const permissions = new Set(accountMember.role.permissions.map((rp) => rp.permission.key));
-    const availableSkills = this.aiService.listSkills().filter((s) => permissions.has(s.requiredPermission));
     const moduleContext = dto.moduleContext ?? conversation.moduleContext ?? undefined;
+    const contextPrefix = moduleContext?.split(':')[0];
+    const availableSkills = this.aiService
+      .listSkills()
+      .filter((s) => permissions.has(s.requiredPermission))
+      .filter((s) => !contextPrefix || s.moduleContextPrefix === contextPrefix);
 
     // In-memory scratch history for this call's model round trips, seeded
     // from the persisted conversation (plain-string content, same as

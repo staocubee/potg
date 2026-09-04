@@ -11,6 +11,7 @@ import { AnthropicLlmProvider } from './llm/anthropic-llm.provider';
 import { verifyPropertyDocumentsSkill } from './skills/verify-property-documents.skill';
 import { summarizePropertySkill } from './skills/summarize-property.skill';
 import { estimateProjectBudgetSkill } from './skills/estimate-project-budget.skill';
+import { summarizeProjectSkill } from './skills/summarize-project.skill';
 import { draftProjectStatusUpdateSkill } from './skills/draft-project-status-update.skill';
 import { compareVendorQuotesSkill } from './skills/compare-vendor-quotes.skill';
 import { explainFeesSkill } from './skills/explain-fees.skill';
@@ -53,6 +54,7 @@ import { summarizeRentalBookingsSkill } from './skills/summarize-rental-bookings
         verifyPropertyDocumentsSkill,
         summarizePropertySkill,
         estimateProjectBudgetSkill,
+        summarizeProjectSkill,
         draftProjectStatusUpdateSkill,
         compareVendorQuotesSkill,
         explainFeesSkill,

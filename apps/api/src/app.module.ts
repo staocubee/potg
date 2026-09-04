@@ -14,6 +14,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { ListingsModule } from './listings/listings.module';
 import { MaterialsModule } from './materials/materials.module';
 import { AiModule } from './ai/ai.module';
+import { ReportsModule } from './reports/reports.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { AiModule } from './ai/ai.module';
     ListingsModule,
     MaterialsModule,
     AiModule,
+    ReportsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
