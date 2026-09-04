@@ -229,6 +229,18 @@ const ROLES: Record<string, string[]> = {
     'review:respond',
     'review:flag',
   ],
+  // A renter's own account — the other half of the "no separate Tenant
+  // identity" gap Lease.tenantName's own schema comment used to flag.
+  // Deliberately minimal, same "only what its own screen needs" reasoning
+  // platform_reviewer's own comment gives: a tenant reads its own lease
+  // and rent history, and can report a maintenance issue — never
+  // lease:write (rent/dates/deposit stay landlord-controlled), never
+  // property:read/write (no general access to the property record
+  // itself, only what TenantService's own routes expose), never
+  // document:read (documents aren't scoped to a lease at all in this
+  // scaffold, so there'd be no way to limit it to "documents about my
+  // own tenancy").
+  tenant: ['lease:read', 'maintenance:read', 'maintenance:write'],
   // Section 8's own example role: "a family member can view documents but
   // not approve payments" — a read-only member of a family/company account.
   // Notably excludes payment:approve and dispute:write for the same reason.
@@ -293,6 +305,8 @@ const DEMO_ORDER_ID = '00000000-0000-0000-0000-00000000000c';
 const DEMO_VALUATION_ID = '00000000-0000-0000-0000-00000000000d';
 const DEMO_CONVERSATION_ID = '00000000-0000-0000-0000-00000000000e';
 const DEMO_PLATFORM_ACCOUNT_ID = '00000000-0000-0000-0000-00000000000f';
+const DEMO_TENANT_ACCOUNT_ID = '00000000-0000-0000-0000-000000000010';
+const DEMO_LEASE_ID = '00000000-0000-0000-0000-000000000011';
 // Matches ProjectsService.create's default stage sequence — kept in sync by
 // hand since the seed script doesn't call the service directly.
 const DEFAULT_STAGES = ['Scope', 'Quote', 'Materials', 'Work', 'Handover'];
@@ -815,6 +829,56 @@ async function main() {
     create: { accountId: platformAccount.id, userId: user.id, roleId: platformReviewerRole.id },
   });
 
+  console.log('Seeding demo tenant account and lease (Module 13)...');
+  // A fifth membership on the same demo user — same "one user, several
+  // accounts" pattern the vendor/supplier/platform-reviewer accounts
+  // above already use. A real deployment has a genuinely different
+  // person renting from the landlord; this scaffold's single demo login
+  // only needs to demonstrate the account type and the link-tenant flow
+  // itself, not model a second real user.
+  const tenantRole = await prisma.role.findUniqueOrThrow({ where: { key: 'tenant' } });
+  const tenantAccount = await prisma.account.upsert({
+    where: { id: DEMO_TENANT_ACCOUNT_ID },
+    update: {},
+    create: {
+      id: DEMO_TENANT_ACCOUNT_ID,
+      accountType: 'TENANT',
+      name: 'Demo Tenant',
+      country: 'NG',
+      currency: 'NGN',
+      timezone: 'Africa/Lagos',
+    },
+  });
+  await prisma.accountMember.upsert({
+    where: { accountId_userId: { accountId: tenantAccount.id, userId: user.id } },
+    update: {},
+    create: { accountId: tenantAccount.id, userId: user.id, roleId: tenantRole.id },
+  });
+  // tenantEmail matches the same demo user on purpose — so
+  // PropertiesService.linkTenantAccount (POST .../leases/:leaseId/
+  // link-tenant) has a real Tenant account it can actually find and
+  // link, the same live-verifiable flow a real landlord/tenant pair
+  // would go through. Left unlinked here (tenantAccountId stays null)
+  // so that action is something to actually call, not a fact baked into
+  // seed data.
+  const lease = await prisma.lease.upsert({
+    where: { id: DEMO_LEASE_ID },
+    update: {},
+    create: {
+      id: DEMO_LEASE_ID,
+      propertyId: property.id,
+      tenantName: 'Demo Tenant',
+      tenantEmail: DEMO_USER_EMAIL,
+      tenantPhone: '+2348000000000',
+      rentAmount: 2400000,
+      currency: 'NGN',
+      rentFrequency: 'annually',
+      depositAmount: 200000,
+      startDate: new Date('2026-06-01'),
+      status: 'active',
+    },
+  });
+
   console.log('\nDone. Demo login:');
   console.log(`  email:           ${DEMO_USER_EMAIL}`);
   console.log(`  password:        ${DEMO_USER_PASSWORD}`);
@@ -832,6 +896,12 @@ async function main() {
   console.log(`  conversation:     ${DEMO_CONVERSATION_ID} — GET /ai/conversations/${DEMO_CONVERSATION_ID} to see the tool-call pattern`);
   console.log(
     `  platform account: ${platformAccount.id} (switch X-Account-Id to this to act as the neutral platform reviewer — vendor:verify/supplier:verify only)`,
+  );
+  console.log(
+    `  tenant account:   ${tenantAccount.id} (switch X-Account-Id to this to act as the tenant — GET /tenant/lease once it's linked)`,
+  );
+  console.log(
+    `  lease:            ${lease.id} on property ${property.id}, tenantEmail matches the demo login — POST /properties/${property.id}/leases/${lease.id}/link-tenant (as the owner account) links it to the tenant account above`,
   );
 }
 

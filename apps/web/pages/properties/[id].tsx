@@ -946,7 +946,20 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
   const [editStartDate, setEditStartDate] = useState(lease.startDate.slice(0, 10));
   const [editEndDate, setEditEndDate] = useState(lease.endDate ? lease.endDate.slice(0, 10) : "");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"record" | "end" | "edit" | null>(null);
+  const [busy, setBusy] = useState<"record" | "end" | "edit" | "link" | null>(null);
+
+  async function onLinkTenant() {
+    setBusy("link");
+    setError(null);
+    try {
+      await auth.api.linkTenantAccount(propertyId, lease.id);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't link a tenant account.");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function onRecordPayment(e: FormEvent) {
     e.preventDefault();
@@ -1016,6 +1029,9 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
               {lease.rentPayments.length} payment(s) recorded · {formatMoney(String(totalPaid), lease.currency)} total
             </div>
           )}
+          <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
+            {lease.tenantAccount ? `Tenant account linked (${lease.tenantAccount.name})` : "No tenant account linked yet"}
+          </div>
         </div>
         <div style={{ textAlign: "right" }}>
           <span className="potg-badge">{lease.status}</span>
@@ -1032,13 +1048,23 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
       {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
 
       {lease.status === "active" && !recording && !editing && (
-        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+        <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
           <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setRecording(true)}>
             Record rent payment
           </button>
           <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setEditing(true)}>
             Edit
           </button>
+          {!lease.tenantAccountId && lease.tenantEmail && (
+            <button
+              className="potg-btn potg-btn-secondary"
+              style={{ padding: "3px 8px", fontSize: 11 }}
+              disabled={busy !== null}
+              onClick={onLinkTenant}
+            >
+              {busy === "link" ? "Linking…" : "Link tenant account"}
+            </button>
+          )}
           <button className="potg-btn potg-btn-danger" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={() => onEnd("ended")}>
             End lease
           </button>

@@ -336,7 +336,7 @@ export class PropertiesService {
   findLeases(propertyId: string) {
     return this.prisma.lease.findMany({
       where: { propertyId },
-      include: { rentPayments: { orderBy: { periodStart: 'desc' } } },
+      include: { rentPayments: { orderBy: { periodStart: 'desc' } }, tenantAccount: { select: { id: true, name: true } } },
       orderBy: { startDate: 'desc' },
     });
   }
@@ -344,7 +344,7 @@ export class PropertiesService {
   findLease(propertyId: string, leaseId: string) {
     return this.prisma.lease.findFirst({
       where: { id: leaseId, propertyId },
-      include: { rentPayments: { orderBy: { periodStart: 'desc' } } },
+      include: { rentPayments: { orderBy: { periodStart: 'desc' } }, tenantAccount: { select: { id: true, name: true } } },
     });
   }
 
@@ -385,6 +385,34 @@ export class PropertiesService {
       },
     });
     return updated;
+  }
+
+  // Landlord-initiated, matching inspectorVendorId/assignedVendorId's own
+  // "the owner picks a real account, nothing auto-links" shape — except
+  // there's no marketplace directory to pick a tenant from (unlike
+  // Vendor, publicly browsable on purpose), so this resolves by exact
+  // email instead: the same tenantEmail already on the lease has to
+  // belong to a real User who has already set up their own
+  // AccountType.TENANT account (this never creates one on their behalf).
+  // Once linked, TenantService's own routes become that account's window
+  // onto this one lease — see TenantModule.
+  async linkTenantAccount(propertyId: string, leaseId: string) {
+    const lease = await this.prisma.lease.findFirst({ where: { id: leaseId, propertyId } });
+    if (!lease) throw new NotFoundException('Lease not found on this property');
+    if (!lease.tenantEmail) {
+      throw new BadRequestException('This lease has no tenantEmail on file — set one first (PATCH the lease)');
+    }
+    const tenantUser = await this.prisma.user.findUnique({ where: { email: lease.tenantEmail } });
+    if (!tenantUser) {
+      throw new BadRequestException(`No PropertyOnTheGo user is registered with "${lease.tenantEmail}" yet`);
+    }
+    const tenantMembership = await this.prisma.accountMember.findFirst({
+      where: { userId: tenantUser.id, account: { accountType: 'TENANT' } },
+    });
+    if (!tenantMembership) {
+      throw new BadRequestException(`"${lease.tenantEmail}" hasn't set up a tenant account yet`);
+    }
+    return this.prisma.lease.update({ where: { id: leaseId }, data: { tenantAccountId: tenantMembership.accountId } });
   }
 
   // Module 12. Same "optional cross-reference must actually belong to

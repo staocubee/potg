@@ -1,6 +1,6 @@
 import { IsIn, IsString } from 'class-validator';
 
-const ACCOUNT_TYPES = ['INDIVIDUAL', 'FAMILY', 'COMPANY', 'VENDOR', 'SUPPLIER'] as const;
+const ACCOUNT_TYPES = ['INDIVIDUAL', 'FAMILY', 'COMPANY', 'VENDOR', 'SUPPLIER', 'TENANT'] as const;
 
 export class CreateAccountDto {
   @IsIn(ACCOUNT_TYPES)

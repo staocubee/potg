@@ -16,6 +16,7 @@ import { MaterialsModule } from './materials/materials.module';
 import { AiModule } from './ai/ai.module';
 import { ReportsModule } from './reports/reports.module';
 import { IdentityModule } from './identity/identity.module';
+import { TenantModule } from './tenant/tenant.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { IdentityModule } from './identity/identity.module';
     AiModule,
     ReportsModule,
     IdentityModule,
+    TenantModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

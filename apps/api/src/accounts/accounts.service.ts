@@ -14,6 +14,7 @@ const DEFAULT_OWNER_ROLE_BY_ACCOUNT_TYPE: Record<string, string> = {
   COMPANY: 'company_admin',
   VENDOR: 'vendor',
   SUPPLIER: 'supplier',
+  TENANT: 'tenant',
 };
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days

@@ -21,6 +21,17 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/reports", label: "Reports", icon: "📊", enabled: true },
 ];
 
+// A TENANT-type account has no real use for any item above — it doesn't
+// own a property, so property:read/write and everything nested under it
+// (projects, payments, reports, ...) just 404s or permission-errors for
+// it, the same way platform_reviewer already sees on pages outside its
+// own narrow permission set. Unlike platform_reviewer (which reaches its
+// own screens through the Vendors/Marketplace items that already exist
+// for other reasons), a tenant has no existing item that leads anywhere
+// useful — so this is the one account type that actually needs its own
+// nav entry to reach its own screen at all.
+const TENANT_NAV_ITEM: NavItem = { href: "/tenant", label: "My Lease", icon: "🔑", enabled: true };
+
 export default function AppShell({
   title,
   actions,
@@ -44,6 +55,8 @@ export default function AppShell({
 
   if (!auth.hydrated || !auth.token) return null;
 
+  const navItems = auth.currentAccount?.accountType === "TENANT" ? [TENANT_NAV_ITEM, ...NAV_ITEMS] : NAV_ITEMS;
+
   return (
     <>
       <Head>
@@ -63,7 +76,7 @@ export default function AppShell({
         >
           <div style={{ padding: "0 8px 20px", fontWeight: 700, fontSize: 16, letterSpacing: -0.3 }}>PropertyOnTheGo</div>
           <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            {NAV_ITEMS.map((item) => {
+            {navItems.map((item) => {
               const active = router.pathname.startsWith(item.href);
               const content = (
                 <span

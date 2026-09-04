@@ -10,6 +10,7 @@ const ACCOUNT_TYPES: { value: string; label: string; hint: string }[] = [
   { value: "COMPANY", label: "Company", hint: "Real estate or investment company" },
   { value: "VENDOR", label: "Vendor", hint: "Contractor / renovation vendor" },
   { value: "SUPPLIER", label: "Supplier", hint: "Materials supplier" },
+  { value: "TENANT", label: "Tenant", hint: "Renting a property listed here" },
 ];
 
 // Module 1: a user can hold several accounts at once, but needs at least

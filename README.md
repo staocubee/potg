@@ -3102,6 +3102,105 @@ different order of work.
   type and a tenant-facing signup path built from nothing, not three new
   columns on a model that already had somewhere to attach them.
 
+## A real Tenant identity (Module 13, this pass)
+
+Closes the gap the pass above deliberately left open: a genuinely new
+`AccountType.TENANT`, its own `tenant` role, and a tenant-facing view
+onto its own lease — the "bigger lift" flagged in every earlier mention
+of this gap. The key realization that kept this from being as large as
+it sounds: `pages/accounts/new.tsx` already *is* a self-serve
+account-type-picker-plus-login for every account type this scaffold
+has (INDIVIDUAL/FAMILY/COMPANY/VENDOR/SUPPLIER all reach it the same
+way) — adding TENANT to that list is most of "a tenant-facing signup
+path," not a new screen built from nothing.
+
+- **`AccountType.TENANT`** (new enum value) and a **`tenant` role**
+  (`seed.ts`) — deliberately minimal, same "only what its own screen
+  needs" reasoning `platform_reviewer` already documents: `lease:read`,
+  `maintenance:read`, `maintenance:write`. No new permission keys — this
+  reuses the exact same keys the landlord-facing lease/maintenance
+  routes already check, since a tenant's own routes never take a
+  `:propertyId`/`:projectId` param for `PermissionsGuard`'s ABAC to key
+  on, so plain RBAC is the entire access check (same reasoning the
+  vendor/supplier trust-audit routes gave for reusing `vendor:verify`/
+  `supplier:verify` instead of inventing new permissions).
+- **`Lease.tenantAccountId`** (new column) — optional, `onDelete:
+  SetNull`, same "landlord picks a real account, nothing auto-links"
+  shape `inspectorVendorId`/`assignedVendorId` already established for
+  Inspector/Contractor. The one real difference: there's no marketplace
+  directory to pick a tenant from the way `GET /vendors` lets a landlord
+  browse vendors (a browsable directory of every tenant on the platform
+  would be a real privacy problem `Vendor`'s public directory never had
+  to consider) — so linking resolves by the lease's own `tenantEmail`
+  instead of a client-supplied id.
+- **`POST /properties/:propertyId/leases/:leaseId/link-tenant`**
+  (`PropertiesService.linkTenantAccount`, `lease:write`, same ABAC as
+  every other lease mutation) — looks up the `User` registered under
+  `lease.tenantEmail`, then that user's own `AccountType.TENANT`
+  membership, and links it. Clear 400s at each step it can fail: no
+  `tenantEmail` on file, no registered user with that email yet, or a
+  registered user who hasn't set up a Tenant account yet — this never
+  creates an account on the tenant's behalf, only links one that
+  already exists.
+- **A new `TenantModule`** (`apps/api/src/tenant`) — its own
+  controller/service rather than more routes on `PropertiesController`,
+  because every route here is scoped to "whichever lease this account
+  is linked to," which is fundamentally incompatible with
+  `PermissionsGuard`'s `:propertyId` ABAC (a tenant doesn't own the
+  property, so that check would 404 it out of every landlord-facing
+  route — the same reason vendor's own actions live under `/vendors/
+  me/...` rather than `/projects/:projectId/...`). `GET /tenant/lease`
+  (the linked lease, its property, and rent history — 404 until a
+  landlord links one), `GET /tenant/maintenance-requests`, and `POST
+  /tenant/maintenance-requests` (fills in `propertyId`/`leaseId`/
+  `reportedBy` from the caller's own linked lease — a tenant never
+  supplies or sees another lease's id).
+- **Web UI**: `pages/tenant/index.tsx` — read-only lease/property/rent-
+  history display (rent/dates/deposit stay landlord-controlled, same as
+  the landlord's own lease card), plus a maintenance-report form mirrored
+  from `pages/properties/[id].tsx`'s own. `AppShell`'s nav shows a "My
+  Lease" item only for a TENANT-type account — the one account type
+  with no existing nav item that leads anywhere useful (unlike
+  `platform_reviewer`, which reaches its own screens through the
+  Vendors/Marketplace items that already exist for other reasons). The
+  landlord's own Leases card (`pages/properties/[id].tsx`) gained a
+  "Link tenant account" action (shown once `tenantEmail` is set and
+  no account is linked yet) and a "Tenant account linked (...)" /
+  "No tenant account linked yet" line.
+- **Demo data**: a fifth membership on the same demo login (`Demo
+  Tenant`, `AccountType.TENANT`) plus a seeded lease on the demo
+  property whose `tenantEmail` matches that same login — left
+  deliberately *unlinked* in seed data so `link-tenant` is something to
+  actually call and verify, not a fact baked in ahead of time.
+- **Verified live end-to-end**: as the owner account, linked the seeded
+  lease to the seeded tenant account (confirmed via the API response
+  that `tenantAccountId` was set, and via a page reload that the
+  landlord's own Leases card now reads "Tenant account linked (Demo
+  Tenant)"); switched to the tenant account and confirmed `GET /tenant/
+  lease` returned the real property/rent/deposit details; reported a
+  maintenance issue as the tenant and confirmed it appeared immediately
+  in the tenant's own list *and* on the landlord's own property page
+  with `reportedBy: "Demo Tenant"`. Confirmed isolation two ways: the
+  owner account's own `GET /tenant/lease` returns `null` (empty 200, the
+  same shape `GET /vendors/me` already returns for "no profile yet" —
+  `lease:read` is shared with the landlord roles, so the isolation comes
+  from filtering by the *caller's own* `accountId`, not from a
+  permission boundary), and the vendor account's own `GET /tenant/lease`
+  correctly 403s (`vendor` role doesn't carry `lease:read` at all).
+- **What this doesn't do.** Nothing prompts a tenant to sign up, and
+  nothing notifies a landlord when one does — the landlord has to
+  separately know the tenant registered and click "Link tenant account"
+  themselves; a real deployment would want an invite-style email closing
+  that loop, the same gap the account-member invite flow closed for
+  account membership. A tenant also can't edit their own lease (by
+  design — rent/dates/deposit stay landlord-controlled) or see documents
+  scoped to their tenancy (this scaffold's `Document` model isn't scoped
+  to a lease at all). And there's still no tenant-facing AI skill (a
+  `summarize_my_tenancy`-shaped counterpart to `summarize_lease_status`
+  would be the natural next step, mirroring the landlord-facing one) —
+  left out of this pass since nothing else in `pages/tenant/index.tsx`
+  needed `ai:act` to exist.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -3145,12 +3244,15 @@ blueprint, or explicitly cut from it:
   above). Editing a scheduled inspection's date/type/project/inspector is
   now possible — see "Edit endpoints for Inspections, Leases, and
   Maintenance requests" below.
-- **Leases — one gap left in the new module.** No separate Tenant
-  identity, and no existing account type to link one to the way
-  Inspector/Contractor now link to `Vendor` — a real deployment would
-  need a genuinely new Tenant role and tenant-facing login (see "Leases"
-  above). Editing a lease's rent/dates/deposit, and overdue-rent
-  detection, are now possible — see "Edit endpoints" and "Overdue-rent
+- **Leases — Tenant identity is closed, one smaller gap left.** A tenant
+  now has a real account type, role, and its own lease/maintenance view
+  (see "A real Tenant identity" above) — but nothing prompts a landlord
+  to actually link one once a tenant signs up (no invite-style
+  notification), and a linked tenant still can't see anything scoped to
+  their tenancy beyond the lease and maintenance requests — no documents
+  (`Document` isn't lease-scoped in this schema), no AI skill of their
+  own. Editing a lease's rent/dates/deposit, and overdue-rent detection,
+  are also possible now — see "Edit endpoints" and "Overdue-rent
   detection" below.
 - **Maintenance requests — closer to closed, one real gap left.**
   `assignedVendorId` can point at a platform `Vendor` now, and that

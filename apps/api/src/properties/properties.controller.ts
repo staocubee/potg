@@ -159,6 +159,15 @@ export class PropertiesController {
     return this.properties.endLease(propertyId, leaseId, dto);
   }
 
+  // Module 13's "no separate Tenant identity" gap — see
+  // PropertiesService.linkTenantAccount's own comment. Same lease:write
+  // gate as the rest of this lease's mutations.
+  @RequirePermissions('lease:write')
+  @Post(':propertyId/leases/:leaseId/link-tenant')
+  linkTenantAccount(@Param('propertyId') propertyId: string, @Param('leaseId') leaseId: string) {
+    return this.properties.linkTenantAccount(propertyId, leaseId);
+  }
+
   // Module 12 — own permission pair, same reasoning as inspection/lease
   // above.
   @RequirePermissions('maintenance:write')

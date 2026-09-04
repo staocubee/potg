@@ -331,6 +331,10 @@ export type Lease = {
   tenantName: string;
   tenantEmail?: string | null;
   tenantPhone?: string | null;
+  // Set once the tenant has their own AccountType.TENANT account and a
+  // landlord has linked it — see POST .../leases/:leaseId/link-tenant.
+  tenantAccountId?: string | null;
+  tenantAccount?: { id: string; name: string } | null;
   rentAmount: string;
   currency: string;
   rentFrequency: "weekly" | "monthly" | "annually" | string;
@@ -343,6 +347,7 @@ export type Lease = {
   createdAt: string;
   updatedAt: string;
   rentPayments?: LeaseRentPayment[];
+  property?: { id: string; name: string; addressLine: string; city?: string | null; country: string };
 };
 
 export type MaintenanceRequest = {
@@ -1169,6 +1174,13 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  linkTenantAccount(propertyId: string, leaseId: string) {
+    return request<Lease>(`/properties/${propertyId}/leases/${leaseId}/link-tenant`, {
+      method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   reportMaintenanceRequest(
     propertyId: string,
     input: {
@@ -1190,6 +1202,23 @@ export class ApiClient {
   }
   listMaintenanceRequests(propertyId: string) {
     return request<MaintenanceRequest[]>(`/properties/${propertyId}/maintenance-requests`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  // Tenant-facing — see apps/api/src/tenant. Scoped to whichever lease
+  // the acting TENANT-type account is linked to, never a client-supplied
+  // property/lease id.
+  myTenantLease() {
+    return request<Lease | null>("/tenant/lease", { token: this.token, accountId: this.accountId });
+  }
+  myTenantMaintenanceRequests() {
+    return request<MaintenanceRequest[]>("/tenant/maintenance-requests", { token: this.token, accountId: this.accountId });
+  }
+  reportTenantMaintenanceRequest(input: { title: string; description: string; priority?: string }) {
+    return request<MaintenanceRequest>("/tenant/maintenance-requests", {
+      method: "POST",
+      body: input,
       token: this.token,
       accountId: this.accountId,
     });

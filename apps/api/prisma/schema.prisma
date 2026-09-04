@@ -24,6 +24,11 @@ enum AccountType {
   COMPANY
   VENDOR
   SUPPLIER
+  // A renter's own account — distinct from the landlord's INDIVIDUAL/
+  // FAMILY/COMPANY account the same way VENDOR/SUPPLIER are their own
+  // marketplace-side identity. See Lease.tenantAccountId for how one
+  // gets linked to the lease it belongs to.
+  TENANT
 }
 
 enum SubscriptionPlan {
@@ -62,6 +67,10 @@ model Account {
   invites         AccountInvite[]
   rentalBookings  RentalBooking[]
   cartItems       CartItem[]
+  // The other end of Lease.tenantAccountId — a TENANT-type account's own
+  // linked lease(s). Named explicitly since Account already reaches
+  // Lease indirectly through Property, and this is a second, direct path.
+  tenantLeases    Lease[]          @relation("TenantAccountLeases")
 
   @@map("accounts")
 }
@@ -1192,32 +1201,36 @@ model InspectionFinding {
 // start from an owner recording an existing tenancy that predates this
 // software), same "record what's true, don't force a specific prior
 // workflow" reasoning `PropertyValuation.source: "manual"` already uses.
-// No separate Tenant account/identity — unlike `PropertyInspection.inspectorVendorId`
-// and `MaintenanceRequest.assignedVendorId`, there's no existing account
-// type a tenant could be linked to (Vendor is a marketplace-professional
-// profile, not a resident); a real deployment would need a genuinely new
-// Tenant role and a tenant-facing login before `tenantName` could become a
-// relation, not just a field added onto an account type that already
-// exists. `tenantName`/`tenantEmail`/`tenantPhone` stay freeform text.
+// `tenantName`/`tenantEmail`/`tenantPhone` stay freeform text — set once
+// when the lease is created, same as always, since the landlord may well
+// be recording an existing tenancy before the tenant ever touches this
+// platform. `tenantAccountId` is the real link: PropertiesService.
+// linkTenantAccount sets it once a real AccountType.TENANT account
+// exists for `tenantEmail` (the tenant has to sign up first — this never
+// creates an account on the tenant's behalf), same "optional, landlord-
+// initiated link to a real account" shape `inspectorVendorId`/
+// `assignedVendorId` already established for Inspector/Contractor.
 model Lease {
-  id            String    @id @default(uuid())
-  propertyId    String
-  tenantName    String
-  tenantEmail   String?
-  tenantPhone   String?
-  rentAmount    Decimal   @db.Decimal(14, 2)
-  currency      String
-  rentFrequency String // weekly | monthly | annually
-  depositAmount Decimal?  @db.Decimal(14, 2)
-  startDate     DateTime
-  endDate       DateTime?
-  status        String    @default("active") // active | ended | terminated
-  notes         String?
-  endedAt       DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id              String    @id @default(uuid())
+  propertyId      String
+  tenantName      String
+  tenantEmail     String?
+  tenantPhone     String?
+  tenantAccountId String?
+  rentAmount      Decimal   @db.Decimal(14, 2)
+  currency        String
+  rentFrequency   String // weekly | monthly | annually
+  depositAmount   Decimal?  @db.Decimal(14, 2)
+  startDate       DateTime
+  endDate         DateTime?
+  status          String    @default("active") // active | ended | terminated
+  notes           String?
+  endedAt         DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   property            Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenantAccount       Account?             @relation("TenantAccountLeases", fields: [tenantAccountId], references: [id], onDelete: SetNull)
   rentPayments        LeaseRentPayment[]
   maintenanceRequests MaintenanceRequest[]
 
