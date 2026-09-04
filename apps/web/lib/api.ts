@@ -280,6 +280,23 @@ export type PropertyValuation = {
   valuedAt: string;
 };
 
+// The 2D "AI-generated renovation visualization" slice — see the schema
+// comment on RenovationVisualization for why real AR/VR (Module 22)
+// isn't what this is.
+export type RenovationVisualization = {
+  id: string;
+  propertyId: string;
+  projectId?: string | null;
+  requestedByUserId: string;
+  prompt: string;
+  beforeImageUrl: string;
+  afterImageUrl?: string | null;
+  status: "pending" | "completed" | "failed" | string;
+  errorMessage?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
+};
+
 export type RoiSummary = {
   currency: string;
   currentValue: number;
@@ -1061,6 +1078,20 @@ export class ApiClient {
   }
   listValuations(propertyId: string) {
     return request<PropertyValuation[]>(`/properties/${propertyId}/valuations`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  createVisualization(propertyId: string, input: { beforeImageUrl: string; prompt: string; projectId?: string }) {
+    return request<RenovationVisualization>(`/visualizations/property/${propertyId}`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  listVisualizations(propertyId: string) {
+    return request<RenovationVisualization[]>(`/visualizations/property/${propertyId}`, {
       token: this.token,
       accountId: this.accountId,
     });

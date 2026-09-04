@@ -3339,6 +3339,104 @@ same dashboard.
   dashboard already shows — a real report *builder* stays out of scope,
   same as "Not built yet" already flagged for Module 14.
 
+## AI-generated renovation visualizations — the 2D half only (this pass)
+
+"AI-generated renovation visualizations" was Priority 6's own last
+open item, explicitly gated on Module 22 (AR/VR) existing at all. It
+doesn't, and this pass doesn't build it — real AR needs either a native
+mobile app (ARKit/ARCore; this scaffold has no mobile app) or WebXR
+(which doesn't work in iOS Safari, ruling out a large share of real
+users), real VR needs a full 3D content pipeline (three.js or
+equivalent, actual 3D assets), and turning room photos into a 3D space
+at all needs photogrammetry or NeRF-based reconstruction — no library or
+service for any of that is wired up here, and picking/integrating one
+is a multi-week research problem in its own right, not a bounded slice.
+Attempting even a stub felt like it would cost far more than it's worth
+for a scaffold, so it's documented here as a real, large, deliberately
+out-of-scope undertaking rather than faked.
+
+What *is* buildable, and what this pass builds instead: a bounded 2D
+slice — point at a room photo, describe a renovation, get back an
+AI-edited "after" image. Not a render of the user's actual space, a
+draft to get a feel for an idea.
+
+- **`RenovationVisualization`** (new model) — `beforeImageUrl` (same
+  "URL you provide yourself" convention `Document.fileUrl` already
+  uses — no upload pipeline exists in this scaffold), `prompt`,
+  `afterImageUrl` (set once generation succeeds), `status` (`pending` |
+  `completed` | `failed`) and `errorMessage` — same "record what
+  actually happened, then re-throw" shape `IdentityService.verifyNin`
+  already uses for a third-party call that might fail or might not be
+  configured. Optionally linked to a `Project`, always to a `Property`.
+  Deliberately *not* routed through the `AiRequest`/`AiOutput`/
+  `AiActionApproval` pipeline every `AiSkill` uses (`AiSkillResult` is
+  `{ draftLabel, items: string[], warn }` — text only, no image output
+  shape exists there at all) — there's no "draft to accept/discard"
+  here the way a generated description has; the image itself is the
+  delivered result, closer in shape to `PropertyValuation` than to an
+  AI skill's draft text.
+- **`OpenAiImageService`** (`src/visualizations/openai-image.service.ts`)
+  — same "plain fetch, no SDK, `isConfigured` gate" shape
+  `DojahService`/`PaystackService` already use. Calls OpenAI's Images
+  *edit* endpoint (an existing photo plus a prompt → a genuinely edited
+  version — the actual fit for "renovate this room," not a from-scratch
+  text-to-image call). **Real money per call, no sandbox/test mode** —
+  flagged plainly in `.env.example`, unlike every other optional
+  integration in this scaffold, which all have a free sandbox tier.
+- **`StorageService`** (`src/visualizations/storage.service.ts`) — the
+  other new piece "Search, media, and vector layers" (below) already
+  flagged as entirely missing: real object storage (Cloudflare R2,
+  S3-compatible), not a fake "just keep the provider's own URL"
+  shortcut — OpenAI's own result is `b64_json` (no hosted URL to even
+  borrow), and R2 is where the *decoded* image actually ends up living
+  permanently. The one deliberate exception to this scaffold's own
+  "plain fetch, no SDK" convention: uses the official
+  `@aws-sdk/client-s3` package rather than hand-rolling one, because
+  what makes every other integration here simple enough to hand-roll is
+  that they're plain bearer-token REST calls — S3's protocol is
+  SigV4-signed requests (canonical request construction plus an
+  HMAC-SHA256 signing chain), real cryptographic protocol work a
+  well-audited SDK already does correctly, not a shortcut worth
+  avoiding a dependency for.
+- **New `VisualizationsModule`** — `POST`/`GET /visualizations/
+  property/:propertyId` (same "`/documents/property/:propertyId` rather
+  than `/properties/:propertyId/documents`" independence
+  `DocumentsController`'s own comment already explains, so this module
+  and `PropertiesModule` stay decoupled; `PermissionsGuard`'s `:propertyId`
+  ABAC keys on the param name regardless of which controller it's on).
+  `property:write` to generate (a new record, same tier `addValuation`
+  sits at), `property:read` to list — no new permission keys.
+- **Web UI**: a "Renovation visualizer" card on `pages/properties/
+  [id].tsx`, next to Valuations — a form (before-photo URL, prompt,
+  optional project link) and a history list showing before/after images
+  side by side once complete, or a red "Failed" badge with the real
+  error message when generation didn't work. A disclaimer line makes
+  the "not a real render of your space" caveat impossible to miss.
+- **Verified live**: with no `OPENAI_API_KEY` configured (no real key
+  was available for this pass — same bar `DojahService`/`StripeService`
+  were both held to before their own credentials arrived), submitted a
+  real request through the actual form and confirmed the exact clear
+  error surfaced ("Image generation is not configured on this server —
+  set OPENAI_API_KEY to enable it"), that the attempt was still
+  persisted as a `failed` row with that same message (visible in the
+  history list, red badge, after a reload — not silently dropped), and
+  that the new routes carry the same permission gate as the rest of this
+  scaffold (a role without `property:read` gets the identical 403).
+  `StorageService`'s own degradation path (configured OpenAI, missing
+  R2) is the same `isConfigured` shape, code-reviewed but not
+  independently live-triggered, since triggering it needs a real OpenAI
+  key to even reach that code path.
+- **What this doesn't do.** No real AR/VR, per the design decision
+  above. Generation is synchronous (the request stays open until OpenAI
+  and R2 both finish, no polling) since no job queue exists in this
+  scaffold and OpenAI's edit call is itself a single request/response —
+  fine at this scale, but a real deployment doing many of these
+  concurrently would want a queue instead of holding an HTTP connection
+  open per generation. Never live-verified against a real OpenAI key or
+  a real R2 bucket — code-complete and confirmed to degrade correctly
+  when unconfigured, not confirmed to actually generate a real image
+  yet.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -3438,8 +3536,14 @@ blueprint, or explicitly cut from it:
   evidence in response beyond re-uploading/re-editing through the normal
   tools already available to it — that stays a real deployment's
   workflow to build for now, not this scaffold's.
-- **AI-generated renovation visualizations.** Explicitly deferred by
-  Priority 6 itself, pending Module 22 (AR/VR) existing at all.
+- **Real AR/VR renovation visualization — deliberately not attempted.**
+  See "AI-generated renovation visualizations — the 2D half only" above:
+  a bounded 2D "AI-edited before/after photo" slice is built (not yet
+  live-verified against a real OpenAI key), but real AR/VR needs a
+  native mobile app or WebXR, photogrammetry/3D reconstruction, and a
+  full 3D content pipeline — none of which exist here, and none of which
+  are a bounded addition to this scaffold the way everything else on
+  this list is.
 - **The stub LLM provider doesn't extract structured arguments from free
   text.** Every skill now declares a real `inputSchema` (see "Per-skill AI
   input schemas" above) and `AnthropicLlmProvider` passes it to the model,
@@ -3487,8 +3591,10 @@ blueprint, or explicitly cut from it:
   account that raised a dispute can't resolve it, an open dispute holds
   its milestone/payment) still exists alongside arbitration rather than
   being replaced by it.
-- **Deeper AI (Priority 6)** — AI-generated renovation visualizations
-  (needs AR/VR first) is the one item left on this list. Natural-language
+- **Deeper AI (Priority 6)** — real AR/VR renovation visualization
+  (needs Module 22 first, deliberately not attempted — see above) is the
+  one item left on this list; a bounded 2D "AI-edited before/after
+  photo" version of it is no longer on it either. Natural-language
   project summaries, valuation/ROI dashboards, and listing summaries
   beyond `assess_listing_risk` are no longer on it — see "A project
   summary skill, and a real Reports dashboard", "An ROI & valuation
@@ -3524,10 +3630,15 @@ blueprint, or explicitly cut from it:
   authenticate with a bearer header, only a browser holding the httpOnly
   cookies can — a production system serving non-browser clients too would
   need a second auth mechanism (API keys) alongside this one.
-- **Search, media, and vector layers** (Elasticsearch/OpenSearch, S3-
-  compatible object storage, a vector DB for AI context retrieval) — the
-  Technical Architecture section calls these out, none are wired up here.
-  `Document.fileUrl` currently expects a URL you provide yourself.
+- **Search and vector layers still entirely missing; object storage now
+  exists, but only for one narrow purpose.** Elasticsearch/OpenSearch
+  and a vector DB for AI context retrieval — the Technical Architecture
+  section calls both out, neither is wired up here. S3-compatible object
+  storage is no longer *entirely* missing: `StorageService` (see "AI-
+  generated renovation visualizations" above) uploads to Cloudflare R2,
+  but only for AI-generated visualization images — it's not a general
+  upload pipeline. `Document.fileUrl` still expects a URL you provide
+  yourself, same as before.
 - **Payment/escrow licensing, market-specific verification mechanisms,
   and data residency** — the compliance work the blueprint review flagged
   needs to run in parallel with engineering, not be solved by this code.

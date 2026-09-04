@@ -18,6 +18,7 @@ import { AiModule } from './ai/ai.module';
 import { ReportsModule } from './reports/reports.module';
 import { IdentityModule } from './identity/identity.module';
 import { TenantModule } from './tenant/tenant.module';
+import { VisualizationsModule } from './visualizations/visualizations.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { TenantModule } from './tenant/tenant.module';
     ReportsModule,
     IdentityModule,
     TenantModule,
+    VisualizationsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

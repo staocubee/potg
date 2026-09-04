@@ -286,6 +286,7 @@ model Property {
   inspections    PropertyInspection[]
   leases         Lease[]
   maintenanceRequests MaintenanceRequest[]
+  visualizations RenovationVisualization[]
 
   @@map("properties")
 }
@@ -541,6 +542,7 @@ model Project {
   disputes      Dispute[]
   orders        Order[]
   inspections   PropertyInspection[]
+  visualizations RenovationVisualization[]
 
   @@map("projects")
 }
@@ -1312,4 +1314,39 @@ model MaintenanceRequest {
   assignedVendor Vendor?  @relation(fields: [assignedVendorId], references: [id], onDelete: SetNull)
 
   @@map("maintenance_requests")
+}
+
+// The 2D half of "AI-generated renovation visualizations" (Priority 6's
+// Deeper AI list) — real AR/VR (Module 22: 3D reconstruction, WebXR/
+// native-app delivery) stays out of scope, see the README's own note on
+// why. This is a bounded, achievable slice: an input photo the caller
+// already hosts (beforeImageUrl, same "URL you provide yourself"
+// convention Document.fileUrl already uses — no upload pipeline exists
+// in this scaffold), a text prompt describing the renovation, and an
+// AI-generated afterImageUrl. Not routed through the AiRequest/AiOutput/
+// AiActionApproval pipeline every AiSkill uses — there's no "draft to
+// accept/discard" here the way a generated description or status update
+// has; the image itself is the delivered result, closer in shape to
+// PropertyValuation than to an AI skill's draft text.
+model RenovationVisualization {
+  id                String    @id @default(uuid())
+  propertyId        String
+  projectId         String?
+  requestedByUserId String
+  prompt            String
+  beforeImageUrl    String
+  // Set once ImageGenerationProvider returns and StorageService has
+  // persisted the result — an AI image API's own returned URL typically
+  // expires in hours, so this is always this scaffold's own storage
+  // (Cloudflare R2), never the provider's.
+  afterImageUrl String?
+  status        String    @default("pending") // pending | completed | failed
+  errorMessage  String?
+  createdAt     DateTime  @default(now())
+  completedAt   DateTime?
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  project  Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@map("renovation_visualizations")
 }

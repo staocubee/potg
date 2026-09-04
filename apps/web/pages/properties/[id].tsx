@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Lease, MaintenanceRequest, Project, Property, PropertyInspection, PropertyValuation, RoiSummary, Vendor } from "../../lib/api";
+import { ApiError, Lease, MaintenanceRequest, Project, Property, PropertyInspection, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -51,6 +51,7 @@ export default function PropertyDetailPage() {
   const [leases, setLeases] = useState<Lease[]>([]);
   const [maintenanceRequests, setMaintenanceRequests] = useState<MaintenanceRequest[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [visualizations, setVisualizations] = useState<RenovationVisualization[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showValuationForm, setShowValuationForm] = useState(false);
   const [showInspectionForm, setShowInspectionForm] = useState(false);
@@ -70,8 +71,9 @@ export default function PropertyDetailPage() {
       // Marketplace-wide, not scoped to this property — same reach picking
       // a vendor for a project quote already gets (VendorsController#findAll).
       auth.api.listVendors(),
+      auth.api.listVisualizations(id),
     ])
-      .then(([p, v, allProjects, i, l, m, vd]) => {
+      .then(([p, v, allProjects, i, l, m, vd, viz]) => {
         setProperty(p);
         setValuations(v);
         // No GET /properties/:id/projects endpoint — Project doesn't need
@@ -82,6 +84,7 @@ export default function PropertyDetailPage() {
         setLeases(l);
         setMaintenanceRequests(m);
         setVendors(vd);
+        setVisualizations(viz);
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this property."));
   }
@@ -239,6 +242,15 @@ export default function PropertyDetailPage() {
               ))}
             </div>
           </div>
+
+          {id && (
+            <RenovationVisualizerCard
+              propertyId={id}
+              projects={projects}
+              visualizations={visualizations}
+              onCreated={(viz) => setVisualizations((prev) => [viz, ...prev])}
+            />
+          )}
 
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -506,6 +518,139 @@ function AddValuationForm({ propertyId, onCreated }: { propertyId: string; onCre
         </button>
       </div>
     </form>
+  );
+}
+
+// The 2D "AI-generated renovation visualization" slice — see the schema
+// comment on RenovationVisualization for why this doesn't attempt real
+// AR/VR. Synchronous from the caller's point of view: the request stays
+// open until OpenAI's edit call and the R2 upload both finish (tens of
+// seconds), no polling. A failed generation is still shown, not hidden —
+// same "record what actually happened" reasoning every other status
+// field in this scaffold follows.
+function RenovationVisualizerCard({
+  propertyId,
+  projects,
+  visualizations,
+  onCreated,
+}: {
+  propertyId: string;
+  projects: Project[];
+  visualizations: RenovationVisualization[];
+  onCreated: (v: RenovationVisualization) => void;
+}) {
+  const auth = useAuth();
+  const [showForm, setShowForm] = useState(false);
+  const [beforeImageUrl, setBeforeImageUrl] = useState("");
+  const [prompt, setPrompt] = useState("");
+  const [projectId, setProjectId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const v = await auth.api.createVisualization(propertyId, {
+        beforeImageUrl,
+        prompt,
+        projectId: projectId || undefined,
+      });
+      onCreated(v);
+      setBeforeImageUrl("");
+      setPrompt("");
+      setShowForm(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't generate that visualization.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <h3 style={{ fontSize: 14 }}>Renovation visualizer</h3>
+        <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
+          {showForm ? "Cancel" : "+ Visualize a renovation"}
+        </button>
+      </div>
+      <p className="potg-muted" style={{ fontSize: 11, marginTop: 0, marginBottom: showForm ? 10 : 0 }}>
+        AI-generated, not a real render of your actual space — a draft to get a feel for an idea, not a contractor's
+        plan.
+      </p>
+
+      {showForm && (
+        <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
+          {error && <div className="potg-error">{error}</div>}
+          <input
+            className="potg-input"
+            type="url"
+            required
+            autoFocus
+            placeholder="Before photo URL"
+            value={beforeImageUrl}
+            onChange={(e) => setBeforeImageUrl(e.target.value)}
+          />
+          <textarea
+            className="potg-input"
+            rows={2}
+            required
+            placeholder="Describe the renovation — e.g. 'modern kitchen with granite countertops and white cabinets'"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+          />
+          {projects.length > 0 && (
+            <select className="potg-input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              <option value="">Not tied to a project</option>
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title}
+                </option>
+              ))}
+            </select>
+          )}
+          <div>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+              {busy ? "Generating… (can take up to a minute)" : "Generate visualization"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {visualizations.length === 0 && !showForm && (
+        <p className="potg-muted" style={{ fontSize: 12 }}>
+          No visualizations generated yet.
+        </p>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {visualizations.map((v) => (
+          <div key={v.id} style={{ borderTop: "1px solid var(--potg-border)", paddingTop: 10 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+              <span style={{ fontSize: 13 }}>{v.prompt}</span>
+              <span
+                className="potg-badge"
+                style={{ color: v.status === "failed" ? "var(--potg-danger)" : undefined }}
+              >
+                {v.status}
+              </span>
+            </div>
+            {v.status === "completed" && v.afterImageUrl && (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                <img src={v.beforeImageUrl} alt="Before" style={{ width: "100%", borderRadius: 6 }} />
+                <img src={v.afterImageUrl} alt="After" style={{ width: "100%", borderRadius: 6 }} />
+              </div>
+            )}
+            {v.status === "failed" && v.errorMessage && (
+              <p className="potg-muted" style={{ fontSize: 11, color: "var(--potg-danger)", margin: 0 }}>
+                {v.errorMessage}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
