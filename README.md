@@ -3270,6 +3270,75 @@ ask about. `ai:act` is now granted to the `tenant` role for exactly
 this. Verified live: ran it from the `/tenant` page's Ask AI panel and
 confirmed the draft matched the page (open maintenance count included).
 
+## CSV export and scheduled email digests for Reports (this pass)
+
+Closes "the rest of the Reports module" the blueprint review named
+separately from Module 14's own dashboard: `GET /reports/
+portfolio-overview` (see "A project summary skill, and a real Reports
+dashboard" above) gave a landlord real numbers on screen, but nothing
+to take away from it and nothing that reached them without opening the
+app. Two genuinely different things closed together because both are
+small, don't touch each other's code, and are natural follow-ons to the
+same dashboard.
+
+- **`GET /reports/portfolio-overview/export`** (`property:read`, same
+  gate as the dashboard itself) — a real CSV file (`Content-Type: text/
+  csv`, RFC 4180 escaping — a property name or address with a comma in
+  it doesn't silently corrupt the columns after it), not the same JSON
+  restated with commas. Two tables in one file since plain CSV has no
+  concept of sheets: the actual property list first (the atomic data
+  worth opening in a spreadsheet and filtering yourself), the dashboard's
+  own summary totals beneath it, so the file stands alone without the
+  dashboard open alongside it. The web `Reports` page's new "Export CSV"
+  button fetches it and hands the browser a `Blob` to download — a plain
+  `<a href>` can't carry the httpOnly auth cookie or `X-Account-Id`
+  header this route needs, so the file has to be fetched in JS first.
+- **Real scheduled email digests** — `Account.reportDigestFrequency`
+  (`off` | `weekly` | `monthly`, new column, off by default) plus a
+  genuine `@nestjs/schedule` cron (`ReportsSchedulerService`, added as a
+  real dependency — pinned to `6.1.3` since the latest major needs Nest
+  v11/v12 and this scaffold is still on v10), not a settings field
+  nothing reads. The daily job (`findAccountsDueForDigest`) checks every
+  opted-in account's `reportDigestLastSentAt` against a plain day-count
+  threshold (7 or 30 days — same order-of-magnitude approximation
+  `summarize_lease_status`'s own `FREQUENCY_DAYS` already uses, not a
+  real calendar) and sends whoever's due. `ReportsService.sendDigest` —
+  the exact method both the cron and a manual "Send me one now" button
+  call — emails every member of the account (same "notify whoever's
+  actually behind this account" reasoning the tenant-signup
+  notification above already uses) via the same `EmailService` the
+  invite flow and tenant notifications use, and always stamps
+  `reportDigestLastSentAt` so a manual send counts toward the schedule
+  too.
+- **New `PATCH /reports/digest-subscription`** (`property:write` — a
+  standing config change, not a read) and **`POST /reports/
+  digest-subscription/send-now`** (`property:read` — sending a copy of a
+  report the caller can already see doesn't need a higher bar). The web
+  `Reports` page's new "Email digest" card is both the opt-in control
+  and, since "send now" runs the identical code the cron would run,
+  the way this job's own correctness is actually verifiable without
+  waiting a real day for it to fire.
+- **Verified live**: exported the CSV and confirmed both tables' numbers
+  matched the dashboard exactly (including correct RFC 4180 handling);
+  set the digest to "Weekly," confirmed it read back correctly after a
+  full page reload; clicked "Send me one now" and confirmed the server
+  log shows a real send attempt per account member (`Portfolio digest
+  for account ... — ... (email send failed — see the EmailService error
+  above)` — "failed" here is Resend's sandbox-key restriction, the same
+  one every other notification in this scaffold hits in this dev
+  environment, not a bug); confirmed the new routes carry the same
+  permission gate as the existing dashboard route (a role without
+  `property:read` gets the identical 403).
+- **What this doesn't do.** The daily cron itself was never observed
+  actually firing on its own schedule — that would take a real 24-hour
+  wait — so what's verified is that `sendDigest` (the method it calls)
+  works correctly and that the job registers without error at startup;
+  its own timer firing is unverified, structurally identical code to
+  what was verified, but still unverified. No PDF export, no custom
+  report builder, and no digest content beyond the same numbers the
+  dashboard already shows — a real report *builder* stays out of scope,
+  same as "Not built yet" already flagged for Module 14.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -3282,10 +3351,13 @@ blueprint, or explicitly cut from it:
   compliance, community management, AR/VR, admin operations, ...) — this
   scaffold now proves the pattern for Modules 1, 2, 4, 5, 7, 9, 10, 11,
   and a slice of 6, 8, 12, 13, 14, 15, and 23, not the full 24. Module 14
-  (Reports) is a slice too now — see "A project summary skill, and a real
-  Reports dashboard" above for `GET /reports/portfolio-overview` — real
-  counts across a portfolio, not the full reports module (no export, no
-  scheduled/emailed reports, no report builder). Modules 8, 12, and 13
+  (Reports) is a bigger slice now — see "A project summary skill, and a real
+  Reports dashboard" and "CSV export and scheduled email digests for
+  Reports" above: `GET /reports/portfolio-overview` (real counts across
+  a portfolio), a CSV export of the same data, and real scheduled email
+  digests (a genuine `@nestjs/schedule` cron, not a fake toggle). Still
+  not a full report *builder* — one fixed report shape, not a
+  custom-report designer. Modules 8, 12, and 13
   are slices, not the full modules: 8 and 12 can now point an
   inspector/assignee at a
   real `Vendor` account (see "Linking inspectors and maintenance

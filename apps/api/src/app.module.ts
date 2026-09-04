@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { CsrfGuard } from './common/guards/csrf.guard';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -25,6 +26,9 @@ import { TenantModule } from './tenant/tenant.module';
     // sensitive endpoints (login, register, forgot/reset-password) layer a
     // much tighter @Throttle() on top of this in AuthController.
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }]),
+    // Real background scheduling (ReportsSchedulerService's own @Cron
+    // job) — not a fake "frequency" field that nothing ever reads.
+    ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
     AccountsModule,

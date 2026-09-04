@@ -49,6 +49,13 @@ model Account {
   timezone         String
   status           String           @default("active")
   subscriptionPlan SubscriptionPlan @default(INDIVIDUAL)
+  // The scheduled half of Module 14's Reports — off by default, an
+  // account opts in. ReportsSchedulerService's daily @Cron reads this
+  // plus reportDigestLastSentAt to decide who's due; ReportsService.
+  // sendDigest (the same method a manual "send me one now" call uses)
+  // is what actually builds and emails one.
+  reportDigestFrequency  String    @default("off") // off | weekly | monthly
+  reportDigestLastSentAt DateTime?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
 

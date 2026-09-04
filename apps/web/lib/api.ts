@@ -717,6 +717,10 @@ export type PaymentsOverview = {
 
 export type PortfolioOverview = {
   currency: string;
+  // The account's own standing subscription (Account.reportDigestFrequency)
+  // — surfaced here rather than a separate fetch since this page already
+  // loads the account's report context. Set via setDigestSubscription.
+  digestFrequency: "off" | "weekly" | "monthly" | string;
   properties: { total: number; byStatus: { status: string; count: number }[]; totalEstimatedValue: number };
   projects: { total: number; byStatus: { status: string; count: number }[] };
   maintenance: { total: number; open: number; resolved: number };
@@ -1566,6 +1570,34 @@ export class ApiClient {
   }
   getPortfolioOverview() {
     return request<PortfolioOverview>("/reports/portfolio-overview", { token: this.token, accountId: this.accountId });
+  }
+  // Not routed through request<T>() — that helper only ever parses JSON
+  // responses (see its own isJson check), and this one is a real CSV
+  // file. Mirrors request()'s own credentials/header shape by hand.
+  async exportPortfolioOverviewCsv(): Promise<string> {
+    const headers: Record<string, string> = {};
+    if (this.accountId) headers["X-Account-Id"] = this.accountId;
+    const res = await fetch(`${API_URL}/reports/portfolio-overview/export`, { headers, credentials: "include" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => undefined);
+      throw new ApiError(res.status, data?.message ?? `Request failed (${res.status})`);
+    }
+    return res.text();
+  }
+  setDigestSubscription(frequency: "off" | "weekly" | "monthly") {
+    return request<{ id: string; reportDigestFrequency: string }>("/reports/digest-subscription", {
+      method: "PATCH",
+      body: { frequency },
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  sendDigestNow() {
+    return request<{ sent: boolean; recipients: number }>("/reports/digest-subscription/send-now", {
+      method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
   }
   findOpenDisputesForArbitration() {
     return request<Dispute[]>("/payments/disputes/open", { token: this.token, accountId: this.accountId });

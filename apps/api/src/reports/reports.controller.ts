@@ -1,10 +1,12 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Res, UseGuards } from '@nestjs/common';
+import { Response } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentAccountMember } from '../common/decorators/current-user.decorator';
 import { ReportsService } from './reports.service';
+import { SetDigestSubscriptionDto } from './dto/set-digest-subscription.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -23,5 +25,38 @@ export class ReportsController {
   @Get('portfolio-overview')
   getPortfolioOverview(@CurrentAccountMember() member: AccountMemberCtx) {
     return this.reports.getPortfolioOverview(member.accountId);
+  }
+
+  // A real CSV file, not the same JSON restated — @Res({ passthrough:
+  // true }) so PermissionsGuard/JwtAuthGuard etc. still run normally
+  // (passthrough keeps Nest driving the response lifecycle) while this
+  // handler sets the headers a browser needs to treat it as a download.
+  @RequirePermissions('property:read')
+  @Get('portfolio-overview/export')
+  async exportPortfolioOverview(@CurrentAccountMember() member: AccountMemberCtx, @Res({ passthrough: true }) res: Response) {
+    const csv = await this.reports.getPortfolioOverviewCsv(member.accountId);
+    res.header('Content-Type', 'text/csv; charset=utf-8');
+    res.header('Content-Disposition', 'attachment; filename="portfolio-overview.csv"');
+    return csv;
+  }
+
+  // Module 14's scheduled-reports half — see ReportsSchedulerService's
+  // own @Cron job for who this actually reaches automatically.
+  // property:write since this changes standing account-level config,
+  // same tier setVendorLicense-style self-service settings already sit
+  // at, not property:read (which every owner-tier role plus viewer has).
+  @RequirePermissions('property:write')
+  @Patch('digest-subscription')
+  setDigestSubscription(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: SetDigestSubscriptionDto) {
+    return this.reports.setDigestSubscription(member.accountId, dto.frequency);
+  }
+
+  // "Send me one now" — reuses the identical ReportsService.sendDigest
+  // the daily cron calls, so this is also how that job's own correctness
+  // gets verified without waiting a real day for it to fire.
+  @RequirePermissions('property:read')
+  @Post('digest-subscription/send-now')
+  sendDigestNow(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.reports.sendDigest(member.accountId);
   }
 }
