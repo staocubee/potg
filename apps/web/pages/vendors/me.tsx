@@ -119,6 +119,10 @@ export default function VendorDashboardPage() {
           </div>
 
           <div className="potg-card" style={{ padding: 18 }}>
+            <LicenseForm vendor={vendor} onUpdated={() => load()} />
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
             <h3 style={{ fontSize: 14, marginBottom: 10 }}>Reviews</h3>
             {(!vendor.reviews || vendor.reviews.length === 0) && (
               <p className="potg-muted" style={{ fontSize: 12 }}>No reviews yet.</p>
@@ -833,6 +837,115 @@ function BankDetailsForm({ vendor, onUpdated }: { vendor: Vendor; onUpdated: () 
             </form>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// Self-reported, unverified — see VendorsService.setLicense's own comment.
+// Relevant for the categories a real license means something for
+// (electrical, security installation, general contracting, or a vendor
+// picked as an inspector — see "Linking inspectors and maintenance
+// assignees to real vendor accounts"), but shown for every vendor since
+// nothing here restricts it by serviceCategory, same "record what's
+// true, no forced workflow" tradeoff the rest of this form already
+// follows. All three fields save together — there's no partial update.
+function LicenseForm({ vendor, onUpdated }: { vendor: Vendor; onUpdated: () => void }) {
+  const auth = useAuth();
+  const [editing, setEditing] = useState(false);
+  const [licenseNumber, setLicenseNumber] = useState(vendor.licenseNumber ?? "");
+  const [licenseIssuingBody, setLicenseIssuingBody] = useState(vendor.licenseIssuingBody ?? "");
+  const [licenseExpiresAt, setLicenseExpiresAt] = useState(vendor.licenseExpiresAt ? vendor.licenseExpiresAt.slice(0, 10) : "");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const hasLicense = !!vendor.licenseNumber;
+  const isExpired = vendor.trustScore?.factors.licenseExpired ?? false;
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await auth.api.setVendorLicense({
+        licenseNumber,
+        licenseIssuingBody,
+        licenseExpiresAt: new Date(licenseExpiresAt).toISOString(),
+      });
+      setEditing(false);
+      onUpdated();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't save that license.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <h3 style={{ fontSize: 14, margin: 0 }}>Professional license</h3>
+        {!editing && (
+          <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => { setEditing(true); setError(null); }}>
+            {hasLicense ? "Update" : "+ Add"}
+          </button>
+        )}
+      </div>
+      {!editing && !hasLicense && (
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+          No license on file — relevant if you work in a licensed trade (electrical, security installation, general
+          contracting, or if you take on inspection work). Self-reported: a platform reviewer can note whether
+          they've actually checked it in a trust audit.
+        </p>
+      )}
+      {!editing && hasLicense && (
+        <p style={{ fontSize: 13, margin: 0, color: isExpired ? "var(--potg-danger)" : undefined }}>
+          {vendor.licenseNumber} · {vendor.licenseIssuingBody}
+          {vendor.licenseExpiresAt && (
+            <span className="potg-muted" style={{ fontSize: 12, display: "block", marginTop: 2 }}>
+              {isExpired ? "Expired" : "Expires"} {new Date(vendor.licenseExpiresAt).toLocaleDateString()}
+            </span>
+          )}
+        </p>
+      )}
+      {editing && (
+        <form onSubmit={onSubmit} style={{ marginTop: hasLicense ? 8 : 0, display: "flex", flexDirection: "column", gap: 8 }}>
+          {error && <div className="potg-error" style={{ marginBottom: 4 }}>{error}</div>}
+          <input
+            className="potg-input"
+            required
+            placeholder="License number"
+            value={licenseNumber}
+            onChange={(e) => setLicenseNumber(e.target.value)}
+          />
+          <input
+            className="potg-input"
+            required
+            placeholder="Issuing body — e.g. a state licensing board"
+            value={licenseIssuingBody}
+            onChange={(e) => setLicenseIssuingBody(e.target.value)}
+          />
+          <input
+            className="potg-input"
+            type="date"
+            required
+            value={licenseExpiresAt}
+            onChange={(e) => setLicenseExpiresAt(e.target.value)}
+          />
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
+              {busy ? "Saving…" : "Save"}
+            </button>
+            <button
+              className="potg-btn potg-btn-secondary"
+              type="button"
+              onClick={() => setEditing(false)}
+              style={{ padding: "4px 9px", fontSize: 11 }}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
       )}
     </div>
   );

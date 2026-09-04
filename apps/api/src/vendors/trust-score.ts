@@ -13,6 +13,13 @@ export type VendorTrustFactors = {
   // VendorTrustAudit's own schema comment and User.identityVerificationStatus's.
   latestAudit: VendorTrustAuditFactor;
   identityVerifiedOperator: boolean;
+  // True only when a license is actually on file (Vendor.licenseNumber
+  // set) AND licenseExpiresAt is in the past. Deliberately never a
+  // positive input the way the two signals above are — see the schema
+  // comment on Vendor.licenseNumber: it's self-reported and unverified,
+  // so it can only ever cost a score, never inflate one, or a vendor
+  // could raise its own trust score just by typing a license number in.
+  licenseExpired: boolean;
 };
 
 export type VendorTrustScore = {
@@ -56,6 +63,11 @@ export function computeVendorTrustScore(factors: VendorTrustFactors): VendorTrus
 
   if (factors.identityVerifiedOperator) score += 10;
 
+  // A self-reported claim that's gone stale is worse than never having
+  // claimed one — same weight class as a dispute, well short of a real
+  // audit's own swing.
+  if (factors.licenseExpired) score -= 10;
+
   score = Math.max(0, Math.min(100, Math.round(score)));
 
   const band = score >= 80 ? 'excellent' : score >= 60 ? 'good' : score >= 40 ? 'fair' : 'caution';
@@ -64,7 +76,13 @@ export function computeVendorTrustScore(factors: VendorTrustFactors): VendorTrus
 
 export async function getVendorTrustScore(
   prisma: PrismaService,
-  vendor: { id: string; accountId: string; verificationStatus: string; ratingAverage: unknown },
+  vendor: {
+    id: string;
+    accountId: string;
+    verificationStatus: string;
+    ratingAverage: unknown;
+    licenseExpiresAt: Date | null;
+  },
 ): Promise<VendorTrustScore> {
   const [reviewCount, completedProjects, disputeCount, latestAudit, verifiedOperatorCount] = await Promise.all([
     prisma.vendorReview.count({ where: { vendorId: vendor.id, moderationStatus: { not: 'hidden' } } }),
@@ -89,5 +107,6 @@ export async function getVendorTrustScore(
     disputeCount,
     latestAudit: latestAudit ? { rating: latestAudit.rating, notes: latestAudit.notes, createdAt: latestAudit.createdAt } : null,
     identityVerifiedOperator: verifiedOperatorCount > 0,
+    licenseExpired: vendor.licenseExpiresAt != null && vendor.licenseExpiresAt.getTime() < Date.now(),
   });
 }

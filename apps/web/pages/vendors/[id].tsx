@@ -64,6 +64,20 @@ export default function VendorDetailPage() {
                   {vendor.serviceCategory.replace(/_/g, " ")}
                   {vendor.locationCoverage && ` · ${vendor.locationCoverage}`}
                 </p>
+                {vendor.licenseNumber && (
+                  <p
+                    className="potg-muted"
+                    style={{
+                      margin: "6px 0 0",
+                      fontSize: 12,
+                      color: vendor.trustScore?.factors.licenseExpired ? "var(--potg-danger)" : undefined,
+                    }}
+                  >
+                    License {vendor.licenseNumber} · {vendor.licenseIssuingBody}
+                    {vendor.licenseExpiresAt &&
+                      ` · ${vendor.trustScore?.factors.licenseExpired ? "expired" : "expires"} ${new Date(vendor.licenseExpiresAt).toLocaleDateString()}`}
+                  </p>
+                )}
               </div>
               <div style={{ textAlign: "right" }}>
                 <span className="potg-badge">{vendor.verificationStatus.replace(/_/g, " ")}</span>
@@ -88,6 +102,7 @@ export default function VendorDetailPage() {
                   {vendor.trustScore.factors.reviewCount} review(s)
                   {vendor.trustScore.factors.disputeCount > 0 && ` · ${vendor.trustScore.factors.disputeCount} dispute(s) on record`}
                   {vendor.trustScore.factors.identityVerifiedOperator && " · identity verified (NIN)"}
+                  {vendor.trustScore.factors.licenseExpired && " · listed license has expired"}
                 </div>
                 <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
                   {vendor.trustScore.factors.latestAudit

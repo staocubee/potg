@@ -16,6 +16,7 @@ import { SetVendorVerificationDto } from './dto/set-vendor-verification.dto';
 import { SubmitVendorTrustAuditDto } from './dto/submit-vendor-trust-audit.dto';
 import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
 import { SetPaypalPayoutEmailDto } from './dto/set-paypal-payout-email.dto';
+import { SetVendorLicenseDto } from './dto/set-vendor-license.dto';
 import { FlagReviewDto } from './dto/flag-review.dto';
 import { ModerateReviewDto } from './dto/moderate-review.dto';
 
@@ -50,6 +51,15 @@ export class VendorsController {
   @Patch('me/paypal-payout-email')
   setPaypalPayoutEmail(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: SetPaypalPayoutEmailDto) {
     return this.vendors.setPaypalPayoutEmail(member.accountId, dto);
+  }
+
+  // Self-reported professional license — see VendorsService.setLicense.
+  // Same vendor:write gate create()/setBankDetails() already use — the
+  // vendor's own account, never a reviewer.
+  @RequirePermissions('vendor:write')
+  @Patch('me/license')
+  setLicense(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: SetVendorLicenseDto) {
+    return this.vendors.setLicense(member.accountId, dto);
   }
 
   // ?provider=flutterwave for Flutterwave's own (different) bank list —

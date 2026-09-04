@@ -23,7 +23,7 @@ export const explainVendorTrustScoreSkill: AiSkill = {
     const trustScore = await getVendorTrustScore(prisma, vendor);
     const { score, band, factors } = trustScore;
 
-    const items: string[] = [
+    const items = [
       `Verification: ${factors.verificationStatus.replace(/_/g, ' ')}`,
       factors.ratingAverage != null
         ? `Average rating: ${factors.ratingAverage.toFixed(1)}/5 across ${factors.reviewCount} review(s)`
@@ -38,7 +38,8 @@ export const explainVendorTrustScoreSkill: AiSkill = {
       factors.identityVerifiedOperator
         ? "This vendor's own identity has been verified (NIN)"
         : "This vendor's own identity has not been verified",
-    ];
+      factors.licenseExpired ? 'This vendor lists a professional license that has expired' : null,
+    ].filter((item): item is string => item != null);
 
     const summary = await llm.complete({
       systemPrompt:

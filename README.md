@@ -3019,6 +3019,89 @@ verification" above) already built for the account operator.
   it does mean the platform still can't promise every trust score reflects
   a recent, thorough look at the business behind it.
 
+## A self-reported professional license for vendors — licensed-Inspector/Contractor (this pass)
+
+Closes half of the gap "Property inspections" and "Maintenance requests"
+both flagged: "no separate licensed-Inspector/licensed-Contractor
+account type." Building a full licensing *credential* system (a
+reviewer-issued license record, backed by an external registry lookup)
+would be a much larger undertaking than this pass's scope — what's
+built instead is the same tier this scaffold already gives
+`Lease.tenantName` or `MaintenanceRequest.assignedTo`: record what the
+vendor itself claims, don't pretend the platform verified it. Tenant
+identity (the other half of that same flagged gap, on `Lease`) stays
+fully out of scope — see "What this doesn't do" below for why it's a
+different order of work.
+
+- **`Vendor.licenseNumber`/`licenseIssuingBody`/`licenseExpiresAt`**
+  (new columns, one migration) — all three set together or not at all,
+  same shape the bank-detail fields already use. Not gated to any
+  particular `serviceCategory`: nothing in this scaffold's category list
+  (`electrical`, `security_installation`, `general_contracting`, …)
+  distinguishes which ones are really licensed trades in a given
+  jurisdiction, so — same "record what's true, no forced workflow"
+  reasoning `Lease.tenantName` already documents — any vendor can add
+  one if it applies to them.
+- **`PATCH /vendors/me/license`** — `vendor:write`, the vendor's own
+  account only, same gate `create()`/`setBankDetails()` already use. No
+  external registry lookup backs this (none is wired up in this
+  scaffold) — unlike `setBankDetails`, which resolves the account number
+  against a real payment gateway before saving, this just records
+  whatever the vendor typed in, the same trust level `PropertyInspection.
+  inspectorName`/`MaintenanceRequest.assignedTo` already had.
+- **`computeVendorTrustScore` gains a `licenseExpired` factor — and a
+  deliberate asymmetry.** A license on file and *not* expired adds
+  nothing to the score; one that's expired costs `-10`, the same weight
+  class as a dispute. The reasoning is in the schema comment on
+  `Vendor.licenseNumber`: since this field is self-reported and nothing
+  here verifies it, letting it add points would let a vendor raise its
+  own trust score just by typing a license number in — the same integrity
+  problem `identityVerifiedOperator`/`latestAudit` (a real KYC check, a
+  human reviewer's judgment) don't have, because neither one is
+  something the vendor's own account can set for itself.
+- **`explain_vendor_trust_score`** — the factor list now calls out an
+  expired license explicitly ("This vendor lists a professional license
+  that has expired") when one applies.
+- **Web UI**: a `LicenseForm` on `pages/vendors/me.tsx` (same
+  edit-in-place shape `BankDetailsForm` already established — view, "+
+  Add"/"Update", a form, save/cancel), and the public vendor profile
+  (`pages/vendors/[id].tsx`) shows the license inline under the business
+  name, styled red once expired, plus a "listed license has expired" note
+  alongside the other trust-score factors.
+- **Verified against the live dev API and in the browser**: added a
+  license with a past expiry date to the seeded vendor account, confirmed
+  `PATCH /vendors/me/license` saved it and the public `GET /vendors/:id`
+  response carried `licenseExpired: true` with the expected `-10` (trust
+  score dropped from 43 to 33, band moved from "fair" to "caution");
+  edited the expiry to a future date and confirmed the same request
+  carried `licenseExpired: false` with the score back at 43 — the *lack*
+  of a positive swing confirming the "only ever costs, never earns"
+  design actually held. In the browser: the license form saved and
+  re-rendered correctly without a page reload, the public profile page
+  showed the red "expired" styling, and `explain_vendor_trust_score`'s
+  Ask AI draft picked up the new factor correctly.
+- **What this doesn't do.** No external license-registry lookup exists
+  anywhere in this scaffold, so "licensed" here means "claims to be
+  licensed," not "the platform confirmed it" — closing that gap for real
+  would mean integrating a real state/national licensing-board API the
+  way `DojahService` integrates NIN lookups, which no such API was
+  available to wire up here. A `platform_reviewer`'s trust audit (see
+  "Vendor and supplier trust audits" above) is the closest thing to an
+  actual check today: nothing stops a reviewer from calling the issuing
+  body and recording what they found in an audit's own `notes`, but
+  nothing prompts them to, either. **Tenant identity is not part of this
+  pass and is a meaningfully bigger lift than the vendor-license piece
+  above**, for a reason specific to it: Inspector/Contractor could
+  attach to `Vendor` because `Vendor` already *is* a real, marketplace-
+  wide account type with its own login (Module 9) — this pass only had
+  to add fields to something that already existed. Tenant has no
+  equivalent anywhere in this scaffold: no account type, no role, no
+  registration/login flow a renter could use, so `Lease.tenantName`
+  staying freeform text isn't a smaller version of the same gap, it's a
+  different, larger one — a real Tenant identity needs a new account
+  type and a tenant-facing signup path built from nothing, not three new
+  columns on a model that already had somewhere to attach them.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -3050,14 +3133,18 @@ blueprint, or explicitly cut from it:
   'pending' verification actual meaning" above), and "flagged" already
   plays a similar role for reviews, just raised by the reviewed party
   rather than the reviewer.
-- **Property inspections — one gap left in the new module.** No separate
-  licensed-Inspector account type — `inspectorVendorId` can point at a
-  platform `Vendor` now, but there's still no inspector-specific role for
-  the non-vendor case, only freeform `inspectorName` text (see "Property
-  inspections" and "Linking inspectors and maintenance assignees to real
-  vendor accounts" above). Editing a scheduled inspection's
-  date/type/project/inspector is now possible — see "Edit endpoints for
-  Inspections, Leases, and Maintenance requests" below.
+- **Property inspections — closer to closed, one real gap left.**
+  `inspectorVendorId` can point at a platform `Vendor` now, and that
+  vendor can self-report a professional license (`Vendor.licenseNumber`,
+  see "A self-reported professional license for vendors" above) — but
+  there's still no inspector-specific *role*, no way to require a vendor
+  actually have a license before it can be picked for an inspection, and
+  the freeform `inspectorName` path for a non-vendor still records
+  nothing about licensing at all (see "Property inspections" and
+  "Linking inspectors and maintenance assignees to real vendor accounts"
+  above). Editing a scheduled inspection's date/type/project/inspector is
+  now possible — see "Edit endpoints for Inspections, Leases, and
+  Maintenance requests" below.
 - **Leases — one gap left in the new module.** No separate Tenant
   identity, and no existing account type to link one to the way
   Inspector/Contractor now link to `Vendor` — a real deployment would
@@ -3065,13 +3152,16 @@ blueprint, or explicitly cut from it:
   above). Editing a lease's rent/dates/deposit, and overdue-rent
   detection, are now possible — see "Edit endpoints" and "Overdue-rent
   detection" below.
-- **Maintenance requests — one gap left in the new module.** No separate
-  licensed-Contractor account type — `assignedVendorId` can point at a
-  platform `Vendor` now (see "Maintenance requests" and "Linking
-  inspectors and maintenance assignees to real vendor accounts" above),
-  but `assignedTo` is still freeform text for anyone off-platform.
-  Editing a request's title/description/priority is now possible — see
-  "Edit endpoints" below.
+- **Maintenance requests — closer to closed, one real gap left.**
+  `assignedVendorId` can point at a platform `Vendor` now, and that
+  vendor can self-report a professional license the same way a
+  vendor-linked inspector can (see "Maintenance requests", "Linking
+  inspectors and maintenance assignees to real vendor accounts", and "A
+  self-reported professional license for vendors" above), but
+  `assignedTo` is still freeform text for anyone off-platform, and
+  nothing requires a license (let alone a *verified* one) before a
+  vendor can be assigned. Editing a request's title/description/priority
+  is now possible — see "Edit endpoints" below.
 - **Vendor and supplier trust scores are no longer *only* the platform's
   own arithmetic, but still aren't a full independent audit of the
   business.** See "Vendor and supplier trust audits" above: the score

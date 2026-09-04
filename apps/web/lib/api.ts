@@ -467,6 +467,7 @@ export type VendorTrustScore = {
     disputeCount: number;
     latestAudit: TrustAuditFactor;
     identityVerifiedOperator: boolean;
+    licenseExpired: boolean;
   };
 };
 
@@ -497,6 +498,11 @@ export type Vendor = {
   // payout, same as no bank details on file at all.
   payoutProvider?: string | null;
   paypalPayoutEmail?: string | null;
+  // Self-reported, unverified — see the schema comment on
+  // Vendor.licenseNumber. Set together via setVendorLicense.
+  licenseNumber?: string | null;
+  licenseIssuingBody?: string | null;
+  licenseExpiresAt?: string | null;
   createdAt: string;
   reviews?: VendorReview[];
   trustScore?: VendorTrustScore;
@@ -1367,6 +1373,14 @@ export class ApiClient {
   }
   setPaypalPayoutEmail(input: { email: string }) {
     return request<Vendor>("/vendors/me/paypal-payout-email", {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  setVendorLicense(input: { licenseNumber: string; licenseIssuingBody: string; licenseExpiresAt: string }) {
+    return request<Vendor>("/vendors/me/license", {
       method: "PATCH",
       body: input,
       token: this.token,

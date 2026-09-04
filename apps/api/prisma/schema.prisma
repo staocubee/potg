@@ -409,6 +409,19 @@ model Vendor {
   verificationStatus String  @default("not_verified") // not_verified | pending | verified
   verificationNotes String? // the neutral reviewer's note — what's needed to move off "pending", or why a decision was made
   ratingAverage     Decimal? @db.Decimal(3, 2)
+  // Self-reported by the vendor (PATCH /vendors/me/license) — a
+  // professional license for categories where one is real (electrical,
+  // security installation, general contracting, an inspector picked for
+  // PropertyInspection.inspectorVendorId, ...), same "record what's true,
+  // no forced workflow" tradeoff Lease.tenantName/MaintenanceRequest.
+  // assignedTo already document, not a gated credential a reviewer
+  // issues. Deliberately never a *positive* trust-score input for that
+  // reason — see computeVendorTrustScore's own comment — only an expired
+  // one counts against it. All three are set together or not at all,
+  // same shape Vendor's bank-detail fields already use.
+  licenseNumber      String?
+  licenseIssuingBody String?
+  licenseExpiresAt   DateTime?
   // A real payout (see PaymentsService.releaseMilestone) needs somewhere
   // to pay into. Paystack and Flutterwave both pay a local bank account —
   // bankAccountNumber/bankCode/bankAccountName are shared between the two

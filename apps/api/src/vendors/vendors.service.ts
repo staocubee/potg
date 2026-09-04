@@ -11,6 +11,7 @@ import { SetVendorVerificationDto } from './dto/set-vendor-verification.dto';
 import { SubmitVendorTrustAuditDto } from './dto/submit-vendor-trust-audit.dto';
 import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
 import { SetPaypalPayoutEmailDto } from './dto/set-paypal-payout-email.dto';
+import { SetVendorLicenseDto } from './dto/set-vendor-license.dto';
 import { getVendorTrustScore } from './trust-score';
 import { PaystackService } from '../payments/paystack.service';
 import { FlutterwaveService } from '../payments/flutterwave.service';
@@ -77,6 +78,29 @@ export class VendorsService {
 
   listBanks(provider?: string) {
     return this.bankGatewayFor(provider).listBanks('NGN');
+  }
+
+  // Self-reported, unverified — see the schema comment on
+  // Vendor.licenseNumber for why this never boosts the trust score, only
+  // an expired one costs it (computeVendorTrustScore). No resolve/verify
+  // step against an external registry exists here (none is wired up in
+  // this scaffold), so this is deliberately the same trust level as
+  // Lease.tenantName or MaintenanceRequest.assignedTo — recorded, not
+  // audited, until a platform_reviewer actually looks into it and files a
+  // VendorTrustAudit that says so.
+  async setLicense(accountId: string, dto: SetVendorLicenseDto) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { accountId } });
+    if (!vendor) {
+      throw new BadRequestException('This account has no vendor profile yet — create one with POST /vendors first');
+    }
+    return this.prisma.vendor.update({
+      where: { id: vendor.id },
+      data: {
+        licenseNumber: dto.licenseNumber,
+        licenseIssuingBody: dto.licenseIssuingBody,
+        licenseExpiresAt: new Date(dto.licenseExpiresAt),
+      },
+    });
   }
 
   // The PayPal counterpart to setBankDetails — a payout email instead of
