@@ -12,6 +12,7 @@ import { ReplyToReviewDto } from '../vendors/dto/reply-to-review.dto';
 import { FlagReviewDto } from '../vendors/dto/flag-review.dto';
 import { ModerateReviewDto } from '../vendors/dto/moderate-review.dto';
 import { SetSupplierVerificationDto } from './dto/set-supplier-verification.dto';
+import { SubmitSupplierTrustAuditDto } from './dto/submit-supplier-trust-audit.dto';
 import { CreateRentalBookingDto } from './dto/create-rental-booking.dto';
 import { UpsertCartItemDto } from './dto/upsert-cart-item.dto';
 import { CheckoutCartDto } from './dto/checkout-cart.dto';
@@ -82,6 +83,21 @@ export class MaterialsService {
       where: { id: supplierId },
       data: { verificationStatus: dto.status, verificationNotes: dto.notes ?? null },
     });
+  }
+
+  // The real audit step — see VendorTrustAudit's schema comment (its
+  // supplier-side counterpart, SupplierTrustAudit, follows the same
+  // reasoning). Same supplier:verify gate as verification itself.
+  async submitTrustAudit(supplierId: string, reviewedByUserId: string, dto: SubmitSupplierTrustAuditDto) {
+    const supplier = await this.prisma.supplier.findUnique({ where: { id: supplierId } });
+    if (!supplier) throw new NotFoundException('Supplier not found');
+    return this.prisma.supplierTrustAudit.create({
+      data: { supplierId, reviewedByUserId, rating: dto.rating, notes: dto.notes },
+    });
+  }
+
+  findTrustAudits(supplierId: string) {
+    return this.prisma.supplierTrustAudit.findMany({ where: { supplierId }, orderBy: { createdAt: 'desc' } });
   }
 
   // --- Products --------------------------------------------------------

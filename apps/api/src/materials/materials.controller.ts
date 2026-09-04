@@ -3,7 +3,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
-import { CurrentAccountMember } from '../common/decorators/current-user.decorator';
+import { CurrentAccountMember, CurrentUser } from '../common/decorators/current-user.decorator';
 import { MaterialsService } from './materials.service';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -17,11 +17,13 @@ import { ReplyToReviewDto } from '../vendors/dto/reply-to-review.dto';
 import { FlagReviewDto } from '../vendors/dto/flag-review.dto';
 import { ModerateReviewDto } from '../vendors/dto/moderate-review.dto';
 import { SetSupplierVerificationDto } from './dto/set-supplier-verification.dto';
+import { SubmitSupplierTrustAuditDto } from './dto/submit-supplier-trust-audit.dto';
 import { CreateRentalBookingDto } from './dto/create-rental-booking.dto';
 import { UpsertCartItemDto } from './dto/upsert-cart-item.dto';
 import { CheckoutCartDto } from './dto/checkout-cart.dto';
 
 type AccountMemberCtx = { accountId: string };
+type UserCtx = { id: string };
 
 // No :propertyId/:projectId route params here either (orders carry an
 // optional projectId in the body, not the URL) — every ownership check in
@@ -83,6 +85,24 @@ export class MaterialsController {
   @Patch('suppliers/:supplierId/verification')
   setSupplierVerificationStatus(@Param('supplierId') supplierId: string, @Body() dto: SetSupplierVerificationDto) {
     return this.materials.setSupplierVerificationStatus(supplierId, dto);
+  }
+
+  // The real audit step — see MaterialsService.submitTrustAudit. Same
+  // supplier:verify gate as verification itself.
+  @RequirePermissions('supplier:verify')
+  @Post('suppliers/:supplierId/trust-audits')
+  submitTrustAudit(
+    @Param('supplierId') supplierId: string,
+    @CurrentUser() user: UserCtx,
+    @Body() dto: SubmitSupplierTrustAuditDto,
+  ) {
+    return this.materials.submitTrustAudit(supplierId, user.id, dto);
+  }
+
+  @RequirePermissions('supplier:read')
+  @Get('suppliers/:supplierId/trust-audits')
+  findTrustAudits(@Param('supplierId') supplierId: string) {
+    return this.materials.findTrustAudits(supplierId);
   }
 
   // Public catalog browse/search across suppliers.

@@ -444,8 +444,34 @@ model Vendor {
   payouts                Payout[]
   inspections            PropertyInspection[]
   maintenanceAssignments MaintenanceRequest[]
+  trustAudits            VendorTrustAudit[]
 
   @@map("vendors")
+}
+
+// The actual "neutral reviewer conducts a real audit" step Module 6 was
+// missing — distinct from Vendor.verificationStatus (a gate: can this
+// vendor operate at all, set-and-overwritten) and from VendorReview (a
+// customer's own experience, not a neutral assessment). A
+// platform_reviewer files one of these after actually looking into a
+// vendor; computeVendorTrustScore (vendors/trust-score.ts) reads the
+// most recent one as a real input, not just recomputed platform activity
+// data. Every audit is kept, not overwritten — same "record what
+// actually happened, let the history stand" reasoning
+// AiActionApproval/Dispute/Document decisions already follow — so a
+// vendor's full audit trail stays visible even though only the latest
+// one feeds the live score.
+model VendorTrustAudit {
+  id               String   @id @default(uuid())
+  vendorId         String
+  reviewedByUserId String
+  rating           String // clean | minor_concerns | major_concerns
+  notes            String // required — an audit with no reasoning recorded isn't an audit
+  createdAt        DateTime @default(now())
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@map("vendor_trust_audits")
 }
 
 model Project {
@@ -858,8 +884,26 @@ model Supplier {
   products Product[]
   orders   Order[]
   reviews  SupplierReview[]
+  trustAudits SupplierTrustAudit[]
 
   @@map("suppliers")
+}
+
+// The materials-marketplace counterpart to VendorTrustAudit — same
+// shape, same reasoning: a platform_reviewer's own real audit, kept as
+// history, distinct from Supplier.verificationStatus and from
+// SupplierReview (a buyer's own experience).
+model SupplierTrustAudit {
+  id               String   @id @default(uuid())
+  supplierId       String
+  reviewedByUserId String
+  rating           String // clean | minor_concerns | major_concerns
+  notes            String
+  createdAt        DateTime @default(now())
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@map("supplier_trust_audits")
 }
 
 model Product {

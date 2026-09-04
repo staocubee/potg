@@ -2932,6 +2932,93 @@ session surfacing.
   pass, so a same-permission-different-owner cross-tenant check wasn't
   repeated here.
 
+## Vendor and supplier trust audits — an independent judgment call (Module 6, this pass)
+
+Every earlier trust-score pass in this README carried the same caveat:
+the score is the platform's own arithmetic over data the vendor's/
+supplier's own marketplace activity produced — never a real judgment
+call from an independent party. "A real neutral reviewer for vendor/
+supplier verification" (above) closed that for `verificationStatus`, a
+binary/tri-state gate with no history — each call overwrites the last,
+and it was never meant to carry reasoning. This pass adds something
+different: a real audit record, with mandatory reasoning, that's kept
+forever rather than overwritten, blended into the trust score alongside
+the identity verification (NIN via Dojah, see "Real identity (KYC)
+verification" above) already built for the account operator.
+
+- **`VendorTrustAudit`/`SupplierTrustAudit`** (new models, one migration,
+  parallel to every other Vendor/Supplier pair in this schema rather
+  than a shared polymorphic table) — `rating` (`clean` /
+  `minor_concerns` / `major_concerns`), a **required, non-empty** `notes`
+  field (an audit with no recorded reasoning isn't an audit — the
+  existing `verificationNotes` field on `Vendor`/`Supplier` stayed
+  optional on purpose; this one didn't), `reviewedByUserId`, and
+  `createdAt`. Every audit is kept — filing a new one never deletes or
+  overwrites an old one — only the most recent feeds the live score, the
+  same way only the current `verificationStatus` value does, but the
+  full history stays visible.
+- **`vendors/trust-score.ts` and `materials/trust-score.ts`** — extended,
+  not replaced. Two new factors: `latestAudit` (`clean: +15`,
+  `minor_concerns: -10`, `major_concerns: -35` — deliberately the
+  widest swing of any factor in the formula, since a reviewer's own
+  judgment call is meant to be the most authoritative signal it has) and
+  `identityVerifiedOperator` (`+10` when any member of the vendor's/
+  supplier's account has `User.identityVerificationStatus === "verified"`
+  — checked with a `count`/`some` over `AccountMember`, not "the first
+  member," since an account can in principle have more than one). Same
+  `[0, 100]` clamp as before, so no rebalancing of the existing factors
+  was needed.
+- **`POST`/`GET /vendors/:vendorId/trust-audits`** and the same pair
+  under `/suppliers/:supplierId/trust-audits` — reuse the exact
+  `vendor:verify`/`supplier:verify` (file an audit) and `vendor:read`/
+  `supplier:read` (read the history) permissions `setVerificationStatus`
+  already used. No new permission keys, no `seed.ts` changes — the same
+  `platform_reviewer` role that can flip verification status is the one
+  that can file an audit, deliberately: this is one more action for the
+  same neutral party, not a second reviewer role.
+- **`explain_vendor_trust_score`/`explain_supplier_trust_score`** — the
+  factor list and system prompt both updated to say plainly that part of
+  the score now comes from a reviewer's own audit and identity
+  verification, not only recomputed activity, while still cautioning
+  it's one input a buyer should weigh themselves, not proof either way.
+- **Web UI**: `PlatformReviewPanel` on both `pages/vendors/[id].tsx` and
+  `pages/marketplace/materials/[id].tsx` gained a "File a trust audit"
+  sub-form (rating buttons + a required notes textarea) beneath the
+  existing verification-status controls, visible only to the same
+  `platform_reviewer`-only panel. A new self-fetching audit-history card
+  (`TrustAuditHistory` / `SupplierTrustAuditHistory`, same
+  `refreshToken`-prop pattern `RoiSummaryCard` established) shows every
+  audit ever filed — visible to anyone who can see the vendor/supplier at
+  all, the same transparency reviews already get, not just the reviewer
+  who filed them.
+- **Verified against the live dev API and in the browser**, switched
+  into the seeded `PropertyOnTheGo Trust & Safety` platform-reviewer
+  account: filed a `minor_concerns` audit on the seeded vendor (score
+  dropped 53 → 43, the exact −10) and a `major_concerns` audit on the
+  seeded supplier (score dropped 90 → 55, the exact −35); both audits
+  appeared immediately in their history card with no page reload, and
+  the "Latest platform audit" line on the trust-score factors updated to
+  match. Switching back to the demo owner's own account hid the "File a
+  trust audit" form (and the rest of `PlatformReviewPanel`) while the
+  audit-history card stayed visible, confirming the write path is gated
+  and the read path isn't. `explain_supplier_trust_score` via Ask AI
+  picked up both new factors correctly in its stub-mode draft ("Most
+  recent platform audit: major concerns", "This supplier's own identity
+  has not been verified").
+- **What this still isn't.** A reviewer's audit only covers what that
+  reviewer actually checked — there's no mandated checklist, no site
+  visit requirement, no external records lookup (business registration,
+  insurance, licensing) built into the flow itself; `notes` being
+  required means an audit records *that* reasoning was given, not that
+  the reasoning meets any particular bar. Filing an audit is also still
+  entirely manual — nothing prompts a reviewer to re-audit a vendor/
+  supplier on any cadence, so a score can carry a stale audit indefinitely
+  once one exists (and no audit at all, same as before this pass, if one
+  never gets filed). The design intent is that these gaps stay judgment
+  calls made *by a human reviewer*, not something to automate away — but
+  it does mean the platform still can't promise every trust score reflects
+  a recent, thorough look at the business behind it.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -2985,13 +3072,19 @@ blueprint, or explicitly cut from it:
   but `assignedTo` is still freeform text for anyone off-platform.
   Editing a request's title/description/priority is now possible — see
   "Edit endpoints" below.
-- **Vendor and supplier trust scores are still the platform's own
-  arithmetic.** See "Vendor trust score" and "Supplier trust score"
-  above: the *score* is computed from data the vendor/supplier's own
-  marketplace activity produced (reviews, completed work), not an
-  independent audit — a real reviewer setting `verificationStatus` (see
-  "A real neutral reviewer" above) only ever feeds one input into that
-  formula, it doesn't audit the rest.
+- **Vendor and supplier trust scores are no longer *only* the platform's
+  own arithmetic, but still aren't a full independent audit of the
+  business.** See "Vendor and supplier trust audits" above: the score
+  now blends in a `platform_reviewer`'s own recorded judgment call
+  (`VendorTrustAudit`/`SupplierTrustAudit`, kept as history, most recent
+  one scored) and whether the account's own operator has passed NIN
+  identity verification — real signals, not just recomputed marketplace
+  activity. What it still isn't: a reviewer's audit checks what that
+  reviewer chose to check (there's no mandated checklist — a physical
+  site visit, insurance/license lookups, credit history), and nothing
+  requires an audit to exist at all, so a vendor/supplier with no audit
+  on record just scores on activity plus identity, same as before this
+  pass.
 - **The neutral reviewer's decisions carry real context for three fields
   out of four; review moderation is the one exception, by design rather
   than oversight.** `platform_reviewer` covers `Vendor`/`Supplier.

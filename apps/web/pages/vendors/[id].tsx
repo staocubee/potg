@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Project, Vendor } from "../../lib/api";
+import { ApiError, Project, Vendor, VendorTrustAudit } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 
@@ -19,6 +19,11 @@ export default function VendorDetailPage() {
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Bumped after a new audit is submitted so the (independently-fetching)
+  // audit history card below refetches too — load() alone only refreshes
+  // the vendor's own trustScore, which already reads the latest audit,
+  // but not the full history list.
+  const [auditRefresh, setAuditRefresh] = useState(0);
 
   function load() {
     if (!id || !auth.currentAccountId) return;
@@ -82,19 +87,36 @@ export default function VendorDetailPage() {
                   {vendor.trustScore.factors.completedProjects} completed project(s) ·{" "}
                   {vendor.trustScore.factors.reviewCount} review(s)
                   {vendor.trustScore.factors.disputeCount > 0 && ` · ${vendor.trustScore.factors.disputeCount} dispute(s) on record`}
-                  {" — the platform's own arithmetic over its own data, not an independent audit."}
+                  {vendor.trustScore.factors.identityVerifiedOperator && " · identity verified (NIN)"}
+                </div>
+                <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                  {vendor.trustScore.factors.latestAudit
+                    ? `Latest platform audit: ${vendor.trustScore.factors.latestAudit.rating.replace(/_/g, " ")} (${new Date(vendor.trustScore.factors.latestAudit.createdAt).toLocaleDateString()})`
+                    : "No platform audit on record yet"}
+                  {" — combines platform activity with a reviewer's own audit and identity verification, still not a full independent audit of the business itself."}
                 </div>
               </div>
             )}
           </div>
 
           {isPlatformReviewer && id && (
-            <PlatformReviewPanel vendorId={id} status={vendor.verificationStatus} notes={vendor.verificationNotes} onChanged={load} />
+            <PlatformReviewPanel
+              vendorId={id}
+              status={vendor.verificationStatus}
+              notes={vendor.verificationNotes}
+              onChanged={load}
+              onAudited={() => {
+                load();
+                setAuditRefresh((n) => n + 1);
+              }}
+            />
           )}
 
           {!isVendorAccount && id && (
             <RequestQuoteForProject vendorId={id} vendorName={vendor.businessName} />
           )}
+
+          {id && <TrustAuditHistory vendorId={id} refreshToken={auditRefresh} />}
 
           <div className="potg-card" style={{ padding: 18 }}>
             <h3 style={{ fontSize: 14, marginBottom: 10 }}>Reviews</h3>
@@ -191,6 +213,7 @@ function RequestQuoteForProject({ vendorId, vendorName }: { vendorId: string; ve
 }
 
 const VERIFICATION_STATUSES = ["not_verified", "pending", "verified"];
+const AUDIT_RATINGS = ["clean", "minor_concerns", "major_concerns"];
 
 // Module 6's neutral-reviewer action, on the vendor side — only rendered
 // for the platform_reviewer role (see isPlatformReviewer above), which is
@@ -198,16 +221,20 @@ const VERIFICATION_STATUSES = ["not_verified", "pending", "verified"];
 // self-verify. Mirrors the shape of the Documents page's Verify/Reject
 // controls without the client-side permission check that page's own note
 // explains skipping — here the panel's visibility already is the check.
+// The trust-audit form below is the actual new capability — verification
+// status is a gate, this is a real judgment call with reasoning attached.
 function PlatformReviewPanel({
   vendorId,
   status,
   notes,
   onChanged,
+  onAudited,
 }: {
   vendorId: string;
   status: string;
   notes?: string | null;
   onChanged: () => void;
+  onAudited: () => void;
 }) {
   const auth = useAuth();
   // Seeded from the vendor's current note so re-opening this panel after
@@ -216,6 +243,11 @@ function PlatformReviewPanel({
   const [draftNotes, setDraftNotes] = useState(notes ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const [auditRating, setAuditRating] = useState(AUDIT_RATINGS[0]);
+  const [auditNotes, setAuditNotes] = useState("");
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [auditBusy, setAuditBusy] = useState(false);
 
   async function onSetStatus(newStatus: string) {
     setBusy(true);
@@ -227,6 +259,21 @@ function PlatformReviewPanel({
       setError(err instanceof ApiError ? err.message : "Couldn't update verification status.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onSubmitAudit(e: FormEvent) {
+    e.preventDefault();
+    setAuditBusy(true);
+    setAuditError(null);
+    try {
+      await auth.api.submitVendorTrustAudit(vendorId, { rating: auditRating, notes: auditNotes });
+      setAuditNotes("");
+      onAudited();
+    } catch (err) {
+      setAuditError(err instanceof ApiError ? err.message : "Couldn't submit that audit.");
+    } finally {
+      setAuditBusy(false);
     }
   }
 
@@ -256,6 +303,92 @@ function PlatformReviewPanel({
           >
             {s.replace(/_/g, " ")}
           </button>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--potg-border)" }}>
+        <h4 style={{ fontSize: 13, marginBottom: 4 }}>File a trust audit</h4>
+        <p className="potg-muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 10 }}>
+          A real judgment call, not just a status — feeds directly into this vendor's trust score. Every audit is
+          kept, not overwritten.
+        </p>
+        {auditError && <div className="potg-error" style={{ marginBottom: 8 }}>{auditError}</div>}
+        <form onSubmit={onSubmitAudit}>
+          <textarea
+            className="potg-input"
+            rows={2}
+            required
+            placeholder="What did you actually look into, and why this rating? (required)"
+            value={auditNotes}
+            onChange={(e) => setAuditNotes(e.target.value)}
+            style={{ marginBottom: 8 }}
+          />
+          <div style={{ display: "flex", gap: 6 }}>
+            {AUDIT_RATINGS.map((r) => (
+              <button
+                key={r}
+                type="button"
+                className={r === auditRating ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
+                disabled={auditBusy}
+                onClick={() => setAuditRating(r)}
+                style={{ padding: "4px 9px", fontSize: 11, textTransform: "capitalize" }}
+              >
+                {r.replace(/_/g, " ")}
+              </button>
+            ))}
+            <button
+              className="potg-btn potg-btn-primary"
+              type="submit"
+              disabled={auditBusy || !auditNotes.trim()}
+              style={{ padding: "4px 9px", fontSize: 11, marginLeft: "auto" }}
+            >
+              {auditBusy ? "Filing…" : "File audit"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Visible to everyone who can see the vendor at all (same transparency
+// reviews already get), not just the platform reviewer who files them —
+// self-fetching like AskAiPanel/RoiSummaryCard, with a refreshToken prop
+// so a freshly-filed audit shows up here without a full page reload.
+function TrustAuditHistory({ vendorId, refreshToken }: { vendorId: string; refreshToken: number }) {
+  const auth = useAuth();
+  const [audits, setAudits] = useState<VendorTrustAudit[] | null>(null);
+
+  useEffect(() => {
+    auth.api
+      .listVendorTrustAudits(vendorId)
+      .then(setAudits)
+      .catch(() => setAudits([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vendorId, refreshToken]);
+
+  if (audits && audits.length === 0) return null;
+
+  return (
+    <div className="potg-card" style={{ padding: 18 }}>
+      <h3 style={{ fontSize: 14, marginBottom: 10 }}>Platform audit history</h3>
+      {!audits && <p className="potg-muted" style={{ fontSize: 12 }}>Loading…</p>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {audits?.map((a) => (
+          <div key={a.id} style={{ fontSize: 13 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <span
+                className="potg-badge"
+                style={{ textTransform: "capitalize", color: a.rating === "major_concerns" ? "var(--potg-danger)" : undefined }}
+              >
+                {a.rating.replace(/_/g, " ")}
+              </span>
+              <span className="potg-muted" style={{ fontSize: 11 }}>
+                {new Date(a.createdAt).toLocaleDateString()}
+              </span>
+            </div>
+            <div style={{ marginTop: 4 }}>{a.notes}</div>
+          </div>
         ))}
       </div>
     </div>

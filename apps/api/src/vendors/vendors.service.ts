@@ -8,6 +8,7 @@ import { ReplyToReviewDto } from './dto/reply-to-review.dto';
 import { FlagReviewDto } from './dto/flag-review.dto';
 import { ModerateReviewDto } from './dto/moderate-review.dto';
 import { SetVendorVerificationDto } from './dto/set-vendor-verification.dto';
+import { SubmitVendorTrustAuditDto } from './dto/submit-vendor-trust-audit.dto';
 import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
 import { SetPaypalPayoutEmailDto } from './dto/set-paypal-payout-email.dto';
 import { getVendorTrustScore } from './trust-score';
@@ -147,6 +148,28 @@ export class VendorsService {
       where: { id: vendorId },
       data: { verificationStatus: dto.status, verificationNotes: dto.notes ?? null },
     });
+  }
+
+  // The actual audit step — see VendorTrustAudit's own schema comment for
+  // how this differs from setVerificationStatus above (a gate, set and
+  // overwritten) and from a customer's own VendorReview. Gated on the
+  // same vendor:verify permission as setVerificationStatus — only
+  // platform_reviewer carries it — so this can't be used to self-audit
+  // any more than the verification gate itself can.
+  async submitTrustAudit(vendorId: string, reviewedByUserId: string, dto: SubmitVendorTrustAuditDto) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { id: vendorId } });
+    if (!vendor) throw new NotFoundException('Vendor not found');
+    return this.prisma.vendorTrustAudit.create({
+      data: { vendorId, reviewedByUserId, rating: dto.rating, notes: dto.notes },
+    });
+  }
+
+  // Read-only, gated on vendor:read like the profile itself — the full
+  // audit trail is visible to anyone who can see the vendor at all, the
+  // same transparency reviews already get, not just the most recent one
+  // the trust score itself reads.
+  findTrustAudits(vendorId: string) {
+    return this.prisma.vendorTrustAudit.findMany({ where: { vendorId }, orderBy: { createdAt: 'desc' } });
   }
 
   // Vendor-initiated: submitting or revising a quote on a project. This

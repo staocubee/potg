@@ -454,6 +454,8 @@ export type ProjectUpdate = {
   createdAt: string;
 };
 
+export type TrustAuditFactor = { rating: string; notes: string; createdAt: string } | null;
+
 export type VendorTrustScore = {
   score: number;
   band: "excellent" | "good" | "fair" | "caution" | string;
@@ -463,7 +465,18 @@ export type VendorTrustScore = {
     reviewCount: number;
     completedProjects: number;
     disputeCount: number;
+    latestAudit: TrustAuditFactor;
+    identityVerifiedOperator: boolean;
   };
+};
+
+export type VendorTrustAudit = {
+  id: string;
+  vendorId: string;
+  reviewedByUserId: string;
+  rating: "clean" | "minor_concerns" | "major_concerns" | string;
+  notes: string;
+  createdAt: string;
 };
 
 export type Vendor = {
@@ -754,7 +767,18 @@ export type SupplierTrustScore = {
     reviewCount: number;
     deliveredOrders: number;
     cancelledOrders: number;
+    latestAudit: TrustAuditFactor;
+    identityVerifiedOperator: boolean;
   };
+};
+
+export type SupplierTrustAudit = {
+  id: string;
+  supplierId: string;
+  reviewedByUserId: string;
+  rating: "clean" | "minor_concerns" | "major_concerns" | string;
+  notes: string;
+  createdAt: string;
 };
 
 export type Supplier = {
@@ -1303,6 +1327,20 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  submitVendorTrustAudit(vendorId: string, input: { rating: string; notes: string }) {
+    return request<VendorTrustAudit>(`/vendors/${vendorId}/trust-audits`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  listVendorTrustAudits(vendorId: string) {
+    return request<VendorTrustAudit[]>(`/vendors/${vendorId}/trust-audits`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   createVendor(input: { businessName: string; serviceCategory: string; locationCoverage?: string }) {
     return request<Vendor>("/vendors", { method: "POST", body: input, token: this.token, accountId: this.accountId });
   }
@@ -1666,6 +1704,20 @@ export class ApiClient {
     return request<Supplier>(`/suppliers/${supplierId}/verification`, {
       method: "PATCH",
       body: { status, notes },
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  submitSupplierTrustAudit(supplierId: string, input: { rating: string; notes: string }) {
+    return request<SupplierTrustAudit>(`/suppliers/${supplierId}/trust-audits`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  listSupplierTrustAudits(supplierId: string) {
+    return request<SupplierTrustAudit[]>(`/suppliers/${supplierId}/trust-audits`, {
       token: this.token,
       accountId: this.accountId,
     });

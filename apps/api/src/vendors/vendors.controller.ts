@@ -13,6 +13,7 @@ import { ResolveDisputeDto } from '../payments/dto/resolve-dispute.dto';
 import { SubmitDisputeEvidenceDto } from '../payments/dto/submit-dispute-evidence.dto';
 import { ReplyToReviewDto } from './dto/reply-to-review.dto';
 import { SetVendorVerificationDto } from './dto/set-vendor-verification.dto';
+import { SubmitVendorTrustAuditDto } from './dto/submit-vendor-trust-audit.dto';
 import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
 import { SetPaypalPayoutEmailDto } from './dto/set-paypal-payout-email.dto';
 import { FlagReviewDto } from './dto/flag-review.dto';
@@ -198,5 +199,23 @@ export class VendorsController {
   @Patch(':vendorId/verification')
   setVerificationStatus(@Param('vendorId') vendorId: string, @Body() dto: SetVendorVerificationDto) {
     return this.vendors.setVerificationStatus(vendorId, dto);
+  }
+
+  // The real audit step — see VendorsService.submitTrustAudit. Same
+  // vendor:verify gate as verification itself.
+  @RequirePermissions('vendor:verify')
+  @Post(':vendorId/trust-audits')
+  submitTrustAudit(
+    @Param('vendorId') vendorId: string,
+    @CurrentUser() user: UserCtx,
+    @Body() dto: SubmitVendorTrustAuditDto,
+  ) {
+    return this.vendors.submitTrustAudit(vendorId, user.id, dto);
+  }
+
+  @RequirePermissions('vendor:read')
+  @Get(':vendorId/trust-audits')
+  findTrustAudits(@Param('vendorId') vendorId: string) {
+    return this.vendors.findTrustAudits(vendorId);
   }
 }

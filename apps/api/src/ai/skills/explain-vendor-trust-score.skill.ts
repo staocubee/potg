@@ -32,11 +32,17 @@ export const explainVendorTrustScoreSkill: AiSkill = {
       factors.disputeCount > 0
         ? `${factors.disputeCount} dispute(s) on record from projects this vendor worked`
         : `No disputes on record`,
+      factors.latestAudit
+        ? `Most recent platform audit: ${factors.latestAudit.rating.replace(/_/g, ' ')} (${new Date(factors.latestAudit.createdAt).toLocaleDateString()})`
+        : 'No platform audit on record yet',
+      factors.identityVerifiedOperator
+        ? "This vendor's own identity has been verified (NIN)"
+        : "This vendor's own identity has not been verified",
     ];
 
     const summary = await llm.complete({
       systemPrompt:
-        "You explain a vendor's trust score to a prospective customer in one short, plain-language paragraph. Be factual and neutral — this is the platform's own arithmetic over its own data, not an independent audit, so never claim it proves the vendor is trustworthy or not.",
+        "You explain a vendor's trust score to a prospective customer in one short, plain-language paragraph. Be factual and neutral. Part of this score now comes from real signals (a platform reviewer's own audit, government ID verification), not only recomputed platform activity — you can say that plainly, but still never claim the score proves the vendor is trustworthy or not; it's one input among several a buyer should weigh themselves.",
       userPrompt: `Vendor "${vendor.businessName}" has a trust score of ${score}/100 (${band}). Factors: ${items.join('; ')}.`,
     });
 
