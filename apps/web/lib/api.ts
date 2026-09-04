@@ -242,6 +242,14 @@ export type AppDocument = {
   id: string;
   accountId: string;
   propertyId?: string | null;
+  // Tags this document as belonging to a specific tenancy — see the
+  // schema comment on Document.leaseId. Set via createDocument's own
+  // leaseId input; `lease` is only populated by GET /documents and GET
+  // /documents/property/:id (the landlord's own views), not returned by
+  // GET /tenant/documents which already knows whose tenancy it's asking
+  // about.
+  leaseId?: string | null;
+  lease?: { tenantName: string } | null;
   documentType: string;
   fileUrl: string;
   verificationStatus: "not_verified" | "submitted" | "verified" | "rejected" | string;
@@ -1223,6 +1231,9 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  myTenantDocuments() {
+    return request<AppDocument[]>("/tenant/documents", { token: this.token, accountId: this.accountId });
+  }
   updateMaintenanceRequest(propertyId: string, requestId: string, input: { title?: string; description?: string; priority?: string }) {
     return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests/${requestId}`, {
       method: "PATCH",
@@ -1910,7 +1921,7 @@ export class ApiClient {
   }
 
   // --- Document vault ---
-  createDocument(input: { documentType: string; fileUrl: string; propertyId?: string; expiryDate?: string }) {
+  createDocument(input: { documentType: string; fileUrl: string; propertyId?: string; leaseId?: string; expiryDate?: string }) {
     return request<AppDocument>("/documents", { method: "POST", body: input, token: this.token, accountId: this.accountId });
   }
   listDocuments() {

@@ -387,15 +387,19 @@ export class PropertiesService {
     return updated;
   }
 
-  // Landlord-initiated, matching inspectorVendorId/assignedVendorId's own
-  // "the owner picks a real account, nothing auto-links" shape — except
-  // there's no marketplace directory to pick a tenant from (unlike
-  // Vendor, publicly browsable on purpose), so this resolves by exact
-  // email instead: the same tenantEmail already on the lease has to
-  // belong to a real User who has already set up their own
-  // AccountType.TENANT account (this never creates one on their behalf).
-  // Once linked, TenantService's own routes become that account's window
-  // onto this one lease — see TenantModule.
+  // Landlord-initiated — for the two cases the automatic path
+  // (AccountsService.linkMatchingLeasesForNewTenant, which fires the
+  // moment a matching TENANT account is created) can't cover: a lease
+  // added *after* the tenant already has an account, or a manual
+  // correction. Matches inspectorVendorId/assignedVendorId's own "the
+  // owner picks a real account" shape — except there's no marketplace
+  // directory to pick a tenant from (unlike Vendor, publicly browsable
+  // on purpose), so this resolves by exact email instead: the same
+  // tenantEmail already on the lease has to belong to a real User who
+  // has already set up their own AccountType.TENANT account (this never
+  // creates one on their behalf, same as the automatic path). Once
+  // linked, TenantService's own routes become that account's window onto
+  // this one lease — see TenantModule.
   async linkTenantAccount(propertyId: string, leaseId: string) {
     const lease = await this.prisma.lease.findFirst({ where: { id: leaseId, propertyId } });
     if (!lease) throw new NotFoundException('Lease not found on this property');

@@ -867,6 +867,7 @@ const RENT_FREQUENCIES = ["weekly", "monthly", "annually"];
 function CreateLeaseForm({ propertyId, onCreated }: { propertyId: string; onCreated: (l: Lease) => void }) {
   const auth = useAuth();
   const [tenantName, setTenantName] = useState("");
+  const [tenantEmail, setTenantEmail] = useState("");
   const [rentAmount, setRentAmount] = useState("");
   const [rentFrequency, setRentFrequency] = useState(RENT_FREQUENCIES[1]);
   const [startDate, setStartDate] = useState("");
@@ -882,6 +883,7 @@ function CreateLeaseForm({ propertyId, onCreated }: { propertyId: string; onCrea
     try {
       const l = await auth.api.createLease(propertyId, {
         tenantName,
+        tenantEmail: tenantEmail || undefined,
         rentAmount: Number(rentAmount),
         rentFrequency,
         startDate: new Date(startDate).toISOString(),
@@ -910,6 +912,13 @@ function CreateLeaseForm({ propertyId, onCreated }: { propertyId: string; onCrea
           ))}
         </select>
       </div>
+      <input
+        className="potg-input"
+        type="email"
+        placeholder="Tenant email (optional) — needed to link their own tenant account later"
+        value={tenantEmail}
+        onChange={(e) => setTenantEmail(e.target.value)}
+      />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
         <div>
           <label className="potg-label" style={{ fontSize: 11 }}>Start date</label>
@@ -942,6 +951,7 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
   const [periodEnd, setPeriodEnd] = useState("");
   const [editRentAmount, setEditRentAmount] = useState(lease.rentAmount);
   const [editRentFrequency, setEditRentFrequency] = useState(lease.rentFrequency);
+  const [editTenantEmail, setEditTenantEmail] = useState(lease.tenantEmail ?? "");
   const [editDepositAmount, setEditDepositAmount] = useState(lease.depositAmount ?? "");
   const [editStartDate, setEditStartDate] = useState(lease.startDate.slice(0, 10));
   const [editEndDate, setEditEndDate] = useState(lease.endDate ? lease.endDate.slice(0, 10) : "");
@@ -998,6 +1008,7 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
     setError(null);
     try {
       await auth.api.updateLease(propertyId, lease.id, {
+        tenantEmail: editTenantEmail || undefined,
         rentAmount: Number(editRentAmount),
         rentFrequency: editRentFrequency,
         depositAmount: editDepositAmount ? Number(editDepositAmount) : undefined,
@@ -1091,6 +1102,13 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
 
       {lease.status === "active" && editing && (
         <form onSubmit={onSaveEdit} style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+          <input
+            className="potg-input"
+            type="email"
+            placeholder="Tenant email (optional) — needed to link their own tenant account"
+            value={editTenantEmail}
+            onChange={(e) => setEditTenantEmail(e.target.value)}
+          />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
             <input
               className="potg-input"

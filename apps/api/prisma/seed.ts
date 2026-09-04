@@ -232,15 +232,15 @@ const ROLES: Record<string, string[]> = {
   // A renter's own account — the other half of the "no separate Tenant
   // identity" gap Lease.tenantName's own schema comment used to flag.
   // Deliberately minimal, same "only what its own screen needs" reasoning
-  // platform_reviewer's own comment gives: a tenant reads its own lease
-  // and rent history, and can report a maintenance issue — never
-  // lease:write (rent/dates/deposit stay landlord-controlled), never
-  // property:read/write (no general access to the property record
-  // itself, only what TenantService's own routes expose), never
-  // document:read (documents aren't scoped to a lease at all in this
-  // scaffold, so there'd be no way to limit it to "documents about my
-  // own tenancy").
-  tenant: ['lease:read', 'maintenance:read', 'maintenance:write'],
+  // platform_reviewer's own comment gives: a tenant reads its own lease,
+  // rent history, and any documents the landlord tagged to it
+  // (Document.leaseId), can report a maintenance issue, and can ask
+  // summarize_my_tenancy about its own lease — never lease:write (rent/
+  // dates/deposit stay landlord-controlled), never document:write
+  // (uploading stays the landlord's own action), never property:read/
+  // write (no general access to the property record itself, only what
+  // TenantService's own routes expose).
+  tenant: ['lease:read', 'maintenance:read', 'maintenance:write', 'document:read', 'ai:act'],
   // Section 8's own example role: "a family member can view documents but
   // not approve payments" — a read-only member of a family/company account.
   // Notably excludes payment:approve and dispute:write for the same reason.

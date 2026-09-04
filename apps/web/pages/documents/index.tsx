@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, AppDocument, Property } from "../../lib/api";
+import { ApiError, AppDocument, Lease, Property } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 // Mirrors DEFAULT_DOCUMENT_CHECKLIST in apps/api/src/ai/skills/document-checklists.ts
@@ -129,6 +129,7 @@ export default function DocumentsPage() {
                   ) : (
                     "Not tied to a property"
                   )}
+                  {d.lease && ` · ${d.lease.tenantName}'s tenancy (visible to them)`}
                   {" · "}
                   Uploaded {new Date(d.createdAt).toLocaleDateString()}
                   {d.expiryDate && ` · Expires ${new Date(d.expiryDate).toLocaleDateString()}`}
@@ -171,9 +172,28 @@ function UploadDocumentForm({
   const [customType, setCustomType] = useState("");
   const [fileUrl, setFileUrl] = useState("");
   const [propertyId, setPropertyId] = useState(defaultPropertyId ?? "");
+  const [leaseId, setLeaseId] = useState("");
+  const [leases, setLeases] = useState<Lease[]>([]);
   const [expiryDate, setExpiryDate] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Re-fetches whenever the chosen property changes — a lease only makes
+  // sense to tag a document with once its own property is picked, same
+  // "the id gets narrower as the form's own selections narrow" shape
+  // ReportMaintenanceRequestForm's own lease picker already uses.
+  useEffect(() => {
+    setLeaseId("");
+    if (!propertyId) {
+      setLeases([]);
+      return;
+    }
+    auth.api
+      .listLeases(propertyId)
+      .then(setLeases)
+      .catch(() => setLeases([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -184,6 +204,7 @@ function UploadDocumentForm({
         documentType: documentType === "other" ? customType : documentType,
         fileUrl,
         propertyId: propertyId || undefined,
+        leaseId: leaseId || undefined,
         expiryDate: expiryDate || undefined,
       });
       onCreated(doc);
@@ -221,6 +242,19 @@ function UploadDocumentForm({
           </select>
         </div>
       </div>
+      {leases.length > 0 && (
+        <div>
+          <label className="potg-label">Tenancy (optional) — makes this visible to that tenant</label>
+          <select className="potg-input" value={leaseId} onChange={(e) => setLeaseId(e.target.value)}>
+            <option value="">Not tied to a specific tenancy</option>
+            {leases.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.tenantName}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {documentType === "other" && (
         <div>
           <label className="potg-label">Custom type name</label>

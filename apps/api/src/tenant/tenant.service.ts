@@ -48,6 +48,18 @@ export class TenantService {
     });
   }
 
+  // Only documents the landlord actually tagged to this lease (Document.
+  // leaseId — see its own schema comment) — never the landlord's full
+  // document vault. A tenant sees nothing here until the landlord
+  // uploads something and picks their lease for it.
+  async findMyDocuments(accountId: string) {
+    const lease = await this.requireMyLease(accountId);
+    return this.prisma.document.findMany({
+      where: { leaseId: lease.id },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   // Reuses PropertiesService's own model shape (propertyId/leaseId set
   // from the lease, not client-supplied) but doesn't call
   // PropertiesService.reportMaintenanceRequest directly — that method

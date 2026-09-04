@@ -50,7 +50,7 @@ export class AccountsService {
       );
     }
 
-    return this.prisma.account.create({
+    const account = await this.prisma.account.create({
       data: {
         accountType: dto.accountType as any,
         name: dto.name,
@@ -63,6 +63,52 @@ export class AccountsService {
       },
       include: { members: true },
     });
+
+    // Closes the "landlord has to know a tenant signed up, and click
+    // link themselves" gap PropertiesService.linkTenantAccount's own
+    // comment used to flag: a brand-new TENANT account auto-links itself
+    // to every still-unlinked lease whose tenantEmail matches this same
+    // user, then emails whoever owns each of those properties. This
+    // never replaces the manual "Link tenant account" action on
+    // properties/[id].tsx — that stays for a lease created *after* the
+    // tenant already has an account, or as a manual correction — it just
+    // means the common "tenant signs up after the lease exists" case no
+    // longer needs it.
+    if (dto.accountType === 'TENANT') {
+      await this.linkMatchingLeasesForNewTenant(account.id, userId);
+    }
+
+    return account;
+  }
+
+  private async linkMatchingLeasesForNewTenant(tenantAccountId: string, userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return;
+
+    const matchingLeases = await this.prisma.lease.findMany({
+      where: { tenantEmail: user.email, tenantAccountId: null },
+      include: { property: { select: { name: true, accountId: true } } },
+    });
+
+    for (const lease of matchingLeases) {
+      await this.prisma.lease.update({ where: { id: lease.id }, data: { tenantAccountId } });
+
+      const landlordMembers = await this.prisma.accountMember.findMany({
+        where: { accountId: lease.property.accountId },
+        include: { user: { select: { email: true } } },
+      });
+      for (const member of landlordMembers) {
+        const sent = await this.email.send({
+          to: member.user.email,
+          subject: `${lease.tenantName} has linked their tenant account`,
+          html: `<p><strong>${lease.tenantName}</strong> (${user.email}) just created a PropertyOnTheGo tenant account and it's now linked to their lease at <strong>${lease.property.name}</strong>.</p><p>They can now see their lease, rent history, and report maintenance issues from their own account.</p>`,
+          text: `${lease.tenantName} (${user.email}) just created a PropertyOnTheGo tenant account and it's now linked to their lease at ${lease.property.name}. They can now see their lease, rent history, and report maintenance issues from their own account.`,
+        });
+        this.logger.log(
+          `Auto-linked tenant account ${tenantAccountId} to lease ${lease.id} — notified ${member.user.email} ${this.describeSendStatus(sent)}`,
+        );
+      }
+    }
   }
 
   // If `dto.email` already has a User, this behaves exactly as it always

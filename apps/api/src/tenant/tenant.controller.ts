@@ -11,12 +11,13 @@ type AccountMemberCtx = { accountId: string };
 
 // See TenantService's own comment for why this is a separate module
 // rather than more routes on PropertiesController. Reuses lease:read/
-// maintenance:read/maintenance:write — the same permission keys the
-// landlord-facing routes check — rather than inventing tenant-specific
-// ones: PermissionsGuard's :propertyId ABAC never triggers here (no
-// route below takes a :propertyId param), so the plain RBAC check is
-// all that's needed, same reasoning the vendor/supplier trust-audit
-// routes gave for reusing vendor:verify/supplier:verify.
+// maintenance:read/maintenance:write/document:read — the same
+// permission keys the landlord-facing routes check — rather than
+// inventing tenant-specific ones: PermissionsGuard's :propertyId ABAC
+// never triggers here (no route below takes a :propertyId param), so
+// the plain RBAC check is all that's needed, same reasoning the vendor/
+// supplier trust-audit routes gave for reusing vendor:verify/
+// supplier:verify.
 @UseGuards(JwtAuthGuard, AccountContextGuard, PermissionsGuard)
 @Controller('tenant')
 export class TenantController {
@@ -32,6 +33,12 @@ export class TenantController {
   @Get('maintenance-requests')
   findMyMaintenanceRequests(@CurrentAccountMember() member: AccountMemberCtx) {
     return this.tenant.findMyMaintenanceRequests(member.accountId);
+  }
+
+  @RequirePermissions('document:read')
+  @Get('documents')
+  findMyDocuments(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.tenant.findMyDocuments(member.accountId);
   }
 
   @RequirePermissions('maintenance:write')

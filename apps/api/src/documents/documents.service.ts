@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentVerificationDto } from './dto/update-document-verification.dto';
@@ -9,20 +9,36 @@ export class DocumentsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(accountId: string, uploadedByUserId: string, dto: CreateDocumentDto) {
+    let propertyId = dto.propertyId;
+    if (dto.leaseId) {
+      const lease = await this.prisma.lease.findUnique({ where: { id: dto.leaseId } });
+      if (!lease) throw new BadRequestException('Lease not found');
+      if (propertyId && propertyId !== lease.propertyId) {
+        throw new BadRequestException('That lease does not belong to this property');
+      }
+      propertyId = lease.propertyId;
+    }
     const document = await this.prisma.document.create({
       data: {
         accountId,
         uploadedByUserId,
         documentType: dto.documentType,
         fileUrl: dto.fileUrl,
-        propertyId: dto.propertyId,
+        propertyId,
+        leaseId: dto.leaseId,
         expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : undefined,
       },
+      // Same shape findForProperty/findForAccount already include below —
+      // without this, a freshly uploaded document's own response is
+      // missing the joined tenancy name, and the web UI's optimistic
+      // update (which renders this response directly, not a re-fetch)
+      // would silently show no tenancy tag until the next full reload.
+      include: { lease: { select: { tenantName: true } } },
     });
-    if (dto.propertyId) {
+    if (propertyId) {
       await this.prisma.propertyTimelineEvent.create({
         data: {
-          propertyId: dto.propertyId,
+          propertyId,
           eventType: 'document_uploaded',
           label: `Document uploaded: ${dto.documentType}`,
         },
@@ -34,6 +50,7 @@ export class DocumentsService {
   findForProperty(propertyId: string) {
     return this.prisma.document.findMany({
       where: { propertyId },
+      include: { lease: { select: { tenantName: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -41,6 +58,7 @@ export class DocumentsService {
   findForAccount(accountId: string) {
     return this.prisma.document.findMany({
       where: { accountId },
+      include: { lease: { select: { tenantName: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }

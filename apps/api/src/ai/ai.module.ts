@@ -28,6 +28,7 @@ import { summarizeMaintenanceBacklogSkill } from './skills/summarize-maintenance
 import { explainVendorTrustScoreSkill } from './skills/explain-vendor-trust-score.skill';
 import { explainSupplierTrustScoreSkill } from './skills/explain-supplier-trust-score.skill';
 import { summarizeRentalBookingsSkill } from './skills/summarize-rental-bookings.skill';
+import { summarizeMyTenancySkill } from './skills/summarize-my-tenancy.skill';
 
 @Module({
   imports: [ProjectsModule, ListingsModule],
@@ -72,6 +73,7 @@ import { summarizeRentalBookingsSkill } from './skills/summarize-rental-bookings
         explainVendorTrustScoreSkill,
         explainSupplierTrustScoreSkill,
         summarizeRentalBookingsSkill,
+        summarizeMyTenancySkill,
       ],
     },
   ],

@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Lease, MaintenanceRequest } from "../../lib/api";
+import { ApiError, AppDocument, Lease, MaintenanceRequest } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import AskAiPanel from "../../components/AskAiPanel";
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -24,6 +25,7 @@ export default function TenantLeasePage() {
   const auth = useAuth();
   const [lease, setLease] = useState<Lease | null | undefined>(undefined); // undefined = loading
   const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
+  const [documents, setDocuments] = useState<AppDocument[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
@@ -34,7 +36,10 @@ export default function TenantLeasePage() {
       .myTenantLease()
       .then((l) => {
         setLease(l);
-        if (l) return auth.api.myTenantMaintenanceRequests().then(setRequests);
+        if (l) return Promise.all([auth.api.myTenantMaintenanceRequests(), auth.api.myTenantDocuments()]).then(([r, d]) => {
+          setRequests(r);
+          setDocuments(d);
+        });
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load your lease."));
   }
@@ -48,7 +53,7 @@ export default function TenantLeasePage() {
   const totalPaid = (lease?.rentPayments ?? []).reduce((sum, p) => sum + Number(p.amount), 0);
 
   return (
-    <AppShell title="My Lease">
+    <AppShell title="My Lease" aiPanel={<AskAiPanel moduleContext="tenant" heading="Ask AI — My tenancy" />}>
       {!isTenantAccount && (
         <div className="potg-card" style={{ padding: 16, marginBottom: 16 }}>
           <p className="potg-muted" style={{ margin: 0, fontSize: 13 }}>
@@ -117,6 +122,26 @@ export default function TenantLeasePage() {
                 </div>
               </>
             )}
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <h3 style={{ fontSize: 14, marginBottom: 10 }}>Documents</h3>
+            {documents.length === 0 && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>
+                No documents shared with you yet — your landlord can tag an upload to your tenancy from their own
+                Documents page.
+              </p>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {documents.map((d) => (
+                <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+                  <a href={d.fileUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 600 }}>
+                    {d.documentType.replace(/_/g, " ")}
+                  </a>
+                  <span className="potg-badge">{d.verificationStatus.replace(/_/g, " ")}</span>
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="potg-card" style={{ padding: 18 }}>

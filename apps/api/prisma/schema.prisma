@@ -336,6 +336,14 @@ model Document {
   id                 String    @id @default(uuid())
   accountId          String
   propertyId         String?
+  // Optional — tags a document as belonging to a specific tenancy (a
+  // signed tenancy agreement, a move-in inspection report, ...) rather
+  // than the property generally. Same "optional cross-reference must
+  // actually belong to this property" cross-check
+  // ReportMaintenanceRequestDto.leaseId already gets. This is what lets
+  // TenantService.findMyDocuments show a tenant only documents about
+  // their own tenancy, not the landlord's full document vault.
+  leaseId            String?
   documentType       String
   fileUrl            String
   verificationStatus String    @default("not_verified") // not_verified | submitted | verified | rejected
@@ -346,6 +354,7 @@ model Document {
 
   account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
   property Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  lease    Lease?    @relation(fields: [leaseId], references: [id], onDelete: SetNull)
 
   @@map("documents")
 }
@@ -1233,6 +1242,7 @@ model Lease {
   tenantAccount       Account?             @relation("TenantAccountLeases", fields: [tenantAccountId], references: [id], onDelete: SetNull)
   rentPayments        LeaseRentPayment[]
   maintenanceRequests MaintenanceRequest[]
+  documents           Document[]
 
   @@map("leases")
 }

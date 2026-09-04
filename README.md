@@ -3187,19 +3187,88 @@ path," not a new screen built from nothing.
   from filtering by the *caller's own* `accountId`, not from a
   permission boundary), and the vendor account's own `GET /tenant/lease`
   correctly 403s (`vendor` role doesn't carry `lease:read` at all).
-- **What this doesn't do.** Nothing prompts a tenant to sign up, and
-  nothing notifies a landlord when one does — the landlord has to
-  separately know the tenant registered and click "Link tenant account"
-  themselves; a real deployment would want an invite-style email closing
-  that loop, the same gap the account-member invite flow closed for
-  account membership. A tenant also can't edit their own lease (by
-  design — rent/dates/deposit stay landlord-controlled) or see documents
-  scoped to their tenancy (this scaffold's `Document` model isn't scoped
-  to a lease at all). And there's still no tenant-facing AI skill (a
-  `summarize_my_tenancy`-shaped counterpart to `summarize_lease_status`
-  would be the natural next step, mirroring the landlord-facing one) —
-  left out of this pass since nothing else in `pages/tenant/index.tsx`
-  needed `ai:act` to exist.
+- **What this doesn't do.** A tenant still can't edit their own lease —
+  by design, rent/dates/deposit stay landlord-controlled. See "Closing
+  the three Tenant identity gaps" below for the auto-link notification,
+  lease-scoped documents, and `summarize_my_tenancy` this pass added
+  right after this one — all three were still open when this section was
+  first written.
+
+## Closing the three Tenant identity gaps: auto-link, lease-scoped documents, a tenant AI skill (this pass)
+
+The Tenant identity pass above shipped with three named gaps. This pass
+closes all three in one sitting, since none of them touch each other's
+code and all three are natural, bounded follow-ons rather than new
+design questions.
+
+**1. A tenant signing up no longer needs the landlord to click anything.**
+`AccountsService.create` — the same method every account type's own
+self-serve signup already runs through (`pages/accounts/new.tsx`, see
+"A real Tenant identity" above) — now auto-links a brand-new
+`AccountType.TENANT` account to every still-unlinked `Lease` whose
+`tenantEmail` matches the new user, then emails every member of each
+lease's landlord account via the same `EmailService` the invite flow
+already uses. `PropertiesService.linkTenantAccount` (the manual "Link
+tenant account" button) stays — it's what still handles a lease created
+*after* the tenant already has an account, or a manual correction — but
+the common case (tenant signs up after the lease exists) no longer
+needs it. **Real gap found while verifying this**: `pages/properties/
+[id].tsx`'s lease form had no `tenantEmail` input at all — the field
+existed on `CreateLeaseDto` server-side (and was reachable via `PATCH`)
+but nothing in the UI could ever set it, which meant "Link tenant
+account" could only ever work on the one lease the seed script wrote by
+hand. Fixed by adding the field to both the create and edit lease
+forms.
+
+- Verified live end-to-end: created a lease with a fresh `tenantEmail`
+  as the landlord, registered a genuinely new user under that same
+  email, created a `TENANT` account for them — no "Link tenant account"
+  click anywhere — and confirmed both sides: the new tenant's own `GET
+  /tenant/lease` immediately returned the real lease, and the landlord's
+  own Leases card read "Tenant account linked (New Auto Tenant)" on
+  reload. Confirmed the notification actually fires (server log:
+  `Auto-linked tenant account ... — notified demo-owner@propertyonthego.test
+  (email send failed — see the EmailService error above)`) — "failed"
+  here is Resend's own sandbox-key restriction (delivers only to the
+  key's own registered address, see `EmailService`'s comment), not a bug
+  in this pass; the attempt and its outcome are both logged correctly
+  either way.
+
+**2. Documents can now be tagged to a specific tenancy.** `Document.
+leaseId` (new column, optional, `onDelete: SetNull`) — same "optional
+cross-reference must actually belong to this property" cross-check
+`ReportMaintenanceRequestDto.leaseId` already gets
+(`DocumentsService.create` derives/validates `propertyId` from the
+lease when only `leaseId` is given). The landlord's upload form
+(`pages/documents/index.tsx`) grows a "Tenancy (optional)" picker once
+a property with active leases is selected; `GET /tenant/documents`
+(new route, `document:read` — now granted to the `tenant` role) shows a
+tenant only documents tagged to their own lease, never the landlord's
+full vault. **Bug caught and fixed during testing** — the same class of
+bug this session already found once before on `PropertyInspection`/
+`MaintenanceRequest`'s own vendor links: `DocumentsService.create()`
+didn't `include` the `lease` relation on its own return value, so the
+web UI's optimistic update (which renders the `POST` response directly,
+not a re-fetch) showed no tenancy tag until the next full reload. Fixed
+by adding the same `include` `findForProperty`/`findForAccount` already
+use.
+- Verified live: uploaded a document as the landlord with "Demo Tenant"
+  picked from the new tenancy dropdown, confirmed it read "Demo Tenant's
+  tenancy (visible to them)" immediately (no reload needed, post-fix),
+  and confirmed it appeared in that tenant's own `/tenant` page under
+  Documents.
+
+**3. `summarize_my_tenancy`** (new AI skill, `tenant` context,
+`lease:read`) — the tenant-facing counterpart to `summarize_lease_status`:
+rent status, whether it looks overdue (same `FREQUENCY_DAYS`
+approximation), whether the lease is ending within 60 days, and how
+many maintenance requests are still open, all computed from the one
+lease `Lease.tenantAccountId` links to the caller's own account — no id
+in `moduleContext` needed, unlike every other skill in this registry,
+since a tenant's own account already names the only lease it could ever
+ask about. `ai:act` is now granted to the `tenant` role for exactly
+this. Verified live: ran it from the `/tenant` page's Ask AI panel and
+confirmed the draft matched the page (open maintenance count included).
 
 ## Not built yet
 
@@ -3244,16 +3313,14 @@ blueprint, or explicitly cut from it:
   above). Editing a scheduled inspection's date/type/project/inspector is
   now possible — see "Edit endpoints for Inspections, Leases, and
   Maintenance requests" below.
-- **Leases — Tenant identity is closed, one smaller gap left.** A tenant
-  now has a real account type, role, and its own lease/maintenance view
-  (see "A real Tenant identity" above) — but nothing prompts a landlord
-  to actually link one once a tenant signs up (no invite-style
-  notification), and a linked tenant still can't see anything scoped to
-  their tenancy beyond the lease and maintenance requests — no documents
-  (`Document` isn't lease-scoped in this schema), no AI skill of their
-  own. Editing a lease's rent/dates/deposit, and overdue-rent detection,
-  are also possible now — see "Edit endpoints" and "Overdue-rent
-  detection" below.
+- **Leases — Tenant identity is fully closed now.** A tenant has a real
+  account type, role, and its own lease/document/maintenance view; a
+  tenant signing up auto-links to a matching lease and notifies the
+  landlord; documents can be tagged to a tenancy; `summarize_my_tenancy`
+  exists (see "A real Tenant identity" and "Closing the three Tenant
+  identity gaps" above). Editing a lease's rent/dates/deposit, and
+  overdue-rent detection, are also possible now — see "Edit endpoints"
+  and "Overdue-rent detection" below.
 - **Maintenance requests — closer to closed, one real gap left.**
   `assignedVendorId` can point at a platform `Vendor` now, and that
   vendor can self-report a professional license the same way a
