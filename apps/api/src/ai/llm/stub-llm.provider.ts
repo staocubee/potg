@@ -34,6 +34,7 @@ const KEYWORD_ROUTES: Record<string, string[]> = {
   boq_to_order: ['shopping list', 'order materials', 'materials list', 'turn this into an order'],
   model_roi_scenario: ['roi', 'yield', 'rent increase', 'what if i', 'appreciation', 'sell now'],
   assess_listing_risk: ['risk', 'is this listing safe', 'red flag', 'safe to buy'],
+  summarize_listing: ['summarize', 'summary', 'how is this listing doing', 'views and offers', 'listing performance'],
   generate_portfolio_report: ['portfolio report', 'across my properties', 'across all my properties'],
   summarize_inspection_history: ['inspection history', 'past inspections', 'inspection results', 'how did the inspection go'],
   summarize_lease_status: ['lease status', 'lease summary', 'is rent overdue', 'lease ending', 'tenant status'],

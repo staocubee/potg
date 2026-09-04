@@ -2902,6 +2902,36 @@ Nigerian-market orientation the rest of this codebase already has
   exists. Shows the verified badge (with the masked NIN) once verified,
   or the NIN input + any recorded failure reason otherwise.
 
+## A seller-facing listing summary skill (this pass)
+
+Closes the other half of "Deeper AI — listing/risk summaries beyond
+`assess_listing_risk`". `assess_listing_risk` is deliberately
+buyer-facing and public (no `accountId` filter, same reach `GET
+/listings/:id` itself has — its own comment explains why). This is the
+opposite on purpose: `summarize_listing` filters by `ctx.accountId` the
+same way `summarize_property`/`summarize_project` do, because market
+performance (inquiry/offer counts, a competing offer's amount) is
+exactly the kind of thing a seller wouldn't want a random buyer's chatbot
+session surfacing.
+
+- **`summarize_listing`** (new AI skill, `listing` context,
+  `listing:read`) — views, saves, days on market, inquiry count (and how
+  many are still unanswered), offer count (with the highest amount and
+  how many are awaiting a response), and whether an offer's already been
+  accepted. `warn: true` when there's an open, unanswered offer — the
+  one state that actually calls for the seller to act.
+- **Verified live**: ran it against the demo account's real "14 Ocean
+  Drive" listing and confirmed every figure against the underlying data
+  — 9 views (incremented by loading the listing page itself, a real
+  side effect, not a stub artifact), 4 days on market (matches its
+  `createdAt`), zero inquiries/offers (matches the seed data). Confirmed
+  the owner-only scoping is actually enforced, not just intended: a
+  different account without `listing:read` at all got a 403 attempting
+  the same action — the `accountId` filter itself reuses the exact
+  pattern already proven correct by every other `summarize_*` skill this
+  pass, so a same-permission-different-owner cross-tenant check wasn't
+  repeated here.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -3033,11 +3063,12 @@ blueprint, or explicitly cut from it:
   account that raised a dispute can't resolve it, an open dispute holds
   its milestone/payment) still exists alongside arbitration rather than
   being replaced by it.
-- **Deeper AI (Priority 6)** — listing/risk summaries beyond
-  `assess_listing_risk`, AI-generated renovation visualizations (needs
-  AR/VR first). Natural-language project summaries and valuation/ROI
-  dashboards are no longer on this list — see "A project summary skill,
-  and a real Reports dashboard" and "An ROI & valuation dashboard" above.
+- **Deeper AI (Priority 6)** — AI-generated renovation visualizations
+  (needs AR/VR first) is the one item left on this list. Natural-language
+  project summaries, valuation/ROI dashboards, and listing summaries
+  beyond `assess_listing_risk` are no longer on it — see "A project
+  summary skill, and a real Reports dashboard", "An ROI & valuation
+  dashboard", and "A seller-facing listing summary skill" above.
 - **The rest of the web app.** Several passes now built the app shell, the
   reusable `AskAiPanel`, and screens for portfolio + projects + vendor
   marketplace + payments/escrow + property/materials marketplace +

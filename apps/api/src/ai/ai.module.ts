@@ -20,6 +20,7 @@ import { generateListingDescriptionSkill } from './skills/generate-listing-descr
 import { boqToOrderSkill } from './skills/boq-to-order.skill';
 import { modelRoiScenarioSkill } from './skills/model-roi-scenario.skill';
 import { assessListingRiskSkill } from './skills/assess-listing-risk.skill';
+import { summarizeListingSkill } from './skills/summarize-listing.skill';
 import { generatePortfolioReportSkill } from './skills/generate-portfolio-report.skill';
 import { summarizeInspectionHistorySkill } from './skills/summarize-inspection-history.skill';
 import { summarizeLeaseStatusSkill } from './skills/summarize-lease-status.skill';
@@ -63,6 +64,7 @@ import { summarizeRentalBookingsSkill } from './skills/summarize-rental-bookings
         boqToOrderSkill,
         modelRoiScenarioSkill,
         assessListingRiskSkill,
+        summarizeListingSkill,
         generatePortfolioReportSkill,
         summarizeInspectionHistorySkill,
         summarizeLeaseStatusSkill,
