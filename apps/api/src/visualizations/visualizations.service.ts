@@ -18,8 +18,8 @@ export class VisualizationsService {
   // Persists a `pending` row first so the attempt is on record even if
   // generation fails, then updates it to `completed`/`failed` — same
   // "record what actually happened, then re-throw" shape
-  // IdentityService.verifyNin already uses for a third-party call that
-  // might fail or might not be configured at all.
+  // IdentityService.refreshStatus already uses for a third-party call
+  // that might fail or might not be configured at all.
   async create(propertyId: string, userId: string, dto: CreateVisualizationDto) {
     if (dto.projectId) {
       const project = await this.prisma.project.findFirst({ where: { id: dto.projectId, propertyId } });

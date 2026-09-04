@@ -96,18 +96,22 @@ model User {
   // (Vendor/Supplier.verificationStatus) or a document
   // (Document.verificationStatus) — this is the actual person behind an
   // account. Unlike those two, deliberately not a human platform_reviewer
-  // decision: a NIN lookup through Dojah either matches this user's own
-  // name or it doesn't, so IdentityService.verifyNin sets this directly
-  // from the API result, no pending-for-a-human step. ninLast4 is the
-  // only trace of the submitted NIN ever persisted — the full number is
-  // used once, for the lookup call, and discarded, the same "don't keep
-  // what nothing legitimately needs to reuse" reasoning that sets this
-  // apart from Vendor.bankAccountNumber (which genuinely is reused, for
-  // every future payout).
+  // decision: Sumsub's own document+selfie review either approves or
+  // rejects this user, so IdentityService.refreshStatus sets this
+  // directly from Sumsub's result, no pending-for-a-human step on this
+  // scaffold's own side (Sumsub's reviewers are the "human," just not
+  // one of this platform's own roles). Document/selfie images themselves
+  // never touch this backend at all — the WebSDK on the frontend talks
+  // to Sumsub directly with a short-lived access token, so there's
+  // nothing here for this codebase to store or leak. sumsubApplicantId
+  // is the one thing worth persisting: it's what a later status check
+  // polls against, since Sumsub's review happens on their own side, not
+  // synchronously in the request that started it (unlike a single NIN
+  // lookup, which used to return a definitive answer immediately).
   identityVerificationStatus String    @default("not_verified") // not_verified | pending | verified | failed
   identityVerificationNotes  String?
   identityVerifiedAt         DateTime?
-  ninLast4                   String?
+  sumsubApplicantId          String?
 
   memberships         AccountMember[]
   passwordResetTokens PasswordResetToken[]

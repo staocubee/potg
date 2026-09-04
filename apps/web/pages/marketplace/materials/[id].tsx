@@ -127,7 +127,7 @@ export default function SupplierDetailPage() {
                   {supplier.trustScore.factors.reviewCount} review(s)
                   {supplier.trustScore.factors.cancelledOrders > 0 &&
                     ` · ${supplier.trustScore.factors.cancelledOrders} cancelled order(s) on record`}
-                  {supplier.trustScore.factors.identityVerifiedOperator && " · identity verified (NIN)"}
+                  {supplier.trustScore.factors.identityVerifiedOperator && " · identity verified"}
                 </div>
                 <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
                   {supplier.trustScore.factors.latestAudit

@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
 import { IdentityService } from './identity.service';
-import { DojahService } from './dojah.service';
+import { SumsubService } from './sumsub.service';
 import { IdentityController } from './identity.controller';
 
 @Module({
-  providers: [IdentityService, DojahService],
+  providers: [IdentityService, SumsubService],
   controllers: [IdentityController],
 })
 export class IdentityModule {}

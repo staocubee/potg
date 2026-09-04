@@ -1,8 +1,7 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { IdentityService } from './identity.service';
-import { VerifyNinDto } from './dto/verify-nin.dto';
 
 type UserCtx = { id: string };
 
@@ -21,8 +20,13 @@ export class IdentityController {
     return this.identity.getStatus(user.id);
   }
 
-  @Post('verify-nin')
-  verifyNin(@CurrentUser() user: UserCtx, @Body() dto: VerifyNinDto) {
-    return this.identity.verifyNin(user.id, dto);
+  @Post('start')
+  startVerification(@CurrentUser() user: UserCtx) {
+    return this.identity.startVerification(user.id);
+  }
+
+  @Post('refresh')
+  refreshStatus(@CurrentUser() user: UserCtx) {
+    return this.identity.refreshStatus(user.id);
   }
 }

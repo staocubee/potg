@@ -155,18 +155,46 @@ function PendingInviteRow({ invite, onChanged }: { invite: AccountInviteSummary;
   );
 }
 
+const SUMSUB_SDK_URL = "https://static.sumsub.com/idensic/static/sns-websdk-builder.js";
+
+function loadSumsubScript(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if ((window as unknown as { snsWebSdk?: unknown }).snsWebSdk) return resolve();
+    const existing = document.querySelector(`script[src="${SUMSUB_SDK_URL}"]`);
+    if (existing) {
+      existing.addEventListener("load", () => resolve());
+      existing.addEventListener("error", () => reject(new Error("Couldn't load the verification widget")));
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = SUMSUB_SDK_URL;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Couldn't load the verification widget"));
+    document.body.appendChild(script);
+  });
+}
+
 // Module 6's real identity-verification gap — about the signed-in person,
 // not the currently-selected account, so this fetches/posts without any
 // account-scoped data and would render identically no matter which
 // account is active. Lives on this page because there's no dedicated
 // profile screen yet and this is the closest thing to one; a real
 // deployment would likely give it its own settings page.
+//
+// Sumsub's own WebSDK does the actual document/selfie capture — this
+// component only ever asks the backend for a short-lived access token
+// and hands it straight to Sumsub's widget (loaded from their own CDN),
+// so no ID photo ever passes through this app's own servers. Review
+// happens asynchronously on Sumsub's side, so there's a separate
+// "Check status" action rather than an immediate result the way the old
+// single NIN-lookup flow had.
 function IdentityVerificationCard() {
   const auth = useAuth();
   const [status, setStatus] = useState<IdentityStatus | null>(null);
-  const [nin, setNin] = useState("");
+  const [starting, setStarting] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [widgetOpen, setWidgetOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
   function load() {
     auth.api
@@ -180,24 +208,70 @@ function IdentityVerificationCard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
+  // Runs once the container div below has actually mounted (widgetOpen
+  // flips first, then this effect fires) — Sumsub's own launch() call
+  // needs the target element to already exist in the DOM.
+  useEffect(() => {
+    if (!widgetOpen) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { accessToken } = await auth.api.startIdentityVerification();
+        await loadSumsubScript();
+        if (cancelled) return;
+        const sdk = (
+          window as unknown as {
+            snsWebSdk: {
+              init: (token: string, refresh: () => Promise<string>) => {
+                withConf: (conf: Record<string, unknown>) => {
+                  withOptions: (opts: Record<string, unknown>) => { build: () => { launch: (selector: string) => void } };
+                };
+              };
+            };
+          }
+        ).snsWebSdk
+          .init(accessToken, async () => (await auth.api.startIdentityVerification()).accessToken)
+          .withConf({ lang: "en" })
+          .withOptions({ addViewportTag: false, adaptIframeHeight: true })
+          .build();
+        sdk.launch("#sumsub-websdk-container");
+      } catch (err) {
+        setError(err instanceof ApiError ? err.message : "Couldn't start verification.");
+        setWidgetOpen(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [widgetOpen]);
+
+  async function onStart() {
     setError(null);
-    setBusy(true);
+    setStarting(true);
     try {
-      const result = await auth.api.verifyNin(nin);
-      setStatus(result);
-      setNin("");
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Couldn't verify that NIN.");
-      load();
+      setWidgetOpen(true);
     } finally {
-      setBusy(false);
+      setStarting(false);
+    }
+  }
+
+  async function onCheckStatus() {
+    setError(null);
+    setChecking(true);
+    try {
+      const result = await auth.api.refreshIdentityStatus();
+      setStatus(result);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't check verification status.");
+    } finally {
+      setChecking(false);
     }
   }
 
   const verified = status?.identityVerificationStatus === "verified";
   const failed = status?.identityVerificationStatus === "failed";
+  const started = !!status?.sumsubApplicantId;
 
   return (
     <div className="potg-card" style={{ padding: 18, marginBottom: 16 }}>
@@ -212,43 +286,38 @@ function IdentityVerificationCard() {
 
       {verified ? (
         <p style={{ fontSize: 13, margin: 0 }}>
-          Verified against NIN •••• {status?.ninLast4}
-          {status?.identityVerifiedAt && ` on ${new Date(status.identityVerifiedAt).toLocaleDateString()}`}.
+          Verified via Sumsub{status?.identityVerifiedAt && ` on ${new Date(status.identityVerifiedAt).toLocaleDateString()}`}.
         </p>
       ) : (
         <>
           <p className="potg-muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
-            Verify it's really you with your National Identification Number (NIN) — checked directly against the
-            national record, matched against the name on this account.
+            Verify it's really you — a quick document + selfie check through Sumsub. Your ID photos go straight to
+            Sumsub, never through this app's own servers.
           </p>
           {failed && status?.identityVerificationNotes && (
             <div className="potg-error" style={{ marginBottom: 10 }}>
               {status.identityVerificationNotes}
             </div>
           )}
-          {/* Only shown when it says something the persisted note above
-              doesn't already — a failed attempt's own error message gets
-              recorded as that note server-side (IdentityService.verifyNin),
-              so repeating it here would just be the same sentence twice. */}
           {error && error !== status?.identityVerificationNotes && (
             <div className="potg-error" style={{ marginBottom: 10 }}>
               {error}
             </div>
           )}
-          <form onSubmit={onSubmit} style={{ display: "flex", gap: 8 }}>
-            <input
-              className="potg-input"
-              required
-              placeholder="11-digit NIN"
-              pattern="\d{11}"
-              maxLength={11}
-              value={nin}
-              onChange={(e) => setNin(e.target.value.replace(/\D/g, ""))}
-            />
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || nin.length !== 11} style={{ flexShrink: 0 }}>
-              {busy ? "Verifying…" : failed ? "Try again" : "Verify"}
-            </button>
-          </form>
+          {widgetOpen ? (
+            <div id="sumsub-websdk-container" style={{ minHeight: 400 }} />
+          ) : (
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="potg-btn potg-btn-primary" onClick={onStart} disabled={starting}>
+                {starting ? "Starting…" : started ? (failed ? "Try again" : "Continue verification") : "Start verification"}
+              </button>
+              {started && (
+                <button className="potg-btn potg-btn-secondary" onClick={onCheckStatus} disabled={checking}>
+                  {checking ? "Checking…" : "Check status"}
+                </button>
+              )}
+            </div>
+          )}
         </>
       )}
     </div>

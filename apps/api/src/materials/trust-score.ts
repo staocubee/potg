@@ -20,8 +20,8 @@ export type SupplierTrustScore = {
 
 // The materials-marketplace counterpart to vendors/trust-score.ts — same
 // formula shape (including the same two "real audit" signals a
-// platform_reviewer's own SupplierTrustAudit and NIN identity
-// verification add — see that file's own comment for the reasoning),
+// platform_reviewer's own SupplierTrustAudit and identity verification
+// (Sumsub) add — see that file's own comment for the reasoning),
 // swapped for supplier-appropriate activity signals: delivered orders
 // stand in for completed projects (a positive track-record signal),
 // cancelled orders stand in for disputes (the negative signal —

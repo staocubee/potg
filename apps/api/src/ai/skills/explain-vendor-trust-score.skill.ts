@@ -36,7 +36,7 @@ export const explainVendorTrustScoreSkill: AiSkill = {
         ? `Most recent platform audit: ${factors.latestAudit.rating.replace(/_/g, ' ')} (${new Date(factors.latestAudit.createdAt).toLocaleDateString()})`
         : 'No platform audit on record yet',
       factors.identityVerifiedOperator
-        ? "This vendor's own identity has been verified (NIN)"
+        ? "This vendor's own identity has been verified"
         : "This vendor's own identity has not been verified",
       factors.licenseExpired ? 'This vendor lists a professional license that has expired' : null,
     ].filter((item): item is string => item != null);

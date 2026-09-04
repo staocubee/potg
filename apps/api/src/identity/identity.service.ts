@@ -1,39 +1,20 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { DojahService } from './dojah.service';
-import { VerifyNinDto } from './dto/verify-nin.dto';
-
-function normalizeTokens(s: string): string[] {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z\s]/g, '')
-    .split(/\s+/)
-    .filter(Boolean);
-}
-
-// Exact-token match only — "Chidinma" won't match a NIN record's
-// "Chidimma" (a single typo/transliteration difference). Same
-// simplification this scaffold's other "confirm it's really them" checks
-// already make elsewhere (VendorsService.setBankDetails trusts Paystack's
-// own resolved account name outright, no fuzzy compare either). A real
-// deployment doing this for real would want a tolerant/fuzzy name match
-// here, not an exact one.
-function namesMatch(accountName: string, ninFirstName: string, ninLastName: string): boolean {
-  const accountTokens = new Set(normalizeTokens(accountName));
-  const [first] = normalizeTokens(ninFirstName);
-  const [last] = normalizeTokens(ninLastName);
-  return !!first && !!last && accountTokens.has(first) && accountTokens.has(last);
-}
+import { SumsubService } from './sumsub.service';
 
 // Module 6's real identity-verification gap — see the schema comment on
 // User.identityVerificationStatus for how this differs from
 // Vendor/Supplier.verificationStatus (fully automated here, no human
-// platform_reviewer decision).
+// platform_reviewer decision — Sumsub's own reviewers are the human
+// step). Two actions rather than Dojah's one, because a document/selfie
+// review is inherently asynchronous: startVerification kicks it off,
+// refreshStatus polls for a result once the user's actually gone
+// through Sumsub's WebSDK.
 @Injectable()
 export class IdentityService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly dojah: DojahService,
+    private readonly sumsub: SumsubService,
   ) {}
 
   getStatus(userId: string) {
@@ -43,53 +24,67 @@ export class IdentityService {
         identityVerificationStatus: true,
         identityVerificationNotes: true,
         identityVerifiedAt: true,
-        ninLast4: true,
+        sumsubApplicantId: true,
       },
     });
   }
 
-  async verifyNin(userId: string, dto: VerifyNinDto) {
+  // Creates the Sumsub applicant on first call (reused on every later
+  // call — an applicant is a standing record on Sumsub's side, not
+  // something to recreate per attempt) and mints a fresh WebSDK access
+  // token every time, since those are short-lived by design. The
+  // frontend takes this token straight to Sumsub's own WebSDK — no
+  // document or selfie image ever passes through this backend.
+  async startVerification(userId: string) {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     if (user.identityVerificationStatus === 'verified') {
       throw new ConflictException('This account is already identity-verified');
     }
 
-    let record;
-    try {
-      record = await this.dojah.lookupNin(dto.nin);
-    } catch (err) {
-      // A failed lookup (no record, invalid NIN, provider error) is still
-      // a real, terminal-for-now result worth recording — same "record
-      // what actually happened" reasoning every other verification status
-      // in this schema follows. ninLast4 is still set so a retry attempt
-      // is visibly a retry, not a first try.
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: {
-          identityVerificationStatus: 'failed',
-          identityVerificationNotes: err instanceof Error ? err.message : 'NIN lookup failed',
-          ninLast4: dto.nin.slice(-4),
-        },
-      });
-      throw err;
+    let applicantId = user.sumsubApplicantId;
+    if (!applicantId) {
+      const created = await this.sumsub.createApplicant(userId);
+      applicantId = created.applicantId;
+      await this.prisma.user.update({ where: { id: userId }, data: { sumsubApplicantId: applicantId } });
+    }
+    const { token } = await this.sumsub.getAccessToken(userId);
+    return { applicantId, accessToken: token };
+  }
+
+  // Pull-based, not webhook-driven — see SumsubService's own comment on
+  // why. Safe to call repeatedly (a user checking back after finishing
+  // the WebSDK flow, or just impatient) — always re-reads Sumsub's
+  // current answer rather than trusting a locally cached one.
+  async refreshStatus(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (!user.sumsubApplicantId) {
+      throw new BadRequestException('Verification has not been started yet — call POST /identity/start first');
     }
 
-    const matched = namesMatch(user.name, record.firstName, record.lastName);
+    const result = await this.sumsub.getApplicantStatus(user.sumsubApplicantId);
+    let status = 'pending';
+    let notes: string | null = null;
+    let verifiedAt: Date | null = null;
+    if (result.reviewStatus === 'completed') {
+      if (result.reviewAnswer === 'GREEN') {
+        status = 'verified';
+        verifiedAt = new Date();
+      } else {
+        status = 'failed';
+        notes = result.rejectLabels && result.rejectLabels.length > 0
+          ? `Sumsub rejected this verification: ${result.rejectLabels.join(', ')}`
+          : 'Sumsub rejected this verification';
+      }
+    }
+
     return this.prisma.user.update({
       where: { id: userId },
-      data: {
-        identityVerificationStatus: matched ? 'verified' : 'failed',
-        identityVerificationNotes: matched
-          ? null
-          : `The NIN record's name (${record.firstName} ${record.lastName}) doesn't match this account's name (${user.name})`,
-        identityVerifiedAt: matched ? new Date() : null,
-        ninLast4: dto.nin.slice(-4),
-      },
+      data: { identityVerificationStatus: status, identityVerificationNotes: notes, identityVerifiedAt: verifiedAt },
       select: {
         identityVerificationStatus: true,
         identityVerificationNotes: true,
         identityVerifiedAt: true,
-        ninLast4: true,
+        sumsubApplicantId: true,
       },
     });
   }

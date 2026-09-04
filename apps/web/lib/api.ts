@@ -158,7 +158,10 @@ export type IdentityStatus = {
   identityVerificationStatus: "not_verified" | "pending" | "verified" | "failed" | string;
   identityVerificationNotes?: string | null;
   identityVerifiedAt?: string | null;
-  ninLast4?: string | null;
+  // Set once startIdentityVerification has created a Sumsub applicant —
+  // present even before a result comes back, since it's what
+  // refreshIdentityStatus polls against.
+  sumsubApplicantId?: string | null;
 };
 
 export type AccountSummary = {
@@ -975,10 +978,23 @@ export class ApiClient {
   getIdentityStatus() {
     return request<IdentityStatus>("/identity/me", { token: this.token, accountId: this.accountId });
   }
-  verifyNin(nin: string) {
-    return request<IdentityStatus>("/identity/verify-nin", {
+  // Creates (or reuses) a Sumsub applicant and mints a fresh short-lived
+  // WebSDK access token — the frontend hands this straight to Sumsub's
+  // own widget, which talks to Sumsub directly. No document/selfie image
+  // ever passes through this backend.
+  startIdentityVerification() {
+    return request<{ applicantId: string; accessToken: string }>("/identity/start", {
       method: "POST",
-      body: { nin },
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  // Pull-based — Sumsub's own review happens asynchronously on their
+  // side, so this re-reads their current answer rather than waiting on
+  // a webhook (this scaffold has nowhere to receive one in local dev).
+  refreshIdentityStatus() {
+    return request<IdentityStatus>("/identity/refresh", {
+      method: "POST",
       token: this.token,
       accountId: this.accountId,
     });

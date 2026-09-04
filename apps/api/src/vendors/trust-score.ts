@@ -34,8 +34,8 @@ export type VendorTrustScore = {
 // feed it too: a platform_reviewer's own filed VendorTrustAudit (a real
 // human actually looked into this vendor and recorded a judgment,
 // distinct from the reviews its own customers left), and whether the
-// account behind this vendor profile has passed real NIN identity
-// verification (IdentityService, Module 6's KYC pass) — a
+// account behind this vendor profile has passed real identity
+// verification (IdentityService, Module 6's KYC pass, Sumsub) — a
 // government-backed signal, not platform-generated at all. Reviews
 // still come from the accounts that hired the vendor, and
 // verificationStatus is still a gate a human sets, not an audit itself —
@@ -89,8 +89,8 @@ export async function getVendorTrustScore(
     prisma.projectVendorAssignment.count({ where: { vendorId: vendor.id, project: { status: 'completed' } } }),
     prisma.dispute.count({ where: { project: { assignments: { some: { vendorId: vendor.id } } } } }),
     prisma.vendorTrustAudit.findFirst({ where: { vendorId: vendor.id }, orderBy: { createdAt: 'desc' } }),
-    // Whether anyone actually behind this account has passed real NIN
-    // verification — `some` rather than picking one member, since a
+    // Whether anyone actually behind this account has passed real
+    // identity verification — `some` rather than picking one member, since a
     // vendor account can in principle have more than one (even though
     // in practice it almost never does: the vendor role carries no
     // account:manage_members permission to invite a second one).

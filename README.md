@@ -2836,71 +2836,91 @@ side of reports" bullets that were still open.
   separately, a real cross-check that the two features can't quietly
   disagree about the same underlying payouts.
 
-## Real identity (KYC) verification — NIN via Dojah (Module 6, this pass)
+## Real identity (KYC) verification — Sumsub (Module 6, originally Dojah/NIN, swapped this pass)
 
 Module 6's actual remaining gap: `Vendor`/`Supplier.verificationStatus`
 verify a *business*, `Document.verificationStatus` verifies *paperwork*
 — nothing in this scaffold ever verified the *person* behind an account
-at all. This closes that with Nigeria's National Identification Number
-(NIN), looked up through Dojah, a Nigerian KYC aggregator — the same
-Nigerian-market orientation the rest of this codebase already has
-(NGN, Paystack, Flutterwave, Lagos seed data).
+at all. This was originally built against Dojah (Nigeria's National
+Identification Number, a single lookup call) but swapped for Sumsub
+once real Dojah credentials turned out to be placeholder text
+(`"your_app_id"`/`"your_secret_key"`, not real values) while a genuine
+Sumsub account was available instead. The swap changed more than the
+provider name: Sumsub is document+selfie review, not a single-field
+lookup, so the shape of the whole flow is different, not just which
+service a `Bearer` header points at.
 
-- **`User` gained `identityVerificationStatus`/`identityVerificationNotes`/
-  `identityVerifiedAt`/`ninLast4`** — deliberately *not* modeled on
-  `Vendor`/`Supplier.verificationStatus`'s human-`platform_reviewer`
-  pattern. A NIN lookup's result either matches this user's own account
-  name or it doesn't; there's no judgment call for a human reviewer to
-  make in between, so `IdentityService.verifyNin` sets the status
-  directly from Dojah's own response. `ninLast4` is the only trace of the
-  submitted NIN ever persisted — the full 11 digits are used once, for
-  the lookup call itself, and never stored, unlike `Vendor.
-  bankAccountNumber` (which genuinely is reused, for every future
-  payout).
-- **`DojahService`** (`src/identity/dojah.service.ts`) — same "plain
-  fetch, no SDK, `isConfigured` gate" shape every gateway service in this
-  scaffold already uses. One real auth difference from the payment
-  gateways: Dojah takes two headers together (`AppId` plus a raw secret
-  key in `Authorization` — not a `Bearer` token). A single GET call, not
-  a multi-step flow — no webhook needed, same pull-based reasoning
-  `PaystackService`'s own comment already gives.
-  `DOJAH_ENV=production` is an explicit opt-in only; sandbox is the
-  default.
-  Same as the moment Stripe was added: **code-complete, not yet
-  live-verified** — Dojah credentials weren't available while this was
-  written. Confirmed live so far only that the whole chain behaves
-  correctly when unconfigured: a verification attempt fails with a
-  clear, specific error (`"...set DOJAH_APP_ID/DOJAH_SECRET_KEY to
-  enable it"`), that failure is correctly persisted as the user's own
-  `identityVerificationStatus: "failed"` with the same message as its
-  note (not silently swallowed, not crashing), and the web UI shows it
-  once, not duplicated between the transient error banner and the
-  persisted note.
-- **`IdentityService.verifyNin`'s name match is exact-token, not
-  fuzzy.** `namesMatch` normalizes both the account's own name and
-  Dojah's returned first/last name (lowercase, strip non-letters, split
-  into tokens) and requires an exact token match — a single typo or
-  transliteration difference (e.g. "Chidinma" vs. a NIN record's
-  "Chidimma") fails verification outright. Same simplification
-  `VendorsService.setBankDetails` already makes elsewhere (trusting a
-  gateway's own resolved name outright, no fuzzy compare there either) —
-  a real deployment doing this for real would want a tolerant match, not
-  an exact one.
-- **`IdentityController`** (`GET /identity/me`, `POST
-  /identity/verify-nin`) — deliberately user-scoped, not account-scoped:
-  no `AccountContextGuard`/`PermissionsGuard` the way every other
-  controller in this codebase has, since identity verification is about
-  the person signed in, independent of which account they currently have
-  selected. Same reasoning `AuthController`'s own `GET /auth/me` needs
-  nothing more than `JwtAuthGuard` for — worth noting that route returns
-  JWT-payload data, not a fresh DB read, so it couldn't have carried
-  verification status itself even if it were the natural place to add
-  it.
-- **Web**: a new "Identity verification" card on the Members page
+- **`User` gained `sumsubApplicantId`, replacing `ninLast4`** —
+  `identityVerificationStatus`/`identityVerificationNotes`/
+  `identityVerifiedAt` stayed (provider-agnostic), but there's no NIN
+  digits to keep a trailing trace of anymore. `sumsubApplicantId` is
+  what a later status check polls against, since Sumsub's review happens
+  asynchronously on their own side — genuinely different from Dojah's
+  NIN lookup, which returned a definitive match/no-match in the same
+  request that made it. Still deliberately *not* modeled on `Vendor`/
+  `Supplier.verificationStatus`'s human-`platform_reviewer` pattern —
+  Sumsub's own reviewers are the human step, just not one of this
+  platform's own roles, so `IdentityService` sets the status directly
+  from Sumsub's result, no `platform_reviewer` queue involved.
+- **`SumsubService`** (`src/identity/sumsub.service.ts`, replacing
+  `dojah.service.ts`) — same "plain fetch, no SDK, `isConfigured` gate"
+  shape every gateway service in this scaffold already uses. The one
+  real auth difference from every other integration here: Sumsub signs
+  *every* request with an HMAC-SHA256 over `timestamp + method + path +
+  body` (`X-App-Token`/`X-App-Access-Sig`/`X-App-Access-Ts` headers), not
+  a static bearer token or header pair — `sign()` does that once, shared
+  by all three calls (`createApplicant`, `getAccessToken`,
+  `getApplicantStatus`). No sandbox-vs-production host split the way
+  Dojah had — sandbox vs. live is just which app-token/secret pair you
+  use, both against the same `api.sumsub.com`. Deliberately pull-based,
+  same reasoning `PaystackService`'s and the old `DojahService`'s own
+  comments already gave for avoiding webhook receivers: Sumsub's normal
+  integration expects a webhook URL for review-complete callbacks, but
+  there's no stable public URL for local dev to receive one, so
+  `IdentityService.refreshStatus` polls `GET /resources/applicants/:id/
+  status` on demand instead.
+- **Two actions, not one** — `POST /identity/start` creates (or reuses)
+  a Sumsub applicant and mints a fresh short-lived WebSDK access token;
+  `POST /identity/refresh` re-reads Sumsub's current review answer and
+  updates `identityVerificationStatus` accordingly (`GREEN` → `verified`,
+  `RED` → `failed` with `rejectLabels` as the note, anything else stays
+  `pending`). Splitting these out (rather than Dojah's single call) is
+  the direct consequence of review being asynchronous: nothing here can
+  return a final answer synchronously the way a NIN lookup could.
+- **No ID document or selfie image ever touches this backend.** Sumsub's
+  own WebSDK (loaded from their CDN in the browser) talks to Sumsub
+  directly using the short-lived access token `POST /identity/start`
+  returns — this server only ever sees Sumsub's own applicant id and
+  final review answer, never the underlying photos.
+- **`IdentityController`** (`GET /identity/me`, `POST /identity/start`,
+  `POST /identity/refresh`) — still deliberately user-scoped, not
+  account-scoped: no `AccountContextGuard`/`PermissionsGuard` the way
+  every other controller in this codebase has, since identity
+  verification is about the person signed in, independent of which
+  account they currently have selected. Same reasoning `AuthController`'s
+  own `GET /auth/me` needs nothing more than `JwtAuthGuard` for.
+- **Web**: the "Identity verification" card on the Members page
   (`pages/accounts/members.tsx`) — there's no dedicated profile screen
   yet, and this is the closest thing to account-level settings that
-  exists. Shows the verified badge (with the masked NIN) once verified,
-  or the NIN input + any recorded failure reason otherwise.
+  exists — now loads Sumsub's WebSDK script on demand and launches it
+  into a container div once `POST /identity/start` returns a token,
+  plus a "Check status" button for the pull-based re-check `POST
+  /identity/refresh` needs (nothing pushes a result to the browser the
+  way a webhook would).
+- **Verified live**: OpenAI's key (added this same pass, for the
+  visualizer above) is real and working, but Sumsub credentials weren't
+  provided by the time this was written — confirmed live so far only
+  that the whole chain still behaves correctly when unconfigured, the
+  same bar Dojah was held to before it: clicking "Start verification"
+  through the real web form surfaces the exact clear error
+  (`"...set SUMSUB_APP_TOKEN/SUMSUB_SECRET_KEY/SUMSUB_LEVEL_NAME to
+  enable it"`), not a crash or a silent failure.
+- **What changed from the Dojah pass that's now stale**: the exact-token
+  name-matching caveat (`namesMatch`, Dojah-specific code that no longer
+  exists) no longer applies — Sumsub does its own identity matching as
+  part of its document review, opaque to this codebase, so there's
+  nothing analogous to audit here. Whether Sumsub's own matching is
+  fuzzy or exact isn't something this integration controls or needs to.
 
 ## A seller-facing listing summary skill (this pass)
 
@@ -2943,8 +2963,8 @@ binary/tri-state gate with no history — each call overwrites the last,
 and it was never meant to carry reasoning. This pass adds something
 different: a real audit record, with mandatory reasoning, that's kept
 forever rather than overwritten, blended into the trust score alongside
-the identity verification (NIN via Dojah, see "Real identity (KYC)
-verification" above) already built for the account operator.
+the identity verification (see "Real identity (KYC) verification —
+Sumsub" above) already built for the account operator.
 
 - **`VendorTrustAudit`/`SupplierTrustAudit`** (new models, one migration,
   parallel to every other Vendor/Supplier pair in this schema rather
@@ -3084,8 +3104,8 @@ different order of work.
   anywhere in this scaffold, so "licensed" here means "claims to be
   licensed," not "the platform confirmed it" — closing that gap for real
   would mean integrating a real state/national licensing-board API the
-  way `DojahService` integrates NIN lookups, which no such API was
-  available to wire up here. A `platform_reviewer`'s trust audit (see
+  way `SumsubService` integrates identity verification, which no such
+  API was available to wire up here. A `platform_reviewer`'s trust audit (see
   "Vendor and supplier trust audits" above) is the closest thing to an
   actual check today: nothing stops a reviewer from calling the issuing
   body and recording what they found in an audit's own `notes`, but
@@ -3377,7 +3397,7 @@ draft to get a feel for an idea.
   AI skill's draft text.
 - **`OpenAiImageService`** (`src/visualizations/openai-image.service.ts`)
   — same "plain fetch, no SDK, `isConfigured` gate" shape
-  `DojahService`/`PaystackService` already use. Calls OpenAI's Images
+  `SumsubService`/`PaystackService` already use. Calls OpenAI's Images
   *edit* endpoint (an existing photo plus a prompt → a genuinely edited
   version — the actual fit for "renovate this room," not a from-scratch
   text-to-image call). **Real money per call, no sandbox/test mode** —
@@ -3413,19 +3433,31 @@ draft to get a feel for an idea.
   error message when generation didn't work. A disclaimer line makes
   the "not a real render of your space" caveat impossible to miss.
 - **Verified live**: with no `OPENAI_API_KEY` configured (no real key
-  was available for this pass — same bar `DojahService`/`StripeService`
-  were both held to before their own credentials arrived), submitted a
-  real request through the actual form and confirmed the exact clear
-  error surfaced ("Image generation is not configured on this server —
-  set OPENAI_API_KEY to enable it"), that the attempt was still
-  persisted as a `failed` row with that same message (visible in the
-  history list, red badge, after a reload — not silently dropped), and
-  that the new routes carry the same permission gate as the rest of this
-  scaffold (a role without `property:read` gets the identical 403).
-  `StorageService`'s own degradation path (configured OpenAI, missing
-  R2) is the same `isConfigured` shape, code-reviewed but not
-  independently live-triggered, since triggering it needs a real OpenAI
-  key to even reach that code path.
+  was available while this was first written — same bar `SumsubService`/
+  `StripeService` were both held to before their own credentials
+  arrived), submitted a real request through the actual form and
+  confirmed the exact clear error surfaced ("Image generation is not
+  configured on this server — set OPENAI_API_KEY to enable it"), that
+  the attempt was still persisted as a `failed` row with that same
+  message (visible in the history list, red badge, after a reload — not
+  silently dropped), and that the new routes carry the same permission
+  gate as the rest of this scaffold (a role without `property:read` gets
+  the identical 403).
+- **Update: a real `OPENAI_API_KEY` arrived shortly after.** Confirmed
+  it's genuinely valid (a direct model lookup call authenticated and
+  returned `gpt-image-1`'s own metadata), then ran
+  `OpenAiImageService.generateEdit`'s exact request logic standalone
+  against the real API — fetched a real photo, built the same multipart
+  request this service builds, sent it to OpenAI's edit endpoint.
+  Authentication and request-shaping are both confirmed correct: OpenAI
+  responded with a real, specific error rather than a connection or
+  validation failure — `"insufficient_quota" / "credit_balance_exhausted"
+  — You have no credits remaining"` — a billing issue on the account
+  the key belongs to, not a bug in this integration. Real end-to-end
+  generation (and `StorageService`'s R2 upload step, which also isn't
+  configured yet — see the schema comment on why it needs five separate
+  values, not the two `.env` had at this point) both remain unverified
+  until credits are added and R2 is fully configured.
 - **What this doesn't do.** No real AR/VR, per the design decision
   above. Generation is synchronous (the request stays open until OpenAI
   and R2 both finish, no polling) since no job queue exists in this
@@ -3506,8 +3538,8 @@ blueprint, or explicitly cut from it:
   business.** See "Vendor and supplier trust audits" above: the score
   now blends in a `platform_reviewer`'s own recorded judgment call
   (`VendorTrustAudit`/`SupplierTrustAudit`, kept as history, most recent
-  one scored) and whether the account's own operator has passed NIN
-  identity verification — real signals, not just recomputed marketplace
+  one scored) and whether the account's own operator has passed real
+  identity verification (Sumsub) — real signals, not just recomputed marketplace
   activity. What it still isn't: a reviewer's audit checks what that
   reviewer chose to check (there's no mandated checklist — a physical
   site visit, insurance/license lookups, credit history), and nothing
@@ -3569,15 +3601,17 @@ blueprint, or explicitly cut from it:
   licensing/compliance workstream the blueprint says to run alongside
   all of this (Section 15) is still entirely open — that was never code
   this pass could close.
-- **Real identity verification exists now, but isn't live-verified
-  yet.** See "Real identity (KYC) verification — NIN via Dojah" above —
-  `DojahService`/`IdentityService` are code-complete and confirmed to
-  degrade correctly when unconfigured (a clear error, correctly
-  persisted, shown once in the UI), the same bar `StripeService` was
-  held to before its own credentials arrived. Also still open: the exact
-  name-match is not fuzzy/typo-tolerant (see `namesMatch`'s own
-  comment), and Persona/other KYC providers named alongside NIN as
-  options weren't built — this pass covers NIN via Dojah only.
+- **Real identity verification exists now (Sumsub, swapped from Dojah),
+  but isn't fully live-verified yet.** See "Real identity (KYC)
+  verification — Sumsub" above — `SumsubService`/`IdentityService` are
+  code-complete and confirmed to degrade correctly when unconfigured (a
+  clear error, correctly persisted, shown once in the UI), the same bar
+  `StripeService` was held to before its own credentials arrived; no
+  Sumsub credentials were available to go further than that. The
+  Dojah-specific caveat this bullet used to carry (exact-token, not
+  fuzzy, name-matching) no longer applies — that code doesn't exist
+  anymore — and Sumsub's own document-review matching isn't something
+  this integration controls or can characterize the same way.
 - **Dispute arbitration's evidence gap is closed on both sides now.** See
   "Extending the neutral reviewer to dispute arbitration", "An
   evidence-request step for dispute arbitration", and "Submitting

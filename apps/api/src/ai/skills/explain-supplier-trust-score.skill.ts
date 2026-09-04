@@ -34,7 +34,7 @@ export const explainSupplierTrustScoreSkill: AiSkill = {
         ? `Most recent platform audit: ${factors.latestAudit.rating.replace(/_/g, ' ')} (${new Date(factors.latestAudit.createdAt).toLocaleDateString()})`
         : 'No platform audit on record yet',
       factors.identityVerifiedOperator
-        ? "This supplier's own identity has been verified (NIN)"
+        ? "This supplier's own identity has been verified"
         : "This supplier's own identity has not been verified",
     ];
 

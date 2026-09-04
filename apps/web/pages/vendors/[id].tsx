@@ -101,7 +101,7 @@ export default function VendorDetailPage() {
                   {vendor.trustScore.factors.completedProjects} completed project(s) ·{" "}
                   {vendor.trustScore.factors.reviewCount} review(s)
                   {vendor.trustScore.factors.disputeCount > 0 && ` · ${vendor.trustScore.factors.disputeCount} dispute(s) on record`}
-                  {vendor.trustScore.factors.identityVerifiedOperator && " · identity verified (NIN)"}
+                  {vendor.trustScore.factors.identityVerifiedOperator && " · identity verified"}
                   {vendor.trustScore.factors.licenseExpired && " · listed license has expired"}
                 </div>
                 <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>

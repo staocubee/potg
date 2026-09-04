@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 // The image-generation half of the visualizer — same "plain fetch, no
-// SDK, isConfigured gate" shape DojahService/PaystackService already
+// SDK, isConfigured gate" shape SumsubService/PaystackService already
 // use. OpenAI's Images "edit" endpoint takes an existing photo plus a
 // text prompt and returns a genuinely edited version (not a from-scratch
 // generation) — the actual fit for "renovate this room", not a generic

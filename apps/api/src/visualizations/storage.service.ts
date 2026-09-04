@@ -14,7 +14,7 @@ import { randomUUID } from 'crypto';
 //
 // Uses the official @aws-sdk/client-s3 rather than this scaffold's usual
 // "plain fetch, no SDK" convention (AnthropicLlmProvider, PaystackService,
-// DojahService, ...) — the one real exception, because what makes those
+// SumsubService, ...) — the one real exception, because what makes those
 // integrations simple enough to hand-roll is that they're plain bearer-
 // token REST calls. S3's protocol is SigV4-signed requests: canonical
 // request construction plus an HMAC-SHA256 signing chain. Reimplementing
