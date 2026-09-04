@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { AccountInviteSummary, AccountMemberSummary, ApiError } from "../../lib/api";
+import { AccountInviteSummary, AccountMemberSummary, ApiError, IdentityStatus } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 // A role an existing member can invite someone else as — deliberately
@@ -40,6 +40,8 @@ export default function AccountMembersPage() {
   return (
     <AppShell title="Members">
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
+
+      <IdentityVerificationCard />
 
       <InviteForm onDone={load} />
 
@@ -148,6 +150,106 @@ function PendingInviteRow({ invite, onChanged }: { invite: AccountInviteSummary;
           No email provider configured — share this new link with them directly:
           <div style={{ wordBreak: "break-all", fontFamily: "monospace" }}>{resendLink}</div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// Module 6's real identity-verification gap — about the signed-in person,
+// not the currently-selected account, so this fetches/posts without any
+// account-scoped data and would render identically no matter which
+// account is active. Lives on this page because there's no dedicated
+// profile screen yet and this is the closest thing to one; a real
+// deployment would likely give it its own settings page.
+function IdentityVerificationCard() {
+  const auth = useAuth();
+  const [status, setStatus] = useState<IdentityStatus | null>(null);
+  const [nin, setNin] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function load() {
+    auth.api
+      .getIdentityStatus()
+      .then(setStatus)
+      .catch(() => undefined);
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const result = await auth.api.verifyNin(nin);
+      setStatus(result);
+      setNin("");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't verify that NIN.");
+      load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const verified = status?.identityVerificationStatus === "verified";
+  const failed = status?.identityVerificationStatus === "failed";
+
+  return (
+    <div className="potg-card" style={{ padding: 18, marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <h3 style={{ fontSize: 14, margin: 0 }}>Identity verification</h3>
+        {status && (
+          <span className="potg-badge" style={{ color: verified ? "var(--potg-teal)" : failed ? "var(--potg-danger)" : undefined }}>
+            {status.identityVerificationStatus.replace(/_/g, " ")}
+          </span>
+        )}
+      </div>
+
+      {verified ? (
+        <p style={{ fontSize: 13, margin: 0 }}>
+          Verified against NIN •••• {status?.ninLast4}
+          {status?.identityVerifiedAt && ` on ${new Date(status.identityVerifiedAt).toLocaleDateString()}`}.
+        </p>
+      ) : (
+        <>
+          <p className="potg-muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
+            Verify it's really you with your National Identification Number (NIN) — checked directly against the
+            national record, matched against the name on this account.
+          </p>
+          {failed && status?.identityVerificationNotes && (
+            <div className="potg-error" style={{ marginBottom: 10 }}>
+              {status.identityVerificationNotes}
+            </div>
+          )}
+          {/* Only shown when it says something the persisted note above
+              doesn't already — a failed attempt's own error message gets
+              recorded as that note server-side (IdentityService.verifyNin),
+              so repeating it here would just be the same sentence twice. */}
+          {error && error !== status?.identityVerificationNotes && (
+            <div className="potg-error" style={{ marginBottom: 10 }}>
+              {error}
+            </div>
+          )}
+          <form onSubmit={onSubmit} style={{ display: "flex", gap: 8 }}>
+            <input
+              className="potg-input"
+              required
+              placeholder="11-digit NIN"
+              pattern="\d{11}"
+              maxLength={11}
+              value={nin}
+              onChange={(e) => setNin(e.target.value.replace(/\D/g, ""))}
+            />
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || nin.length !== 11} style={{ flexShrink: 0 }}>
+              {busy ? "Verifying…" : failed ? "Try again" : "Verify"}
+            </button>
+          </form>
+        </>
       )}
     </div>
   );

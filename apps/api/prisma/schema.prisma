@@ -76,6 +76,23 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // Module 6's real neutral-reviewer gap that isn't about a business
+  // (Vendor/Supplier.verificationStatus) or a document
+  // (Document.verificationStatus) — this is the actual person behind an
+  // account. Unlike those two, deliberately not a human platform_reviewer
+  // decision: a NIN lookup through Dojah either matches this user's own
+  // name or it doesn't, so IdentityService.verifyNin sets this directly
+  // from the API result, no pending-for-a-human step. ninLast4 is the
+  // only trace of the submitted NIN ever persisted — the full number is
+  // used once, for the lookup call, and discarded, the same "don't keep
+  // what nothing legitimately needs to reuse" reasoning that sets this
+  // apart from Vendor.bankAccountNumber (which genuinely is reused, for
+  // every future payout).
+  identityVerificationStatus String    @default("not_verified") // not_verified | pending | verified | failed
+  identityVerificationNotes  String?
+  identityVerifiedAt         DateTime?
+  ninLast4                   String?
+
   memberships         AccountMember[]
   passwordResetTokens PasswordResetToken[]
   refreshTokens       RefreshToken[]

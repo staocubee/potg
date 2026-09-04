@@ -154,6 +154,13 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
 
 export type CurrentUser = { id: string; email: string };
 
+export type IdentityStatus = {
+  identityVerificationStatus: "not_verified" | "pending" | "verified" | "failed" | string;
+  identityVerificationNotes?: string | null;
+  identityVerifiedAt?: string | null;
+  ninLast4?: string | null;
+};
+
 export type AccountSummary = {
   accountId: string;
   accountName: string;
@@ -900,6 +907,17 @@ export class ApiClient {
   // the longer-lived refresh_token cookie is still good.
   me() {
     return request<CurrentUser>("/auth/me", { token: "pending" });
+  }
+  getIdentityStatus() {
+    return request<IdentityStatus>("/identity/me", { token: this.token, accountId: this.accountId });
+  }
+  verifyNin(nin: string) {
+    return request<IdentityStatus>("/identity/verify-nin", {
+      method: "POST",
+      body: { nin },
+      token: this.token,
+      accountId: this.accountId,
+    });
   }
   forgotPassword(email: string) {
     return request<{ message: string; resetToken?: string }>("/auth/forgot-password", { method: "POST", body: { email } });

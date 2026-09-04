@@ -2836,6 +2836,72 @@ side of reports" bullets that were still open.
   separately, a real cross-check that the two features can't quietly
   disagree about the same underlying payouts.
 
+## Real identity (KYC) verification — NIN via Dojah (Module 6, this pass)
+
+Module 6's actual remaining gap: `Vendor`/`Supplier.verificationStatus`
+verify a *business*, `Document.verificationStatus` verifies *paperwork*
+— nothing in this scaffold ever verified the *person* behind an account
+at all. This closes that with Nigeria's National Identification Number
+(NIN), looked up through Dojah, a Nigerian KYC aggregator — the same
+Nigerian-market orientation the rest of this codebase already has
+(NGN, Paystack, Flutterwave, Lagos seed data).
+
+- **`User` gained `identityVerificationStatus`/`identityVerificationNotes`/
+  `identityVerifiedAt`/`ninLast4`** — deliberately *not* modeled on
+  `Vendor`/`Supplier.verificationStatus`'s human-`platform_reviewer`
+  pattern. A NIN lookup's result either matches this user's own account
+  name or it doesn't; there's no judgment call for a human reviewer to
+  make in between, so `IdentityService.verifyNin` sets the status
+  directly from Dojah's own response. `ninLast4` is the only trace of the
+  submitted NIN ever persisted — the full 11 digits are used once, for
+  the lookup call itself, and never stored, unlike `Vendor.
+  bankAccountNumber` (which genuinely is reused, for every future
+  payout).
+- **`DojahService`** (`src/identity/dojah.service.ts`) — same "plain
+  fetch, no SDK, `isConfigured` gate" shape every gateway service in this
+  scaffold already uses. One real auth difference from the payment
+  gateways: Dojah takes two headers together (`AppId` plus a raw secret
+  key in `Authorization` — not a `Bearer` token). A single GET call, not
+  a multi-step flow — no webhook needed, same pull-based reasoning
+  `PaystackService`'s own comment already gives.
+  `DOJAH_ENV=production` is an explicit opt-in only; sandbox is the
+  default.
+  Same as the moment Stripe was added: **code-complete, not yet
+  live-verified** — Dojah credentials weren't available while this was
+  written. Confirmed live so far only that the whole chain behaves
+  correctly when unconfigured: a verification attempt fails with a
+  clear, specific error (`"...set DOJAH_APP_ID/DOJAH_SECRET_KEY to
+  enable it"`), that failure is correctly persisted as the user's own
+  `identityVerificationStatus: "failed"` with the same message as its
+  note (not silently swallowed, not crashing), and the web UI shows it
+  once, not duplicated between the transient error banner and the
+  persisted note.
+- **`IdentityService.verifyNin`'s name match is exact-token, not
+  fuzzy.** `namesMatch` normalizes both the account's own name and
+  Dojah's returned first/last name (lowercase, strip non-letters, split
+  into tokens) and requires an exact token match — a single typo or
+  transliteration difference (e.g. "Chidinma" vs. a NIN record's
+  "Chidimma") fails verification outright. Same simplification
+  `VendorsService.setBankDetails` already makes elsewhere (trusting a
+  gateway's own resolved name outright, no fuzzy compare there either) —
+  a real deployment doing this for real would want a tolerant match, not
+  an exact one.
+- **`IdentityController`** (`GET /identity/me`, `POST
+  /identity/verify-nin`) — deliberately user-scoped, not account-scoped:
+  no `AccountContextGuard`/`PermissionsGuard` the way every other
+  controller in this codebase has, since identity verification is about
+  the person signed in, independent of which account they currently have
+  selected. Same reasoning `AuthController`'s own `GET /auth/me` needs
+  nothing more than `JwtAuthGuard` for — worth noting that route returns
+  JWT-payload data, not a fresh DB read, so it couldn't have carried
+  verification status itself even if it were the natural place to add
+  it.
+- **Web**: a new "Identity verification" card on the Members page
+  (`pages/accounts/members.tsx`) — there's no dedicated profile screen
+  yet, and this is the closest thing to account-level settings that
+  exists. Shows the verified badge (with the masked NIN) once verified,
+  or the NIN input + any recorded failure reason otherwise.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -2945,6 +3011,15 @@ blueprint, or explicitly cut from it:
   licensing/compliance workstream the blueprint says to run alongside
   all of this (Section 15) is still entirely open — that was never code
   this pass could close.
+- **Real identity verification exists now, but isn't live-verified
+  yet.** See "Real identity (KYC) verification — NIN via Dojah" above —
+  `DojahService`/`IdentityService` are code-complete and confirmed to
+  degrade correctly when unconfigured (a clear error, correctly
+  persisted, shown once in the UI), the same bar `StripeService` was
+  held to before its own credentials arrived. Also still open: the exact
+  name-match is not fuzzy/typo-tolerant (see `namesMatch`'s own
+  comment), and Persona/other KYC providers named alongside NIN as
+  options weren't built — this pass covers NIN via Dojah only.
 - **Dispute arbitration's evidence gap is closed on both sides now.** See
   "Extending the neutral reviewer to dispute arbitration", "An
   evidence-request step for dispute arbitration", and "Submitting
