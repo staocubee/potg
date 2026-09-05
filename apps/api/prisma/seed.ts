@@ -72,6 +72,9 @@ const PERMISSIONS = [
   { key: 'compliance:write', label: 'Edit the platform compliance tracker (neutral reviewer only)' },
 ];
 
+// No new permission keys needed for the inspector role below — it's built
+// entirely from a narrower slice of permissions that already exist.
+
 // Section 8's core roles, narrowed to the ones DEFAULT_OWNER_ROLE_BY_ACCOUNT_TYPE
 // (accounts.service.ts) and the demo data below need.
 const ROLES: Record<string, string[]> = {
@@ -216,6 +219,24 @@ const ROLES: Record<string, string[]> = {
     'rental:read',
     'rental:write',
   ],
+  // A distinct, narrower role for a VENDOR-type account whose whole
+  // business is being picked as an inspector (Module 8) — not bidding on
+  // renovation/construction projects, disputing project payments, or
+  // renting equipment. Chosen at account-creation time instead of the
+  // default "vendor" role — see CreateAccountDto.vendorRole and
+  // AccountsService.create. Deliberately doesn't gate who can actually be
+  // picked as PropertyInspection.inspectorVendorId/MaintenanceRequest.
+  // assignedVendorId — that stays serviceCategory + license (see
+  // PropertiesService.requireVendor), same as any "vendor"-role account —
+  // this only narrows what the account itself can *do*, not who a
+  // property owner can *choose*. No new permission keys: every one of
+  // these already exists, just a smaller slice of the "vendor" role's own
+  // set — vendor:read/write to manage its own profile and license,
+  // document:read for inspection-related documents, ai:act for the
+  // copilot. No quote:*/dispute:*/rental:*/product:read — an inspector
+  // isn't bidding on projects, disputing payments, or renting/browsing
+  // marketplace materials.
+  inspector: ['vendor:read', 'vendor:write', 'document:read', 'ai:act'],
   // A supplier account manages its own marketplace profile and product
   // catalog, and fulfills the orders placed against it — it never gets
   // listing/offer/vendor/project permissions, those belong to the other

@@ -45,11 +45,18 @@ export default function VendorDashboardPage() {
       .then((v) => {
         setVendor(v);
         if (v) {
-          return Promise.all([auth.api.myQuotes(), auth.api.myPayouts(), auth.api.myDisputes()]).then(
+          // Promise.allSettled, not Promise.all — the inspector role (see
+          // seed.ts's own comment) deliberately doesn't carry quote:read/
+          // dispute:read/payout:read, so these 403 for it by design, not
+          // by error. Promise.all would reject the whole load() on the
+          // first one and show a confusing top-level "Missing
+          // permission(s)" banner even though the rest of the page
+          // (profile, license, bank details) loaded and rendered fine.
+          return Promise.allSettled([auth.api.myQuotes(), auth.api.myPayouts(), auth.api.myDisputes()]).then(
             ([q, p, d]) => {
-              setQuotes(q);
-              setPayouts(p);
-              setDisputes(d);
+              if (q.status === "fulfilled") setQuotes(q.value);
+              if (p.status === "fulfilled") setPayouts(p.value);
+              if (d.status === "fulfilled") setDisputes(d.value);
             },
           );
         }

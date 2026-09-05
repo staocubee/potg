@@ -32,6 +32,7 @@ export default function NewAccountPage() {
   const auth = useRequireAuth();
   const router = useRouter();
   const [accountType, setAccountType] = useState("INDIVIDUAL");
+  const [vendorRole, setVendorRole] = useState<"vendor" | "inspector">("vendor");
   const [name, setName] = useState("");
   const [country, setCountry] = useState("Nigeria");
   const [currency, setCurrency] = useState("NGN");
@@ -72,7 +73,14 @@ export default function NewAccountPage() {
     setError(null);
     setBusy(true);
     try {
-      const created = await auth.api.createAccount({ accountType, name, country, currency, timezone });
+      const created = await auth.api.createAccount({
+        accountType,
+        name,
+        country,
+        currency,
+        timezone,
+        vendorRole: accountType === "VENDOR" ? vendorRole : undefined,
+      });
       const list = await auth.refreshAccounts();
       const match = list.find((a) => a.accountId === created.id);
       if (match) auth.switchAccount(match.accountId);
@@ -143,6 +151,41 @@ export default function NewAccountPage() {
             ))}
           </div>
         </div>
+        {accountType === "VENDOR" && (
+          <div>
+            <label className="potg-label">Vendor type</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              {(
+                [
+                  { value: "vendor" as const, label: "Vendor / contractor", hint: "Bid on projects, manage disputes & payouts" },
+                  { value: "inspector" as const, label: "Inspector", hint: "Picked for property inspections only" },
+                ]
+              ).map((r) => (
+                <button
+                  type="button"
+                  key={r.value}
+                  onClick={() => setVendorRole(r.value)}
+                  className="potg-btn"
+                  style={{
+                    flex: 1,
+                    flexDirection: "column",
+                    alignItems: "flex-start",
+                    gap: 2,
+                    padding: "10px 12px",
+                    border: `1px solid ${vendorRole === r.value ? "var(--potg-teal)" : "var(--potg-border)"}`,
+                    background: vendorRole === r.value ? "rgba(13,115,119,0.06)" : "var(--potg-surface)",
+                    color: "var(--potg-text)",
+                  }}
+                >
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{r.label}</span>
+                  <span className="potg-muted" style={{ fontSize: 11, fontWeight: 400 }}>
+                    {r.hint}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div>
           <label className="potg-label" htmlFor="acct-name">
             Account name

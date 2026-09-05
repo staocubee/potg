@@ -42,7 +42,14 @@ export class AccountsService {
   }
 
   async create(userId: string, dto: CreateAccountDto) {
-    const roleKey = DEFAULT_OWNER_ROLE_BY_ACCOUNT_TYPE[dto.accountType];
+    // The one account type with a choice of role at creation time — see
+    // CreateAccountDto.vendorRole's own comment. Every other accountType
+    // always gets its one fixed default, dto.vendorRole is simply ignored
+    // for them.
+    const roleKey =
+      dto.accountType === 'VENDOR' && dto.vendorRole === 'inspector'
+        ? 'inspector'
+        : DEFAULT_OWNER_ROLE_BY_ACCOUNT_TYPE[dto.accountType];
     const role = await this.prisma.role.findUnique({ where: { key: roleKey } });
     if (!role) {
       throw new BadRequestException(
