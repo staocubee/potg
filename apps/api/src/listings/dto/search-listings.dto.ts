@@ -8,4 +8,8 @@ export interface SearchListingsQuery {
   propertyType?: string;
   minPrice?: string;
   maxPrice?: string;
+  // Free-text, matched fuzzily (pg_trgm) against title/description — see
+  // ListingsService.findAll's own comment for why. Optional: every
+  // existing exact filter above still works with or without it.
+  q?: string;
 }

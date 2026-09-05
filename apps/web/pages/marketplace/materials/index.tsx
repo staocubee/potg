@@ -16,17 +16,21 @@ export default function MaterialsMarketplacePage() {
   const auth = useAuth();
   const [products, setProducts] = useState<Product[] | null>(null);
   const [category, setCategory] = useState("");
+  const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth.currentAccountId) return;
     setError(null);
-    auth.api
-      .findProducts(category || undefined)
-      .then(setProducts)
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load the materials catalog."));
+    const timer = setTimeout(() => {
+      auth.api
+        .findProducts(category || undefined, undefined, q || undefined)
+        .then(setProducts)
+        .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load the materials catalog."));
+    }, 250);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.currentAccountId, category]);
+  }, [auth.currentAccountId, category, q]);
 
   const isSupplierAccount = auth.currentAccount?.accountType === "SUPPLIER";
 
@@ -55,6 +59,10 @@ export default function MaterialsMarketplacePage() {
           Category
         </label>
         <input className="potg-input" style={{ width: 220 }} placeholder="e.g. cement, tiles, tools" value={category} onChange={(e) => setCategory(e.target.value)} />
+        <label className="potg-label" style={{ margin: 0 }}>
+          Search
+        </label>
+        <input className="potg-input" style={{ width: 220 }} placeholder="Search products…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
@@ -63,7 +71,7 @@ export default function MaterialsMarketplacePage() {
       {products && products.length === 0 && (
         <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
           <p className="potg-muted" style={{ margin: 0 }}>
-            No products {category ? `in "${category}"` : "listed yet"}.
+            No products {category || q ? `matching those filters` : "listed yet"}.
           </p>
         </div>
       )}

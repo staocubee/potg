@@ -127,12 +127,38 @@ export class MaterialsService {
     return this.prisma.product.update({ where: { id: productId }, data: dto });
   }
 
-  findProducts(category?: string, supplierId?: string) {
-    return this.prisma.product.findMany({
-      where: { status: 'active', category, supplierId },
+  // `q` closes "no free-text search in any marketplace" for the
+  // materials catalog — same pg_trgm-backed "$queryRaw for matching ids,
+  // Prisma findMany to hydrate, re-sort in JS" split
+  // ListingsService.findAll's own comment explains in full.
+  async findProducts(category?: string, supplierId?: string, q?: string) {
+    let relevanceOrder: string[] | undefined;
+    if (q) {
+      // word_similarity() against an explicit 0.3 threshold — see
+      // ListingsService.findAll's comment for why this, and specifically
+      // why not the `<%` operator (its default threshold GUC is a
+      // stricter 0.6, not the 0.3 plain similarity/`%` uses — this is the
+      // exact query where that gap was caught: "Cermic Tile" scored 0.48
+      // against "Ceramic Floor Tile (60x60)", passing 0.3 but failing 0.6).
+      const matches = await this.prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM products
+        WHERE status = 'active' AND (word_similarity(${q}, name) > 0.3 OR word_similarity(${q}, COALESCE(description, '')) > 0.3)
+        ORDER BY GREATEST(word_similarity(${q}, name), word_similarity(${q}, COALESCE(description, ''))) DESC
+        LIMIT 50
+      `;
+      relevanceOrder = matches.map((m) => m.id);
+      if (relevanceOrder.length === 0) return [];
+    }
+
+    const products = await this.prisma.product.findMany({
+      where: { status: 'active', category, supplierId, id: relevanceOrder ? { in: relevanceOrder } : undefined },
       include: { supplier: { select: { id: true, businessName: true, ratingAverage: true } } },
-      orderBy: { createdAt: 'desc' },
+      orderBy: relevanceOrder ? undefined : { createdAt: 'desc' },
     });
+
+    if (!relevanceOrder) return products;
+    const rank = new Map(relevanceOrder.map((id, i) => [id, i]));
+    return products.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
   }
 
   findProduct(id: string) {

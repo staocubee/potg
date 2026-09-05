@@ -124,11 +124,39 @@ export class VendorsService {
   // Marketplace browse — Module 7's "search/filter vendors by service
   // category and location". No tenant isolation here on purpose: browsing
   // the marketplace is cross-account by design.
-  findAll(serviceCategory?: string) {
-    return this.prisma.vendor.findMany({
-      where: serviceCategory ? { serviceCategory } : undefined,
-      orderBy: [{ ratingAverage: 'desc' }, { createdAt: 'desc' }],
+  //
+  // `q` closes "no free-text search in any marketplace" for this one —
+  // same pg_trgm-backed "$queryRaw for matching ids, Prisma findMany to
+  // hydrate, re-sort in JS" split ListingsService.findAll's own comment
+  // explains in full.
+  async findAll(serviceCategory?: string, q?: string) {
+    let relevanceOrder: string[] | undefined;
+    if (q) {
+      // word_similarity() against an explicit 0.3 threshold — see
+      // ListingsService.findAll's comment for why this, and specifically
+      // why not the `<%` operator (its default threshold GUC is a
+      // stricter 0.6, not the 0.3 plain similarity/`%` uses).
+      const matches = await this.prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM vendors
+        WHERE word_similarity(${q}, "businessName") > 0.3
+        ORDER BY word_similarity(${q}, "businessName") DESC
+        LIMIT 50
+      `;
+      relevanceOrder = matches.map((m) => m.id);
+      if (relevanceOrder.length === 0) return [];
+    }
+
+    const vendors = await this.prisma.vendor.findMany({
+      where: {
+        serviceCategory: serviceCategory || undefined,
+        id: relevanceOrder ? { in: relevanceOrder } : undefined,
+      },
+      orderBy: relevanceOrder ? undefined : [{ ratingAverage: 'desc' }, { createdAt: 'desc' }],
     });
+
+    if (!relevanceOrder) return vendors;
+    const rank = new Map(relevanceOrder.map((id, i) => [id, i]));
+    return vendors.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
   }
 
   // Module 6's "trust score" — computed on read, not stored, since too many

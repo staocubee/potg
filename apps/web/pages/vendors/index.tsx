@@ -24,17 +24,21 @@ export default function VendorMarketplacePage() {
   const auth = useAuth();
   const [vendors, setVendors] = useState<Vendor[] | null>(null);
   const [category, setCategory] = useState("");
+  const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth.currentAccountId) return;
     setError(null);
-    auth.api
-      .listVendors(category || undefined)
-      .then(setVendors)
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load the vendor marketplace."));
+    const timer = setTimeout(() => {
+      auth.api
+        .listVendors(category || undefined, q || undefined)
+        .then(setVendors)
+        .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load the vendor marketplace."));
+    }, 250);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.currentAccountId, category]);
+  }, [auth.currentAccountId, category, q]);
 
   const isVendorAccount = auth.currentAccount?.accountType === "VENDOR";
   const isPlatformReviewer = auth.currentAccount?.role === "platform_reviewer";
@@ -70,6 +74,13 @@ export default function VendorMarketplacePage() {
             </option>
           ))}
         </select>
+        <input
+          className="potg-input"
+          style={{ width: 260 }}
+          placeholder="Search vendors by name…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
       </div>
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
@@ -78,7 +89,7 @@ export default function VendorMarketplacePage() {
       {vendors && vendors.length === 0 && (
         <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
           <p className="potg-muted" style={{ margin: 0 }}>
-            No vendors {category ? `in "${category.replace(/_/g, " ")}"` : "yet"}.
+            No vendors {category || q ? "match those filters" : "yet"}.
             {!isVendorAccount && (
               <>
                 {" "}

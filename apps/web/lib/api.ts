@@ -1421,9 +1421,12 @@ export class ApiClient {
   // --- Vendors (marketplace browse is cross-account by design; "me" routes
   // are scoped to whichever account is currently active, which only makes
   // sense for a VENDOR-type account) ---
-  listVendors(serviceCategory?: string) {
-    const qs = serviceCategory ? `?serviceCategory=${encodeURIComponent(serviceCategory)}` : "";
-    return request<Vendor[]>(`/vendors${qs}`, { token: this.token, accountId: this.accountId });
+  listVendors(serviceCategory?: string, q?: string) {
+    const params = new URLSearchParams();
+    if (serviceCategory) params.set("serviceCategory", serviceCategory);
+    if (q) params.set("q", q);
+    const qs = params.toString();
+    return request<Vendor[]>(`/vendors${qs ? `?${qs}` : ""}`, { token: this.token, accountId: this.accountId });
   }
   getVendor(vendorId: string) {
     return request<Vendor>(`/vendors/${vendorId}`, { token: this.token, accountId: this.accountId });
@@ -1729,7 +1732,7 @@ export class ApiClient {
   createListing(input: { propertyId: string; listingType: string; askingPrice: number; currency?: string; title: string; description?: string; photoUrls?: string[] }) {
     return request<Listing>("/listings", { method: "POST", body: input, token: this.token, accountId: this.accountId });
   }
-  searchListings(query: { listingType?: string; city?: string; propertyType?: string; minPrice?: string; maxPrice?: string }) {
+  searchListings(query: { listingType?: string; city?: string; propertyType?: string; minPrice?: string; maxPrice?: string; q?: string }) {
     const params = new URLSearchParams();
     Object.entries(query).forEach(([k, v]) => {
       if (v) params.set(k, v);
@@ -1867,10 +1870,11 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
-  findProducts(category?: string, supplierId?: string) {
+  findProducts(category?: string, supplierId?: string, q?: string) {
     const params = new URLSearchParams();
     if (category) params.set("category", category);
     if (supplierId) params.set("supplierId", supplierId);
+    if (q) params.set("q", q);
     const qs = params.toString();
     return request<Product[]>(`/products${qs ? `?${qs}` : ""}`, { token: this.token, accountId: this.accountId });
   }

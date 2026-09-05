@@ -23,17 +23,21 @@ export default function PropertyMarketplacePage() {
   const [listings, setListings] = useState<Listing[] | null>(null);
   const [listingType, setListingType] = useState("");
   const [city, setCity] = useState("");
+  const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth.currentAccountId) return;
     setError(null);
-    auth.api
-      .searchListings({ listingType: listingType || undefined, city: city || undefined })
-      .then(setListings)
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load the marketplace."));
+    const timer = setTimeout(() => {
+      auth.api
+        .searchListings({ listingType: listingType || undefined, city: city || undefined, q: q || undefined })
+        .then(setListings)
+        .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load the marketplace."));
+    }, 250);
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.currentAccountId, listingType, city]);
+  }, [auth.currentAccountId, listingType, city, q]);
 
   return (
     <AppShell
@@ -68,6 +72,13 @@ export default function PropertyMarketplacePage() {
           City
         </label>
         <input className="potg-input" style={{ width: 180 }} placeholder="Any city" value={city} onChange={(e) => setCity(e.target.value)} />
+        <input
+          className="potg-input"
+          style={{ width: 220 }}
+          placeholder="Search title or description…"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
       </div>
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
@@ -76,7 +87,7 @@ export default function PropertyMarketplacePage() {
       {listings && listings.length === 0 && (
         <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
           <p className="potg-muted" style={{ margin: 0 }}>
-            No active listings {city || listingType ? "match those filters" : "yet"}.{" "}
+            No active listings {city || listingType || q ? "match those filters" : "yet"}.{" "}
             <Link href="/marketplace/new" style={{ color: "var(--potg-teal)", fontWeight: 600 }}>
               List a property from your portfolio
             </Link>

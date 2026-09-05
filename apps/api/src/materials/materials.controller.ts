@@ -105,11 +105,13 @@ export class MaterialsController {
     return this.materials.findTrustAudits(supplierId);
   }
 
-  // Public catalog browse/search across suppliers.
+  // Public catalog browse/search across suppliers — ?q=... for fuzzy
+  // free-text search against name/description, see
+  // MaterialsService.findProducts's own comment.
   @RequirePermissions('product:read')
   @Get('products')
-  findProducts(@Query('category') category?: string, @Query('supplierId') supplierId?: string) {
-    return this.materials.findProducts(category, supplierId);
+  findProducts(@Query('category') category?: string, @Query('supplierId') supplierId?: string, @Query('q') q?: string) {
+    return this.materials.findProducts(category, supplierId, q);
   }
 
   @RequirePermissions('product:read')

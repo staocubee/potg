@@ -3556,6 +3556,70 @@ place (see "A self-reported professional license for vendors" above).
   tab for every affected call, despite the server itself always
   returning a clean `200`).
 
+## Fuzzy free-text search for all three marketplaces (this pass)
+
+Closes half of "Search and vector layers still entirely missing" below —
+the search half. Property listings, vendors, and materials/products could
+previously only be filtered by exact-match fields (category, city,
+listing type); there was no way to type a name or phrase and find
+approximate matches.
+
+- **Postgres `pg_trgm`, not a real Elasticsearch/OpenSearch cluster** —
+  a deliberate choice (see the options laid out and the decision made
+  when this pass started) to reuse the existing Postgres instance rather
+  than stand up a new external service. `CREATE EXTENSION pg_trgm` plus
+  five `gin_trgm_ops` indexes (`property_listings.title`/`.description`,
+  `vendors.businessName`, `products.name`/`.description`) is the entire
+  new infrastructure footprint. This is honestly not Elasticsearch — no
+  relevance tuning, no fielded queries, no distributed index — but it
+  does close the actual user-facing gap ("let me search by name/keyword
+  and tolerate typos") without a new service to run, pay for, or operate.
+- **The pattern, used identically in `ListingsService.findAll`,
+  `VendorsService.findAll`, and `MaterialsService.findProducts`**: a raw
+  `$queryRaw` (Prisma's own tagged-template parameterization — never
+  string-concatenated) picks matching ids and ranks them by
+  `word_similarity()`, then a normal Prisma `findMany({ where: { id: {
+  in: ids } } })` hydrates the full typed rows with their usual
+  `include`s, then a JS `.sort()` restores relevance order (SQL's `id IN
+  (...)` doesn't preserve one). This is the first use of `$queryRaw`
+  anywhere in this codebase — everywhere else, Prisma's query builder was
+  enough.
+- **`word_similarity()` compared to an explicit `0.3`, not the `%`
+  operator and not the `<%` operator either — both were tried and both
+  were wrong, caught by live-testing, not by reasoning about it up
+  front.** Plain `similarity()`/`%` scores the *entire* two strings
+  against each other; a search phrase shorter than the field it's
+  matching against loses even to an exact substring match once the field
+  is long enough (`"Ocean Drive"` against a full listing title scored
+  0.29 — below the 0.3 default threshold — for an *exact* match).
+  Switching to `word_similarity()` (designed for exactly this: "does my
+  short phrase match some substring of this longer text") fixed that,
+  but the `<%` operator form of it is gated by a *different*, stricter
+  GUC (`pg_trgm.word_similarity_threshold`, defaulting to 0.6, vs `0.3`
+  for plain `%`) — a real `"Cermic Tile"` vs `"Ceramic Floor Tile
+  (60x60)"` word-similarity score of 0.48 passed the raw function but
+  silently failed the `<%` operator. The final, verified-live form calls
+  `word_similarity(query, column) > 0.3` directly in the `WHERE` clause,
+  matching plain similarity's own threshold instead of depending on a
+  session GUC.
+- **Web**: a debounced (250ms) search box added to all three marketplace
+  pages (`pages/vendors/index.tsx`, `pages/marketplace/index.tsx`,
+  `pages/marketplace/materials/index.tsx`), alongside their existing
+  exact-match filters rather than replacing them — `q` and the other
+  filters combine with `AND` in every case (e.g. category + search text).
+- **Verified live** for all three marketplaces, including the two bugs
+  above and their fixes: `"Leki Renovation"` (misspelled) → `Lekki
+  Renovations Co.`; `"Ocean Drve"` (misspelled) → `14 Ocean Drive —
+  Renovated 4-Bed Family Home`; `"Cermic Tile"` (misspelled, and only a
+  fragment of the full product name) → `Ceramic Floor Tile (60x60)`; an
+  unrelated nonsense query returned zero results in each marketplace, not
+  a false-positive match.
+- **Not done**: no ranking beyond trigram similarity (no relevance
+  boosting by recency, rating, or verification status), no typo-tolerant
+  search on any other field (property address, project titles, document
+  names, ...) — only the three marketplaces the blueprint's own search
+  gap called out.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -3759,15 +3823,22 @@ blueprint, or explicitly cut from it:
   authenticate with a bearer header, only a browser holding the httpOnly
   cookies can — a production system serving non-browser clients too would
   need a second auth mechanism (API keys) alongside this one.
-- **Search and vector layers still entirely missing; object storage now
-  exists, but only for one narrow purpose.** Elasticsearch/OpenSearch
-  and a vector DB for AI context retrieval — the Technical Architecture
-  section calls both out, neither is wired up here. S3-compatible object
-  storage is no longer *entirely* missing: `StorageService` (see "AI-
-  generated renovation visualizations" above) uploads to Cloudflare R2,
-  but only for AI-generated visualization images — it's not a general
-  upload pipeline. `Document.fileUrl` still expects a URL you provide
-  yourself, same as before.
+- **Vector layer for AI context retrieval still missing; object storage
+  now exists, but only for one narrow purpose.** A vector DB (or
+  `pgvector` on the existing Postgres) for AI context retrieval — the
+  Technical Architecture section calls it out, it isn't wired up here.
+  The search half of this same bullet is now closed — see "Fuzzy
+  free-text search for all three marketplaces" above — with Postgres
+  `pg_trgm` rather than a real Elasticsearch/OpenSearch cluster; that's
+  honestly not the same thing as Elasticsearch (no fielded queries, no
+  relevance tuning, no distributed index), but it does close the actual
+  "can't search by name/keyword" gap for listings, vendors, and
+  materials. S3-compatible object storage is no longer *entirely*
+  missing either: `StorageService` (see "AI-generated renovation
+  visualizations" above) uploads to Cloudflare R2, but only for
+  AI-generated visualization images — it's not a general upload
+  pipeline. `Document.fileUrl` still expects a URL you provide yourself,
+  same as before.
 - **Payment/escrow licensing, market-specific verification mechanisms,
   and data residency** — the compliance work the blueprint review flagged
   needs to run in parallel with engineering, not be solved by this code.

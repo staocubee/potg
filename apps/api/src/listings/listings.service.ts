@@ -43,12 +43,55 @@ export class ListingsService {
   // Public marketplace browse/search — no tenant isolation on purpose, and
   // "draft" listings never show up here (only the owner sees those, via
   // GET /listings/me).
-  findAll(query: SearchListingsQuery) {
+  //
+  // query.q (new) is the actual "search" half of this, closing the "no
+  // free-text search in any marketplace" gap — every filter above it was
+  // already exact-match. Uses Postgres's own pg_trgm extension (typo-
+  // tolerant trigram similarity, see the migration enabling it) rather
+  // than a real Elasticsearch/OpenSearch cluster: raw SQL picks the
+  // matching ids and their relevance score first ($queryRaw, safely
+  // parameterized by Prisma's own tagged-template — never string-
+  // concatenated), then a normal Prisma findMany hydrates the full rows
+  // (with their usual `include`) from just those ids, re-sorted back into
+  // relevance order in JS since `id IN (...)` doesn't preserve it. Same
+  // "raw SQL for the part Prisma's query builder can't express, Prisma
+  // for everything else" split the vector-search feature below also uses.
+  //
+  // Uses the word_similarity() function against an explicit 0.3 threshold,
+  // not plain similarity()/`%` and not the `<%` operator. Two things
+  // verified live, the hard way: (1) plain similarity() scores the ENTIRE
+  // strings against each other, so a short query loses even against an
+  // exact substring match once the field is longer than the query
+  // ("Ocean Drive" against a full title scored 0.29, below the 0.3
+  // default threshold) — word_similarity() checks the query against the
+  // best-matching substring instead, which is what "search" means here.
+  // (2) the `<%` operator looked like the natural way to use it, but it's
+  // gated by a SEPARATE, stricter GUC (pg_trgm.word_similarity_threshold,
+  // default 0.6, vs 0.3 for plain `%`) — a real word_similarity() score of
+  // 0.48 ("Cermic Tile" vs "Ceramic Floor Tile (60x60)" on the materials
+  // search this same pass) passed the function but failed the operator.
+  // Calling word_similarity() directly and comparing to 0.3 by hand keeps
+  // one consistent, GUC-independent threshold across all three searches.
+  async findAll(query: SearchListingsQuery) {
     const minPrice = query.minPrice ? Number(query.minPrice) : undefined;
     const maxPrice = query.maxPrice ? Number(query.maxPrice) : undefined;
-    return this.prisma.propertyListing.findMany({
+
+    let relevanceOrder: string[] | undefined;
+    if (query.q) {
+      const matches = await this.prisma.$queryRaw<{ id: string }[]>`
+        SELECT id FROM property_listings
+        WHERE status = 'active' AND (word_similarity(${query.q}, title) > 0.3 OR word_similarity(${query.q}, COALESCE(description, '')) > 0.3)
+        ORDER BY GREATEST(word_similarity(${query.q}, title), word_similarity(${query.q}, COALESCE(description, ''))) DESC
+        LIMIT 50
+      `;
+      relevanceOrder = matches.map((m) => m.id);
+      if (relevanceOrder.length === 0) return [];
+    }
+
+    const listings = await this.prisma.propertyListing.findMany({
       where: {
         status: 'active',
+        id: relevanceOrder ? { in: relevanceOrder } : undefined,
         listingType: query.listingType,
         property: {
           propertyType: query.propertyType,
@@ -60,8 +103,12 @@ export class ListingsService {
             : undefined,
       },
       include: { property: { select: { propertyType: true, city: true, country: true } } },
-      orderBy: { createdAt: 'desc' },
+      orderBy: relevanceOrder ? undefined : { createdAt: 'desc' },
     });
+
+    if (!relevanceOrder) return listings;
+    const rank = new Map(relevanceOrder.map((id, i) => [id, i]));
+    return listings.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
   }
 
   findMine(accountId: string) {
