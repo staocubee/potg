@@ -4109,28 +4109,25 @@ blueprint, or explicitly cut from it:
   requires an audit to exist at all, so a vendor/supplier with no audit
   on record just scores on activity plus identity, same as before this
   pass.
-- **The neutral reviewer's decisions carry real context for three fields
-  out of four; review moderation is the one exception, by design rather
-  than oversight.** `platform_reviewer` covers `Vendor`/`Supplier.
-  verificationStatus`, dispute arbitration, `Document.verificationStatus`,
-  and review `moderationStatus` (see "A real neutral reviewer",
-  "Extending the neutral reviewer to dispute arbitration", "Extending the
-  neutral reviewer to document verification", and "Review moderation"
-  above) — dispute arbitration and document verification both gained an
-  evidence-request step (`under_review` / `submitted`), and vendor/
-  supplier verification gained a `verificationNotes` field giving
-  `pending` actual "awaiting evidence" meaning instead of being
-  indistinguishable from any other one-shot decision (see "An
-  evidence-request step for dispute arbitration", its document-
-  verification counterpart, and "Giving vendor/supplier 'pending'
-  verification actual meaning" above). Review `moderationStatus` has no
-  analogous gap — "flagged" already plays a similar "needs a decision"
-  role for reviews, just raised by the reviewed party rather than the
-  reviewer, so there's nothing parallel to add there. None of the four
-  gained a structured way for the reviewed account to *submit* more
-  evidence in response beyond re-uploading/re-editing through the normal
-  tools already available to it — that stays a real deployment's
-  workflow to build for now, not this scaffold's.
+- **The neutral reviewer's decisions carry real context for all four
+  fields now, and three of the four have a real evidence-submission
+  channel behind them too.** `platform_reviewer` covers `Vendor`/
+  `Supplier.verificationStatus`, dispute arbitration,
+  `Document.verificationStatus`, and review `moderationStatus` (see "A
+  real neutral reviewer", "Extending the neutral reviewer to dispute
+  arbitration", "Extending the neutral reviewer to document
+  verification", and "Review moderation" above). Dispute arbitration and
+  document verification both have an evidence-request step
+  (`under_review` / `submitted`); vendor/supplier verification's
+  `pending` plays the same "awaiting evidence" role. All three now also
+  have a real, structured way for the reviewed account to *submit*
+  evidence in response — see "Structured evidence-submission channels
+  for document and vendor/supplier verification" above — not just
+  general tools unrelated to the review itself. Review `moderationStatus`
+  is the one exception, by design rather than oversight: "flagged"
+  already plays an analogous "needs a decision" role there, raised by
+  the reviewed party rather than requested by the reviewer, so there's
+  nothing parallel to add.
 - **Real AR/VR renovation visualization — deliberately not attempted.**
   See "AI-generated renovation visualizations — the 2D half only" above:
   a bounded 2D "AI-edited before/after photo" slice is built, and its
