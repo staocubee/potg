@@ -4,8 +4,9 @@ export class SubmitDisputeEvidenceDto {
   @IsString()
   note!: string;
 
-  // Same "URL you provide yourself" shape as CreateDocumentDto.fileUrl —
-  // no file upload/object storage in this scaffold, see the README.
+  // A URL — either pasted (something already hosted elsewhere) or one
+  // returned by POST /uploads (the general upload pipeline, this pass),
+  // same as CreateDocumentDto.fileUrl.
   @IsOptional()
   @IsUrl({ require_tld: false })
   fileUrl?: string;

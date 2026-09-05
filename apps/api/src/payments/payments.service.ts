@@ -844,6 +844,17 @@ export class PaymentsService {
   // its own project by PermissionsGuard) and VendorsService's vendor-side
   // route (which has no :projectId to lean on, so it checks a
   // ProjectVendorAssignment itself before ever reaching here).
+  // The two-party path and platform_reviewer arbitration used to be able
+  // to collide on the same dispute — this method only checked for an
+  // already-final status (resolved/rejected), not `under_review`, so
+  // either party could still call resolveDispute/resolveDisputeAsVendor
+  // and silently overwrite a reviewer's in-progress arbitration (including
+  // clearing resolvedAt back to a fresh value) after that reviewer had
+  // explicitly said "I'm looking into this, send more evidence." Once a
+  // platform_reviewer touches a dispute, the two-party path is locked out
+  // for good — arbitration supersedes it, it doesn't merely pause it; a
+  // dispute a reviewer has taken on stays theirs to resolve, even if they
+  // set it back to `under_review` a second time.
   private async applyDisputeResolution(
     dispute: { id: string; raisedByAccountId: string; status: string },
     resolvingAccountId: string,
@@ -851,6 +862,11 @@ export class PaymentsService {
   ) {
     if (dispute.status === 'resolved' || dispute.status === 'rejected') {
       throw new ConflictException('This dispute has already been resolved');
+    }
+    if (dispute.status === 'under_review') {
+      throw new ConflictException(
+        'A platform reviewer is arbitrating this dispute — submit evidence instead, the two-party resolution path is no longer available on it',
+      );
     }
     if (dispute.raisedByAccountId === resolvingAccountId) {
       throw new ForbiddenException(
