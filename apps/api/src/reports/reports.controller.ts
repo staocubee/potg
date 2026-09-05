@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Res, UseGuards } from '@nestjs/common';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
@@ -7,6 +7,7 @@ import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentAccountMember } from '../common/decorators/current-user.decorator';
 import { ReportsService } from './reports.service';
 import { SetDigestSubscriptionDto } from './dto/set-digest-subscription.dto';
+import { CreateReportDefinitionDto } from './dto/create-report-definition.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -58,5 +59,53 @@ export class ReportsController {
   @Post('digest-subscription/send-now')
   sendDigestNow(@CurrentAccountMember() member: AccountMemberCtx) {
     return this.reports.sendDigest(member.accountId);
+  }
+
+  // --- Report builder — "a real report builder", not just the one fixed
+  // portfolio-overview shape above. Same property:read/write split as the
+  // rest of this controller: read the registry/saved reports/run results
+  // with property:read, create/delete with property:write.
+
+  @RequirePermissions('property:read')
+  @Get('metrics')
+  listMetrics() {
+    return this.reports.listMetrics();
+  }
+
+  @RequirePermissions('property:write')
+  @Post('definitions')
+  createDefinition(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: CreateReportDefinitionDto) {
+    return this.reports.createDefinition(member.accountId, dto.name, dto.metrics);
+  }
+
+  @RequirePermissions('property:read')
+  @Get('definitions')
+  findDefinitions(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.reports.findDefinitions(member.accountId);
+  }
+
+  @RequirePermissions('property:write')
+  @Delete('definitions/:id')
+  deleteDefinition(@CurrentAccountMember() member: AccountMemberCtx, @Param('id') id: string) {
+    return this.reports.deleteDefinition(member.accountId, id);
+  }
+
+  @RequirePermissions('property:read')
+  @Get('definitions/:id/run')
+  runDefinition(@CurrentAccountMember() member: AccountMemberCtx, @Param('id') id: string) {
+    return this.reports.runDefinition(member.accountId, id);
+  }
+
+  @RequirePermissions('property:read')
+  @Get('definitions/:id/export')
+  async exportDefinition(
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const csv = await this.reports.exportDefinitionCsv(member.accountId, id);
+    res.header('Content-Type', 'text/csv; charset=utf-8');
+    res.header('Content-Disposition', 'attachment; filename="report.csv"');
+    return csv;
   }
 }

@@ -1,8 +1,59 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../notifications/email.service';
 
 const DIGEST_FREQUENCIES = ['off', 'weekly', 'monthly'] as const;
+
+type PortfolioOverview = Awaited<ReturnType<ReportsService['getPortfolioOverview']>>;
+type MetricRow = { label: string; value: string | number };
+
+// The report builder's entire "query engine": each key projects one or
+// more {label, value} rows out of the ONE getPortfolioOverview
+// computation already run for the fixed dashboard — never a second,
+// independent query path. A saved ReportDefinition is just an ordered
+// list of these keys; running or exporting it means computing the
+// overview once and picking rows out of it, not building or executing a
+// dynamic query per report. Deliberately not a general query
+// builder/DSL — every metric here is something the dashboard or digest
+// email already surfaces elsewhere, just individually selectable and
+// combinable now.
+const METRIC_REGISTRY: Record<string, { label: string; rows: (o: PortfolioOverview) => MetricRow[] }> = {
+  properties_total: { label: 'Total properties', rows: (o) => [{ label: 'Total properties', value: o.properties.total }] },
+  properties_total_value: {
+    label: 'Total estimated value',
+    rows: (o) => [{ label: `Total estimated value (${o.currency})`, value: o.properties.totalEstimatedValue }],
+  },
+  properties_by_status: {
+    label: 'Properties by status',
+    rows: (o) => o.properties.byStatus.map((s) => ({ label: `Properties — ${s.status}`, value: s.count })),
+  },
+  projects_total: { label: 'Total projects', rows: (o) => [{ label: 'Total projects', value: o.projects.total }] },
+  projects_by_status: {
+    label: 'Projects by status',
+    rows: (o) => o.projects.byStatus.map((s) => ({ label: `Projects — ${s.status}`, value: s.count })),
+  },
+  maintenance_total: { label: 'Total maintenance requests', rows: (o) => [{ label: 'Total maintenance requests', value: o.maintenance.total }] },
+  maintenance_open: { label: 'Open maintenance requests', rows: (o) => [{ label: 'Open maintenance requests', value: o.maintenance.open }] },
+  maintenance_resolved: { label: 'Resolved maintenance requests', rows: (o) => [{ label: 'Resolved maintenance requests', value: o.maintenance.resolved }] },
+  inspections_total: { label: 'Total inspections', rows: (o) => [{ label: 'Total inspections', value: o.inspections.total }] },
+  inspections_scheduled: { label: 'Inspections scheduled', rows: (o) => [{ label: 'Inspections scheduled', value: o.inspections.scheduled }] },
+  inspections_results: {
+    label: 'Inspection results',
+    rows: (o) => [
+      { label: 'Inspections passed', value: o.inspections.pass },
+      { label: 'Inspections needing attention', value: o.inspections.needsAttention },
+      { label: 'Inspections failed', value: o.inspections.fail },
+    ],
+  },
+  vendor_spend_by_currency: {
+    label: 'Vendor spend by currency',
+    rows: (o) => o.vendorSpendByCurrency.map((v) => ({ label: `Vendor spend (${v.currency})`, value: v.total })),
+  },
+  top_vendors: {
+    label: 'Top 5 vendors by spend',
+    rows: (o) => o.topVendors.map((v) => ({ label: `Top vendor: ${v.businessName} (${v.currency})`, value: v.total })),
+  },
+};
 
 // Real CSV escaping (RFC 4180) — quote a field only when it actually
 // needs it, doubling any embedded quote. Not a fake "just join with
@@ -229,5 +280,68 @@ export class ReportsService {
         return (now - anchor.getTime()) / (1000 * 60 * 60 * 24) >= thresholdDays;
       })
       .map((a) => a.id);
+  }
+
+  // --- Report builder ------------------------------------------------
+  //
+  // "A real report builder — only one fixed report shape exists" — the
+  // gap this closes. Not a dynamic query engine: METRIC_REGISTRY above is
+  // the entire vocabulary, and a saved definition is just which of those
+  // keys to include and in what order.
+
+  listMetrics() {
+    return Object.entries(METRIC_REGISTRY).map(([key, { label }]) => ({ key, label }));
+  }
+
+  private validateMetrics(metrics: unknown): string[] {
+    if (!Array.isArray(metrics) || metrics.length === 0) {
+      throw new BadRequestException('metrics must be a non-empty array of metric keys');
+    }
+    for (const key of metrics) {
+      if (typeof key !== 'string' || !METRIC_REGISTRY[key]) {
+        throw new BadRequestException(`Unknown metric key: ${key} — see GET /reports/metrics for valid keys`);
+      }
+    }
+    return metrics as string[];
+  }
+
+  createDefinition(accountId: string, name: string, metrics: unknown) {
+    const validated = this.validateMetrics(metrics);
+    return this.prisma.reportDefinition.create({ data: { accountId, name, metrics: validated } });
+  }
+
+  findDefinitions(accountId: string) {
+    return this.prisma.reportDefinition.findMany({ where: { accountId }, orderBy: { createdAt: 'desc' } });
+  }
+
+  private async requireDefinition(accountId: string, id: string) {
+    const definition = await this.prisma.reportDefinition.findUnique({ where: { id } });
+    if (!definition || definition.accountId !== accountId) {
+      throw new NotFoundException('Report definition not found');
+    }
+    return definition;
+  }
+
+  async deleteDefinition(accountId: string, id: string) {
+    await this.requireDefinition(accountId, id);
+    await this.prisma.reportDefinition.delete({ where: { id } });
+    return { deleted: true };
+  }
+
+  // Compute the ONE overview, then project every saved metric key out of
+  // it — the "compute once, project down" split named in this section's
+  // own comment above, not a query per metric.
+  async runDefinition(accountId: string, id: string) {
+    const definition = await this.requireDefinition(accountId, id);
+    const overview = await this.getPortfolioOverview(accountId);
+    const metrics = definition.metrics as string[];
+    const rows = metrics.flatMap((key) => METRIC_REGISTRY[key]?.rows(overview) ?? []);
+    return { name: definition.name, generatedAt: new Date().toISOString(), rows };
+  }
+
+  async exportDefinitionCsv(accountId: string, id: string): Promise<string> {
+    const { rows } = await this.runDefinition(accountId, id);
+    const lines = [csvRow(['Metric', 'Value']), ...rows.map((r) => csvRow([r.label, r.value]))];
+    return lines.join('\r\n');
   }
 }

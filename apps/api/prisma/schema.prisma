@@ -78,8 +78,29 @@ model Account {
   // linked lease(s). Named explicitly since Account already reaches
   // Lease indirectly through Property, and this is a second, direct path.
   tenantLeases    Lease[]          @relation("TenantAccountLeases")
+  reportDefinitions ReportDefinition[]
 
   @@map("accounts")
+}
+
+// The report-builder half of "the rest of the Reports module" — a saved
+// selection of metrics from ReportsService's own fixed metric registry
+// (itself a projection of the one getPortfolioOverview computation, not a
+// dynamic query engine — see ReportsService.METRIC_REGISTRY's comment).
+// `metrics` is a plain string array of registry keys, not a query
+// language — there's nothing to parse or validate beyond "is this key in
+// the registry," which ReportsService checks at create/run time, not here.
+model ReportDefinition {
+  id        String   @id @default(uuid())
+  accountId String
+  name      String
+  metrics   Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("report_definitions")
 }
 
 model User {

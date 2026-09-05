@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { ApiError, PortfolioOverview } from "../../lib/api";
+import { ApiError, PortfolioOverview, ReportDefinition } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 const DIGEST_FREQUENCIES = ["off", "weekly", "monthly"] as const;
@@ -204,6 +204,7 @@ export default function ReportsPage() {
           </div>
 
           <DigestSubscriptionCard frequency={overview.digestFrequency} onChanged={load} />
+          <ReportBuilderCard />
         </div>
       )}
     </AppShell>
@@ -281,6 +282,195 @@ function DigestSubscriptionCard({ frequency, onChanged }: { frequency: string; o
           {sending ? "Sending…" : "Send me one now"}
         </button>
       </div>
+    </div>
+  );
+}
+
+// "A real report builder — only one fixed report shape exists" — the gap
+// this closes. Every metric here is picked out of the SAME
+// getPortfolioOverview computation the dashboard above already shows;
+// this is which of those numbers to save together and re-run/export on
+// demand, not a second independent data source.
+function ReportBuilderCard() {
+  const auth = useAuth();
+  const [availableMetrics, setAvailableMetrics] = useState<{ key: string; label: string }[] | null>(null);
+  const [definitions, setDefinitions] = useState<ReportDefinition[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const [name, setName] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  const [runResult, setRunResult] = useState<{ id: string; name: string; rows: { label: string; value: string | number }[] } | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  function load() {
+    if (!auth.currentAccountId) return;
+    Promise.all([auth.api.listReportMetrics(), auth.api.listReportDefinitions()])
+      .then(([metrics, defs]) => {
+        setAvailableMetrics(metrics);
+        setDefinitions(defs);
+      })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load the report builder."));
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  function toggleMetric(key: string) {
+    setSelected((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+  }
+
+  async function onSave() {
+    if (!name.trim() || selected.length === 0) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const created = await auth.api.createReportDefinition({ name: name.trim(), metrics: selected });
+      setDefinitions((prev) => [created, ...(prev ?? [])]);
+      setName("");
+      setSelected([]);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't save that report.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onRun(def: ReportDefinition) {
+    setBusyId(def.id);
+    setError(null);
+    setRunResult(null);
+    try {
+      const result = await auth.api.runReportDefinition(def.id);
+      setRunResult({ id: def.id, name: result.name, rows: result.rows });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't run that report.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onExport(def: ReportDefinition) {
+    setBusyId(def.id);
+    setError(null);
+    try {
+      const csv = await auth.api.exportReportDefinitionCsv(def.id);
+      downloadCsv(`${def.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "report"}.csv`, csv);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't export that report.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onDelete(def: ReportDefinition) {
+    setBusyId(def.id);
+    setError(null);
+    try {
+      await auth.api.deleteReportDefinition(def.id);
+      setDefinitions((prev) => (prev ?? []).filter((d) => d.id !== def.id));
+      if (runResult?.id === def.id) setRunResult(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't delete that report.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 18 }}>
+      <h3 style={{ fontSize: 14, marginBottom: 4 }}>Report builder</h3>
+      <p className="potg-muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 12 }}>
+        Pick metrics, save them as a named report, and run or export it on demand.
+      </p>
+      {error && <div className="potg-error" style={{ marginBottom: 10 }}>{error}</div>}
+
+      {!availableMetrics && <p className="potg-muted" style={{ fontSize: 12 }}>Loading…</p>}
+
+      {availableMetrics && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {availableMetrics.map((m) => (
+              <label
+                key={m.key}
+                className="potg-badge"
+                style={{
+                  cursor: "pointer",
+                  background: selected.includes(m.key) ? "var(--potg-teal)" : undefined,
+                  color: selected.includes(m.key) ? "white" : undefined,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.includes(m.key)}
+                  onChange={() => toggleMetric(m.key)}
+                  style={{ marginRight: 5 }}
+                />
+                {m.label}
+              </label>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              className="potg-input"
+              style={{ width: 240 }}
+              placeholder="Report name, e.g. “Monthly maintenance”"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <button className="potg-btn potg-btn-primary" onClick={onSave} disabled={saving || !name.trim() || selected.length === 0}>
+              {saving ? "Saving…" : "Save report"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {definitions && definitions.length === 0 && (
+        <p className="potg-muted" style={{ fontSize: 12 }}>
+          No saved reports yet — pick some metrics above and save one.
+        </p>
+      )}
+
+      {definitions && definitions.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {definitions.map((def) => (
+            <div key={def.id} style={{ display: "flex", flexDirection: "column", gap: 6, borderTop: "1px solid var(--potg-border)", paddingTop: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <strong style={{ fontSize: 13 }}>{def.name}</strong>{" "}
+                  <span className="potg-muted" style={{ fontSize: 11 }}>({def.metrics.length} metric{def.metrics.length === 1 ? "" : "s"})</span>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busyId === def.id} onClick={() => onRun(def)}>
+                    Run
+                  </button>
+                  <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busyId === def.id} onClick={() => onExport(def)}>
+                    Export CSV
+                  </button>
+                  <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busyId === def.id} onClick={() => onDelete(def)}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+              {runResult?.id === def.id && (
+                <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+                  <tbody>
+                    {runResult.rows.map((row, i) => (
+                      <tr key={i} style={{ borderTop: "1px solid var(--potg-border)" }}>
+                        <td style={{ padding: "4px 0", color: "var(--potg-muted, #667)" }}>{row.label}</td>
+                        <td style={{ padding: "4px 0", textAlign: "right", fontWeight: 600 }}>{row.value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

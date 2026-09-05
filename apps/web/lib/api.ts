@@ -761,6 +761,15 @@ export type PortfolioOverview = {
   topVendors: { vendorId: string; businessName: string; currency: string; total: number }[];
 };
 
+export type ReportDefinition = {
+  id: string;
+  accountId: string;
+  name: string;
+  metrics: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Listing = {
   id: string;
   propertyId: string;
@@ -1672,6 +1681,44 @@ export class ApiClient {
       token: this.token,
       accountId: this.accountId,
     });
+  }
+  // --- Report builder ---
+  listReportMetrics() {
+    return request<{ key: string; label: string }[]>("/reports/metrics", { token: this.token, accountId: this.accountId });
+  }
+  listReportDefinitions() {
+    return request<ReportDefinition[]>("/reports/definitions", { token: this.token, accountId: this.accountId });
+  }
+  createReportDefinition(input: { name: string; metrics: string[] }) {
+    return request<ReportDefinition>("/reports/definitions", {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  deleteReportDefinition(id: string) {
+    return request<{ deleted: boolean }>(`/reports/definitions/${id}`, {
+      method: "DELETE",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  runReportDefinition(id: string) {
+    return request<{ name: string; generatedAt: string; rows: { label: string; value: string | number }[] }>(
+      `/reports/definitions/${id}/run`,
+      { token: this.token, accountId: this.accountId },
+    );
+  }
+  async exportReportDefinitionCsv(id: string): Promise<string> {
+    const headers: Record<string, string> = {};
+    if (this.accountId) headers["X-Account-Id"] = this.accountId;
+    const res = await fetch(`${API_URL}/reports/definitions/${id}/export`, { headers, credentials: "include" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => undefined);
+      throw new ApiError(res.status, data?.message ?? `Request failed (${res.status})`);
+    }
+    return res.text();
   }
   findOpenDisputesForArbitration() {
     return request<Dispute[]>("/payments/disputes/open", { token: this.token, accountId: this.accountId });

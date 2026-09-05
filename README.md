@@ -3369,10 +3369,11 @@ same dashboard.
   wait — so what's verified is that `sendDigest` (the method it calls)
   works correctly and that the job registers without error at startup;
   its own timer firing is unverified, structurally identical code to
-  what was verified, but still unverified. No PDF export, no custom
-  report builder, and no digest content beyond the same numbers the
-  dashboard already shows — a real report *builder* stays out of scope,
-  same as "Not built yet" already flagged for Module 14.
+  what was verified, but still unverified. No PDF export, and no digest
+  content beyond the same numbers the dashboard already shows. A real
+  report builder was out of scope for this pass specifically — see "A
+  real report builder" further below, which closed that gap in a later
+  pass.
 
 ## AI-generated renovation visualizations — the 2D half only (this pass)
 
@@ -3696,6 +3697,54 @@ to run, pay for, or operate.
   above, and — same honest caveat as the AI-generated visualizer — no
   actual embedding has ever been generated end-to-end, since that
   requires OpenAI credit this account doesn't currently have.
+
+## A real report builder (this pass)
+
+Closes "only one fixed report shape exists (portfolio overview + CSV
+export + email digest)." Before this, "Reports" meant exactly one
+dashboard — every user saw the same numbers in the same layout, with no
+way to pick a subset, save it, or come back to it later.
+
+- **A fixed metric registry, not a dynamic query engine**
+  (`METRIC_REGISTRY` in `reports.service.ts`) — 13 keys, each a
+  projection function from the *one* `getPortfolioOverview` computation
+  the fixed dashboard above already runs (`properties_total`,
+  `maintenance_open`, `top_vendors`, ...). A saved report is an ordered
+  list of these keys, nothing more — there's no query language to parse,
+  no per-metric database round-trip, and no way to express something the
+  registry doesn't already name. Running or exporting a saved report
+  computes the overview exactly once and picks rows out of it.
+- **`ReportDefinition`** (`accountId`, `name`, `metrics: Json`) — a
+  normal Prisma-managed model (unlike this pass's other two features, no
+  `Unsupported` column here), with its own hand-written migration.
+- **`GET /reports/metrics`, `POST/GET /reports/definitions`, `DELETE
+  /reports/definitions/:id`, `GET /reports/definitions/:id/run`, `GET
+  /reports/definitions/:id/export`** — `property:read` for anything that
+  only reads (the registry, saved reports, a run result), `property:write`
+  for create/delete, the same split every other self-service account
+  setting in this codebase already uses. The CSV export reuses the exact
+  same `csvField`/`csvRow` RFC-4180 escaping helpers the portfolio-overview
+  export already established — one escaping implementation, not two.
+- **Web**: a "Report builder" card on the Reports page
+  (`pages/reports/index.tsx`) below the existing dashboard and digest
+  card — a checkbox grid of every registry metric, a name field, a "Save
+  report" button, and a list of saved reports each with Run (renders a
+  table inline), Export CSV (reuses the page's existing `downloadCsv`
+  helper), and Delete.
+- **Verified live end-to-end**: saved a report with 2 metrics
+  (`maintenance_total`, `top_vendors`) against real seeded data, ran it
+  (correctly returned `Total maintenance requests: 8` and `Top vendor:
+  Lekki Renovations Co. (NGN): 901000` — matching the fixed dashboard's
+  own open+resolved+other breakdown), exported it (fetched the actual
+  response body over the network, confirmed exact matching CSV), and
+  deleted it (list correctly returned to empty). No server errors at any
+  step.
+- **Not done**: no scheduling a saved report's own digest (only the one,
+  fixed portfolio-overview digest from the pass before this one exists);
+  no sharing a saved report with other account members beyond it already
+  being account-wide; no metrics outside the registry (nothing from
+  Payments, Documents, or Tenant modules is projectable yet — only what
+  `getPortfolioOverview` itself already computes).
 
 ## Not built yet
 
