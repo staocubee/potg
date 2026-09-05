@@ -64,6 +64,12 @@ const PERMISSIONS = [
   { key: 'review:respond', label: "Reply to a review left on your own vendor/supplier profile" },
   { key: 'review:flag', label: 'Flag a review left on your own vendor/supplier profile for moderation' },
   { key: 'review:moderate', label: 'Hide or restore any flagged review platform-wide (neutral reviewer only — never granted to review:write/respond/flag roles)' },
+  // Platform-wide compliance tracker (this pass) — see the ComplianceItem
+  // schema comment. Neutral-reviewer-only, same isolation as vendor:verify/
+  // dispute:arbitrate/document:arbitrate/review:moderate above: no
+  // tenant-facing role in this file ever carries either key.
+  { key: 'compliance:read', label: 'View the platform compliance tracker (neutral reviewer only)' },
+  { key: 'compliance:write', label: 'Edit the platform compliance tracker (neutral reviewer only)' },
 ];
 
 // Section 8's core roles, narrowed to the ones DEFAULT_OWNER_ROLE_BY_ACCOUNT_TYPE
@@ -285,6 +291,8 @@ const ROLES: Record<string, string[]> = {
     'dispute:arbitrate',
     'document:arbitrate',
     'review:moderate',
+    'compliance:read',
+    'compliance:write',
   ],
 };
 

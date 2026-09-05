@@ -32,6 +32,15 @@ const NAV_ITEMS: NavItem[] = [
 // nav entry to reach its own screen at all.
 const TENANT_NAV_ITEM: NavItem = { href: "/tenant", label: "My Lease", icon: "🔑", enabled: true };
 
+// Same reasoning as TENANT_NAV_ITEM above, for the same reason: unlike
+// platform_reviewer's other actions (vendor/supplier verification,
+// dispute arbitration, document verification, review moderation), which
+// all reach their screens through the Vendors/Documents/Payments nav
+// items that already exist for other reasons, the compliance tracker is
+// its own, unrelated concern — there's no existing page it belongs
+// inside, so it gets its own item, shown only to this one role.
+const COMPLIANCE_NAV_ITEM: NavItem = { href: "/compliance", label: "Compliance", icon: "⚖️", enabled: true };
+
 export default function AppShell({
   title,
   actions,
@@ -55,7 +64,11 @@ export default function AppShell({
 
   if (!auth.hydrated || !auth.token) return null;
 
-  const navItems = auth.currentAccount?.accountType === "TENANT" ? [TENANT_NAV_ITEM, ...NAV_ITEMS] : NAV_ITEMS;
+  const navItems = [
+    ...(auth.currentAccount?.accountType === "TENANT" ? [TENANT_NAV_ITEM] : []),
+    ...(auth.currentAccount?.role === "platform_reviewer" ? [COMPLIANCE_NAV_ITEM] : []),
+    ...NAV_ITEMS,
+  ];
 
   return (
     <>

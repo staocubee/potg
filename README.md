@@ -3746,6 +3746,69 @@ way to pick a subset, save it, or come back to it later.
   Payments, Documents, or Tenant modules is projectable yet — only what
   `getPortfolioOverview` itself already computes).
 
+## A platform compliance tracker (this pass)
+
+Neither real AR/VR nor the compliance gap below has a direct code fix —
+AR/VR needs infrastructure (native/WebXR, photogrammetry, a 3D pipeline)
+that doesn't exist here, and compliance is regulatory/legal work no code
+can perform. Asked which bounded, honest slice to build instead of
+either, the answer was this: a real place to track that the compliance
+work exists and where it stands, without pretending to do the work
+itself.
+
+- **`ComplianceItem`** — genuinely platform-wide, like `Role`/
+  `Permission` (the only other account-independent tables in this
+  schema): `jurisdiction` and `category` are free text, not enums — this
+  scaffold can't know every market the platform might expand into —
+  plus `title`, `status` (`not_started`/`in_progress`/`done`), and
+  `notes`. No `accountId` anywhere: this tracks the platform operator's
+  own regulatory posture, not any one tenant's.
+- **`compliance:read`/`compliance:write`, granted only to
+  `platform_reviewer`** — the exact same isolation every other
+  neutral-reviewer permission already uses (`vendor:verify`,
+  `dispute:arbitrate`, `document:arbitrate`, `review:moderate`): the role
+  that owns this data never gets it, and no tenant-facing role carries
+  either key. `platform_reviewer` itself is nothing special at the
+  account level — confirmed by re-reading how it already works — it's an
+  ordinary `AccountMember` role inside an ordinary `Account`
+  (`accountType: COMPANY`, the seeded "PropertyOnTheGo Trust & Safety"
+  account); "platform-wide" comes entirely from the permission only ever
+  being granted to that one role, and from these routes carrying no
+  `:accountId`/`:propertyId`/`:projectId` param for `PermissionsGuard`'s
+  ABAC check to key on — the same shape `VendorsService.
+  setVerificationStatus` already established for `vendor:verify`.
+- **The two new permissions are inserted directly in the migration**
+  (`INSERT INTO permissions ...` / `INSERT INTO role_permissions ...`,
+  keyed off `roles.key = 'platform_reviewer'`), not left to a re-seed —
+  this is data on the live shared database, not just schema, and
+  `seed.ts`'s own `PERMISSIONS`/`ROLES` entries were updated identically
+  so a fresh seed run never disagrees with what the migration already
+  did. Verified directly against the live database that both rows
+  landed and are linked only to `platform_reviewer`.
+- **Web**: a new "Compliance" nav item — unlike `platform_reviewer`'s
+  other actions (vendor/supplier verification, dispute arbitration,
+  document verification, review moderation), which all reach their
+  screens through the Vendors/Documents/Payments nav items that already
+  exist for other reasons, this is its own, unrelated concern with
+  nowhere existing to live, so it gets a dedicated item — shown only to
+  this one role, the same exception `TENANT_NAV_ITEM` already
+  established for tenant accounts. The page itself has no client-side
+  role gate; it just renders whatever `GET /compliance/items` returns, or
+  a plain "switch accounts" message if that 403s.
+- **Verified live, both sides of the gate**: visited `/compliance` as
+  the ordinary demo property-owner account — got the exact 403-driven
+  message, no nav item shown. Switched to the seeded platform-reviewer
+  account — nav item appeared, and a full create → change status →
+  in_progress → save a note → delete cycle round-tripped correctly
+  against the real API, each step confirmed against the actual network
+  response, not just the UI updating optimistically. No server errors at
+  any step.
+- **Not done, and not pretending otherwise**: this grants no license,
+  verifies no jurisdiction's actual legal requirements, and enforces no
+  data residency — it's bookkeeping for humans doing that work, nothing
+  more. No due-date/reminder mechanism, no file attachments per item, no
+  audit trail of who changed what (only `updatedAt`, no history).
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -3972,8 +4035,14 @@ blueprint, or explicitly cut from it:
   pipeline. `Document.fileUrl` still expects a URL you provide yourself,
   same as before.
 - **Payment/escrow licensing, market-specific verification mechanisms,
-  and data residency** — the compliance work the blueprint review flagged
-  needs to run in parallel with engineering, not be solved by this code.
+  and data residency remain real regulatory work, not something code
+  solves — but there's now a real place to track it.** See "A platform
+  compliance tracker" above: a checklist the platform's own trust &
+  safety function uses to record which items exist, per market, and
+  where each stands. It doesn't obtain a license, verify a jurisdiction's
+  actual requirements, or enforce data residency — no code could — it
+  just replaces "nothing" with an honest, live-verified tracking surface
+  for the humans who do that work.
 - **Invite/accept is fully closed out now.** See "Real invite/accept
   flow", "Revoking and resending pending invites", "A real email
   provider — Resend", and "Finding out you've been invited" above —

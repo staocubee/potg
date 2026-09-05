@@ -218,6 +218,32 @@ model RolePermission {
   @@map("role_permissions")
 }
 
+// The "Payment/escrow licensing, market-specific verification mechanisms,
+// and data residency" gap the blueprint review flagged as compliance
+// work that has to run alongside engineering — this is NOT that work
+// itself (no code grants a real license, verifies a real jurisdiction's
+// requirements, or enforces real data residency); it's a checklist the
+// platform's own trust & safety function uses to track that the work
+// exists and where it stands. Genuinely platform-wide, like Role/
+// Permission above (the only other account-independent tables in this
+// schema) — no accountId, because this tracks the platform operator's
+// own regulatory posture, not any one tenant's. Gated on compliance:
+// read/write, granted only to platform_reviewer (see seed.ts) — same
+// "the role that owns this data never gets it" isolation every other
+// platform-reviewer-only permission already uses.
+model ComplianceItem {
+  id           String   @id @default(uuid())
+  jurisdiction String // e.g. "Nigeria", "European Union" — free text, not an enum: this scaffold can't know every market the platform might expand into
+  category     String // e.g. "payment_licensing", "kyc_verification", "data_residency" — free text for the same reason
+  title        String
+  status       String   @default("not_started") // not_started | in_progress | done
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("compliance_items")
+}
+
 // A user may belong to several accounts at once (personal, family, company,
 // vendor) — this is the multi-tenancy join the blueprint calls out as
 // something to get right on day one.

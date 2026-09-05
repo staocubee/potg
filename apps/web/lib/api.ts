@@ -770,6 +770,17 @@ export type ReportDefinition = {
   updatedAt: string;
 };
 
+export type ComplianceItem = {
+  id: string;
+  jurisdiction: string;
+  category: string;
+  title: string;
+  status: "not_started" | "in_progress" | "done" | string;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Listing = {
   id: string;
   propertyId: string;
@@ -1719,6 +1730,36 @@ export class ApiClient {
       throw new ApiError(res.status, data?.message ?? `Request failed (${res.status})`);
     }
     return res.text();
+  }
+  // --- Platform compliance tracker (compliance:read/write — platform_reviewer only) ---
+  listComplianceItems() {
+    return request<ComplianceItem[]>("/compliance/items", { token: this.token, accountId: this.accountId });
+  }
+  createComplianceItem(input: { jurisdiction: string; category: string; title: string; notes?: string }) {
+    return request<ComplianceItem>("/compliance/items", {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  updateComplianceItem(
+    id: string,
+    input: Partial<{ jurisdiction: string; category: string; title: string; status: "not_started" | "in_progress" | "done"; notes: string }>,
+  ) {
+    return request<ComplianceItem>(`/compliance/items/${id}`, {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  deleteComplianceItem(id: string) {
+    return request<{ deleted: boolean }>(`/compliance/items/${id}`, {
+      method: "DELETE",
+      token: this.token,
+      accountId: this.accountId,
+    });
   }
   findOpenDisputesForArbitration() {
     return request<Dispute[]>("/payments/disputes/open", { token: this.token, accountId: this.accountId });
