@@ -3615,11 +3615,71 @@ approximate matches.
   fragment of the full product name) → `Ceramic Floor Tile (60x60)`; an
   unrelated nonsense query returned zero results in each marketplace, not
   a false-positive match.
-- **Not done**: no ranking beyond trigram similarity (no relevance
-  boosting by recency, rating, or verification status), no typo-tolerant
-  search on any other field (property address, project titles, document
-  names, ...) — only the three marketplaces the blueprint's own search
-  gap called out.
+- **Not done**: no typo-tolerant search on any other field (property
+  address, project titles, document names, ...) — only the three
+  marketplaces the blueprint's own search gap called out. Relevance
+  ranking beyond trigram similarity closed in a later pass — see
+  "Marketplace search relevance boosting" below.
+
+## Marketplace search relevance boosting (this pass)
+
+Closes "no ranking beyond trigram similarity (no relevance boosting by
+recency, rating, or verification status)" — the one gap the fuzzy-search
+pass above left open. Before this, two results with the same or similar
+text relevance broke ties in whatever order Postgres happened to return
+them, ignoring signals a real search product would obviously use.
+
+- **One shared, generic scoring function** (`rankingBoost` in
+  `apps/api/src/common/search-ranking.util.ts`), not three separate
+  weightings that happen to look similar — this is bounded arithmetic
+  (recency decay, a normalized rating, a flat verified bonus), not a
+  domain-specific judgment call the way a trust score is, so it lives in
+  `common/` and is imported by all three marketplace services rather
+  than duplicated per marketplace the way this codebase's own per-domain
+  business logic usually is.
+- **Deliberately small and additive, never a replacement for text
+  relevance**: each of the three signals contributes at most `0.05` (a
+  maximum `0.15` total), added on top of the `word_similarity()` score
+  the existing fuzzy search already ranks by. Because the SQL `WHERE`
+  clause already excludes anything below the `0.3` relevance threshold
+  before the boost is ever applied, a weakly-relevant match can
+  structurally never outrank a strongly-relevant one — the boost only
+  ever reorders *within* the set of already-relevant results, breaking
+  near-ties in a sensible direction (newer, better-rated, verified).
+- **Real signals per marketplace, not the same three everywhere**:
+  listings get recency + verification (a `PropertyListing` has no rating
+  field of its own); vendors get all three directly; materials/products
+  get rating + verification from the product's own `Supplier` (a
+  `Product` has neither field itself) plus the product's own recency —
+  `MaterialsService.findProducts`'s existing `supplier` include gained
+  `verificationStatus` alongside the `ratingAverage` it already selected.
+- **The raw SQL changed from selecting just `id` to also returning the
+  similarity `score`** for all three searches — the boost math (in
+  TypeScript, not SQL) needs the actual relevance number to add to, not
+  just an ordinal position, so the final sort is `word_similarity() +
+  rankingBoost()` computed per row after Prisma hydration, same "raw SQL
+  for the part Prisma can't express, TypeScript for everything else"
+  split this feature already established.
+- **Verified live with a controlled, rigorous test, not just a
+  plausible-looking result**: created two real vendors named "Precision
+  Plumbing Ltd" (unverified, no rating, 400 days old) and "Precision
+  Plumbing Co" (verified, 4.8 rating, brand new) — confirmed by direct
+  SQL query that both scored an *identical* `word_similarity()` of
+  `1.0` against the query "Precision Plumbing" (a perfect substring
+  match for both), so any reordering could only come from the boost,
+  not a coincidental relevance difference. Searching that exact phrase
+  through the real running app returned "Precision Plumbing Co" first,
+  confirming the boost worked exactly as designed. Re-ran the existing
+  fuzzy-search regression checks for all three marketplaces (misspelled
+  vendor name, misspelled listing title, misspelled+partial product
+  name) and confirmed no change in behavior for cases where relevance
+  itself, not a tie, determines the order.
+- **Not done**: no popularity/click-through signal (`PropertyListing.
+  viewCount` exists but isn't used here — deliberately: it measures
+  attention, not quality, and conflating the two felt like a real
+  product decision, not a bounded technical one); the boost weights
+  (`0.05` each) are a reasonable starting point, not tuned against real
+  usage data, since none exists yet for this scaffold.
 
 ## Semantic property search — pgvector + OpenAI embeddings (this pass)
 

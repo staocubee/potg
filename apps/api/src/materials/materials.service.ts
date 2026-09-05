@@ -18,6 +18,7 @@ import { CreateRentalBookingDto } from './dto/create-rental-booking.dto';
 import { UpsertCartItemDto } from './dto/upsert-cart-item.dto';
 import { CheckoutCartDto } from './dto/checkout-cart.dto';
 import { getSupplierTrustScore } from './trust-score';
+import { rankingBoost } from '../common/search-ranking.util';
 
 @Injectable()
 export class MaterialsService {
@@ -156,6 +157,7 @@ export class MaterialsService {
   // ListingsService.findAll's own comment explains in full.
   async findProducts(category?: string, supplierId?: string, q?: string) {
     let relevanceOrder: string[] | undefined;
+    let relevanceScore: Map<string, number> | undefined;
     if (q) {
       // word_similarity() against an explicit 0.3 threshold — see
       // ListingsService.findAll's comment for why this, and specifically
@@ -163,25 +165,40 @@ export class MaterialsService {
       // stricter 0.6, not the 0.3 plain similarity/`%` uses — this is the
       // exact query where that gap was caught: "Cermic Tile" scored 0.48
       // against "Ceramic Floor Tile (60x60)", passing 0.3 but failing 0.6).
-      const matches = await this.prisma.$queryRaw<{ id: string }[]>`
-        SELECT id FROM products
+      const matches = await this.prisma.$queryRaw<{ id: string; score: number }[]>`
+        SELECT id, GREATEST(word_similarity(${q}, name), word_similarity(${q}, COALESCE(description, ''))) as score
+        FROM products
         WHERE status = 'active' AND (word_similarity(${q}, name) > 0.3 OR word_similarity(${q}, COALESCE(description, '')) > 0.3)
-        ORDER BY GREATEST(word_similarity(${q}, name), word_similarity(${q}, COALESCE(description, ''))) DESC
+        ORDER BY score DESC
         LIMIT 50
       `;
       relevanceOrder = matches.map((m) => m.id);
+      relevanceScore = new Map(matches.map((m) => [m.id, Number(m.score)]));
       if (relevanceOrder.length === 0) return [];
     }
 
     const products = await this.prisma.product.findMany({
       where: { status: 'active', category, supplierId, id: relevanceOrder ? { in: relevanceOrder } : undefined },
-      include: { supplier: { select: { id: true, businessName: true, ratingAverage: true } } },
+      include: { supplier: { select: { id: true, businessName: true, ratingAverage: true, verificationStatus: true } } },
       orderBy: relevanceOrder ? undefined : { createdAt: 'desc' },
     });
 
-    if (!relevanceOrder) return products;
-    const rank = new Map(relevanceOrder.map((id, i) => [id, i]));
-    return products.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+    if (!relevanceOrder || !relevanceScore) return products;
+    // See ListingsService.findAll's own comment on rankingBoost — text
+    // relevance stays dominant, this only breaks near-ties. Rating and
+    // verification come from the product's own supplier (a Product has
+    // neither field itself), recency from the product's own createdAt.
+    const scored = products.map((product) => ({
+      product,
+      finalScore:
+        (relevanceScore!.get(product.id) ?? 0) +
+        rankingBoost({
+          createdAt: product.createdAt,
+          ratingAverage: product.supplier.ratingAverage ? Number(product.supplier.ratingAverage) : null,
+          isVerified: product.supplier.verificationStatus === 'verified',
+        }),
+    }));
+    return scored.sort((a, b) => b.finalScore - a.finalScore).map((s) => s.product);
   }
 
   findProduct(id: string) {

@@ -13,6 +13,7 @@ import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
 import { SetPaypalPayoutEmailDto } from './dto/set-paypal-payout-email.dto';
 import { SetVendorLicenseDto } from './dto/set-vendor-license.dto';
 import { SubmitVendorVerificationEvidenceDto } from './dto/submit-vendor-verification-evidence.dto';
+import { rankingBoost } from '../common/search-ranking.util';
 import { getVendorTrustScore } from './trust-score';
 import { PaystackService } from '../payments/paystack.service';
 import { FlutterwaveService } from '../payments/flutterwave.service';
@@ -132,18 +133,20 @@ export class VendorsService {
   // explains in full.
   async findAll(serviceCategory?: string, q?: string) {
     let relevanceOrder: string[] | undefined;
+    let relevanceScore: Map<string, number> | undefined;
     if (q) {
       // word_similarity() against an explicit 0.3 threshold — see
       // ListingsService.findAll's comment for why this, and specifically
       // why not the `<%` operator (its default threshold GUC is a
       // stricter 0.6, not the 0.3 plain similarity/`%` uses).
-      const matches = await this.prisma.$queryRaw<{ id: string }[]>`
-        SELECT id FROM vendors
+      const matches = await this.prisma.$queryRaw<{ id: string; score: number }[]>`
+        SELECT id, word_similarity(${q}, "businessName") as score FROM vendors
         WHERE word_similarity(${q}, "businessName") > 0.3
-        ORDER BY word_similarity(${q}, "businessName") DESC
+        ORDER BY score DESC
         LIMIT 50
       `;
       relevanceOrder = matches.map((m) => m.id);
+      relevanceScore = new Map(matches.map((m) => [m.id, Number(m.score)]));
       if (relevanceOrder.length === 0) return [];
     }
 
@@ -155,9 +158,21 @@ export class VendorsService {
       orderBy: relevanceOrder ? undefined : [{ ratingAverage: 'desc' }, { createdAt: 'desc' }],
     });
 
-    if (!relevanceOrder) return vendors;
-    const rank = new Map(relevanceOrder.map((id, i) => [id, i]));
-    return vendors.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+    if (!relevanceOrder || !relevanceScore) return vendors;
+    // See ListingsService.findAll's own comment on rankingBoost — text
+    // relevance stays dominant, this only breaks near-ties. Vendors get
+    // all three signals (rating, verification, recency), unlike listings.
+    const scored = vendors.map((vendor) => ({
+      vendor,
+      finalScore:
+        (relevanceScore!.get(vendor.id) ?? 0) +
+        rankingBoost({
+          createdAt: vendor.createdAt,
+          ratingAverage: vendor.ratingAverage ? Number(vendor.ratingAverage) : null,
+          isVerified: vendor.verificationStatus === 'verified',
+        }),
+    }));
+    return scored.sort((a, b) => b.finalScore - a.finalScore).map((s) => s.vendor);
   }
 
   // Module 6's "trust score" — computed on read, not stored, since too many

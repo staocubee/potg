@@ -5,6 +5,7 @@ import { CreateInquiryDto } from './dto/create-inquiry.dto';
 import { CreateOfferDto } from './dto/create-offer.dto';
 import { RespondOfferDto } from './dto/respond-offer.dto';
 import { SearchListingsQuery } from './dto/search-listings.dto';
+import { rankingBoost } from '../common/search-ranking.util';
 
 @Injectable()
 export class ListingsService {
@@ -77,14 +78,17 @@ export class ListingsService {
     const maxPrice = query.maxPrice ? Number(query.maxPrice) : undefined;
 
     let relevanceOrder: string[] | undefined;
+    let relevanceScore: Map<string, number> | undefined;
     if (query.q) {
-      const matches = await this.prisma.$queryRaw<{ id: string }[]>`
-        SELECT id FROM property_listings
+      const matches = await this.prisma.$queryRaw<{ id: string; score: number }[]>`
+        SELECT id, GREATEST(word_similarity(${query.q}, title), word_similarity(${query.q}, COALESCE(description, ''))) as score
+        FROM property_listings
         WHERE status = 'active' AND (word_similarity(${query.q}, title) > 0.3 OR word_similarity(${query.q}, COALESCE(description, '')) > 0.3)
-        ORDER BY GREATEST(word_similarity(${query.q}, title), word_similarity(${query.q}, COALESCE(description, ''))) DESC
+        ORDER BY score DESC
         LIMIT 50
       `;
       relevanceOrder = matches.map((m) => m.id);
+      relevanceScore = new Map(matches.map((m) => [m.id, Number(m.score)]));
       if (relevanceOrder.length === 0) return [];
     }
 
@@ -106,9 +110,20 @@ export class ListingsService {
       orderBy: relevanceOrder ? undefined : { createdAt: 'desc' },
     });
 
-    if (!relevanceOrder) return listings;
-    const rank = new Map(relevanceOrder.map((id, i) => [id, i]));
-    return listings.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+    if (!relevanceOrder || !relevanceScore) return listings;
+    // Text relevance stays the dominant signal — rankingBoost only ever
+    // adds up to 0.10 (no rating exists for a listing itself, so just
+    // recency + verification here), nowhere near enough to let a weakly-
+    // relevant match outrank a strongly-relevant one, only to break
+    // near-ties between similarly-relevant results in a sensible
+    // direction (newer, verified listings first).
+    const scored = listings.map((listing) => ({
+      listing,
+      finalScore:
+        (relevanceScore!.get(listing.id) ?? 0) +
+        rankingBoost({ createdAt: listing.createdAt, isVerified: listing.verificationStatus === 'verified' }),
+    }));
+    return scored.sort((a, b) => b.finalScore - a.finalScore).map((s) => s.listing);
   }
 
   findMine(accountId: string) {
