@@ -3762,9 +3762,10 @@ blueprint, or explicitly cut from it:
   Reports dashboard" and "CSV export and scheduled email digests for
   Reports" above: `GET /reports/portfolio-overview` (real counts across
   a portfolio), a CSV export of the same data, and real scheduled email
-  digests (a genuine `@nestjs/schedule` cron, not a fake toggle). Still
-  not a full report *builder* — one fixed report shape, not a
-  custom-report designer. Modules 8, 12, and 13
+  digests (a genuine `@nestjs/schedule` cron, not a fake toggle). A real
+  report *builder* exists now too — see "A real report builder" further
+  below — though it's a fixed metric registry projected from the same
+  portfolio computation, not a custom-query designer. Modules 8, 12, and 13
   are slices, not the full modules: 8 and 12 can now point an
   inspector/assignee at a
   real `Vendor` account (see "Linking inspectors and maintenance
