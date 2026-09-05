@@ -3742,9 +3742,55 @@ way to pick a subset, save it, or come back to it later.
 - **Not done**: no scheduling a saved report's own digest (only the one,
   fixed portfolio-overview digest from the pass before this one exists);
   no sharing a saved report with other account members beyond it already
-  being account-wide; no metrics outside the registry (nothing from
-  Payments, Documents, or Tenant modules is projectable yet — only what
-  `getPortfolioOverview` itself already computes).
+  being account-wide; no metrics outside the registry — see "Extending
+  the report builder to Payments, Documents, and Tenant" further below,
+  which closed that specific gap in a later pass.
+
+## Extending the report builder to Payments, Documents, and Tenant (this pass)
+
+Closes the report builder's own "no metrics outside the registry —
+nothing from Payments, Documents, or Tenant modules is projectable yet"
+gap. Eight new registry keys, still zero new query paths: seven reuse
+the identical "compute the one overview, project rows out of it" split
+the original 13 already established; the eighth (Payments) reuses
+another module's own service method outright rather than recomputing
+its logic a second time.
+
+- **Payments — `payments_open_disputes`, `payments_deposited_by_currency`,
+  `payments_released_by_currency`, `payments_escrow_balance_by_currency`**
+  — the one metric group in this pass that isn't a new Prisma query at
+  all: `ReportsService` now injects `PaymentsService` (via
+  `ReportsModule` importing `PaymentsModule`, which already exported it)
+  and calls the exact same `getAccountOverview` the Payments dashboard
+  itself uses, inside the same `Promise.all` `getPortfolioOverview`
+  already runs. One computation, one source of truth for escrow/deposit/
+  release numbers, not a second copy of that grouping logic living in
+  two services.
+- **Documents — `documents_total`, `documents_by_verification_status`**
+  — a plain count and a `verificationStatus` breakdown, the same
+  `countByStatus` helper `properties_by_status`/`projects_by_status`
+  already use, just fed `Document` rows instead.
+- **Tenant/leases — `tenant_active_leases`, `tenant_overdue_leases`** —
+  the one genuinely new piece of logic: an account-wide "does this
+  lease look overdue" check, ported from `summarize_lease_status`
+  (`ai/skills/summarize-lease-status.skill.ts`), which only ever ran
+  per-property for one landlord-facing AI narration. Duplicated rather
+  than imported — same "parallel copy with a cross-reference comment"
+  convention `VendorTrustAudit`/`SupplierTrustAudit` already established
+  for near-identical logic used in two different contexts — and scoped
+  to every active lease across the whole account, not one property.
+- **Verified live against real seeded data**: built a 3-metric report
+  (`payments_deposited_by_currency`, `documents_by_verification_status`,
+  `tenant_overdue_leases`), ran it, and confirmed every number —
+  `Deposited (NGN): 1558000`; `Documents — verified: 7`, `rejected: 1`,
+  `not_verified: 3`, `submitted: 1`; `Leases with rent overdue: 1` —
+  then exported it and confirmed the CSV response body matched exactly.
+  No server errors, no circular-dependency issue from the new
+  cross-module `PaymentsService` injection.
+- **Not done**: no metrics from Vendor/Supplier trust scores, identity
+  verification status, or the compliance tracker — this pass covered
+  the three modules the original gap specifically named, not every
+  remaining module in the app.
 
 ## A platform compliance tracker (this pass)
 

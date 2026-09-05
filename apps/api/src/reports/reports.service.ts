@@ -1,6 +1,29 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../notifications/email.service';
+import { PaymentsService } from '../payments/payments.service';
+
+// Same 30-day-per-month approximation summarize_lease_status
+// (ai/skills/summarize-lease-status.skill.ts) already uses for "does this
+// lease look overdue" — not for anything financial, just deciding
+// whether more than one rent period has passed since the last recorded
+// payment (or since the lease started, if none has ever been recorded).
+// Duplicated rather than imported: this codebase's established
+// convention for near-identical logic used in two different contexts
+// (compare VendorTrustAudit/SupplierTrustAudit) is a parallel copy with
+// a cross-reference comment, not a shared helper — and the account-wide
+// version here has nothing else in common with that skill's own
+// per-property, LLM-narrated shape.
+const RENT_FREQUENCY_DAYS: Record<string, number> = { weekly: 7, monthly: 30, annually: 365 };
+function isLeaseOverdue(lease: { rentFrequency: string; startDate: Date; rentPayments: { periodEnd: Date }[] }): boolean {
+  const periodDays = RENT_FREQUENCY_DAYS[lease.rentFrequency] ?? RENT_FREQUENCY_DAYS.monthly;
+  const anchor =
+    lease.rentPayments.length > 0
+      ? new Date(Math.max(...lease.rentPayments.map((p) => new Date(p.periodEnd).getTime())))
+      : lease.startDate;
+  const daysSinceAnchor = (Date.now() - anchor.getTime()) / (1000 * 60 * 60 * 24);
+  return daysSinceAnchor - periodDays > 0;
+}
 
 const DIGEST_FREQUENCIES = ['off', 'weekly', 'monthly'] as const;
 
@@ -53,6 +76,38 @@ const METRIC_REGISTRY: Record<string, { label: string; rows: (o: PortfolioOvervi
     label: 'Top 5 vendors by spend',
     rows: (o) => o.topVendors.map((v) => ({ label: `Top vendor: ${v.businessName} (${v.currency})`, value: v.total })),
   },
+  // Payments — reuses PaymentsService.getAccountOverview (injected into
+  // ReportsService) rather than recomputing escrow/deposit/release
+  // grouping a second time; this is the one metric group actually pulled
+  // from another module's own service method, not a new Prisma query.
+  payments_open_disputes: {
+    label: 'Open disputes',
+    rows: (o) => [{ label: 'Open disputes (payments)', value: o.paymentsOpenDisputeCount }],
+  },
+  payments_deposited_by_currency: {
+    label: 'Total deposited by currency',
+    rows: (o) => o.paymentsDepositedByCurrency.map((d) => ({ label: `Deposited (${d.currency})`, value: d.total })),
+  },
+  payments_released_by_currency: {
+    label: 'Total released by currency',
+    rows: (o) => o.paymentsReleasedByCurrency.map((r) => ({ label: `Released (${r.currency})`, value: r.total })),
+  },
+  payments_escrow_balance_by_currency: {
+    label: 'Current escrow balance by currency',
+    rows: (o) => o.paymentsEscrowByCurrency.map((e) => ({ label: `Escrow balance (${e.currency})`, value: e.balance })),
+  },
+  // Documents
+  documents_total: { label: 'Total documents', rows: (o) => [{ label: 'Total documents', value: o.documents.total }] },
+  documents_by_verification_status: {
+    label: 'Documents by verification status',
+    rows: (o) => o.documents.byStatus.map((s) => ({ label: `Documents — ${s.status}`, value: s.count })),
+  },
+  // Tenant/leases
+  tenant_active_leases: { label: 'Active leases', rows: (o) => [{ label: 'Active leases', value: o.leases.active }] },
+  tenant_overdue_leases: {
+    label: 'Leases with rent overdue',
+    rows: (o) => [{ label: 'Leases with rent overdue', value: o.leases.overdue }],
+  },
 };
 
 // Real CSV escaping (RFC 4180) — quote a field only when it actually
@@ -84,6 +139,7 @@ export class ReportsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly payments: PaymentsService,
   ) {}
 
   private countByStatus(items: { status: string }[]) {
@@ -98,7 +154,7 @@ export class ReportsService {
       select: { currency: true, reportDigestFrequency: true },
     });
 
-    const [properties, projects, maintenanceRequests, inspections, payouts] = await Promise.all([
+    const [properties, projects, maintenanceRequests, inspections, payouts, documents, activeLeases, paymentsOverview] = await Promise.all([
       this.prisma.property.findMany({ where: { accountId }, select: { status: true, estimatedValue: true } }),
       this.prisma.project.findMany({ where: { accountId }, select: { status: true } }),
       this.prisma.maintenanceRequest.findMany({ where: { property: { accountId } }, select: { status: true } }),
@@ -107,6 +163,12 @@ export class ReportsService {
         where: { project: { accountId }, status: { not: 'failed' } },
         select: { amount: true, currency: true, vendorId: true, vendor: { select: { businessName: true } } },
       }),
+      this.prisma.document.findMany({ where: { accountId }, select: { verificationStatus: true } }),
+      this.prisma.lease.findMany({
+        where: { property: { accountId }, status: 'active' },
+        select: { rentFrequency: true, startDate: true, rentPayments: { select: { periodEnd: true } } },
+      }),
+      this.payments.getAccountOverview(accountId),
     ]);
 
     const completedInspections = inspections.filter((i: { status: string }) => i.status === 'completed');
@@ -163,6 +225,19 @@ export class ReportsService {
       },
       vendorSpendByCurrency: Array.from(spendByCurrency, ([currency, total]) => ({ currency, total })),
       topVendors,
+      documents: {
+        total: documents.length,
+        byStatus: this.countByStatus(documents.map((d: { verificationStatus: string }) => ({ status: d.verificationStatus }))),
+      },
+      leases: {
+        active: activeLeases.length,
+        overdue: (activeLeases as { rentFrequency: string; startDate: Date; rentPayments: { periodEnd: Date }[] }[]).filter(isLeaseOverdue)
+          .length,
+      },
+      paymentsOpenDisputeCount: paymentsOverview.openDisputeCount,
+      paymentsDepositedByCurrency: paymentsOverview.depositedByCurrency,
+      paymentsReleasedByCurrency: paymentsOverview.releasedByCurrency,
+      paymentsEscrowByCurrency: paymentsOverview.escrowByCurrency,
     };
   }
 
