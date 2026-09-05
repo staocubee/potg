@@ -3492,10 +3492,69 @@ draft to get a feel for an idea.
   scaffold and OpenAI's edit call is itself a single request/response —
   fine at this scale, but a real deployment doing many of these
   concurrently would want a queue instead of holding an HTTP connection
-  open per generation. Never live-verified against a real OpenAI key or
-  a real R2 bucket — code-complete and confirmed to degrade correctly
-  when unconfigured, not confirmed to actually generate a real image
-  yet.
+  open per generation. See the two "Update" bullets above for what's
+  since been live-verified with real credentials (R2 fully; OpenAI's
+  own request logic, blocked only on account billing) — real end-to-end
+  generation itself is still the one piece not yet confirmed.
+
+## Requiring a license for a regulated trade before a vendor can be assigned (this pass)
+
+Closes "no way to require a vendor actually have a license before it
+can be picked" — flagged for both Property inspections and Maintenance
+requests once `Vendor.licenseNumber` existed to check in the first
+place (see "A self-reported professional license for vendors" above).
+
+- **`PropertiesService.requireVendor`** — the one referential-integrity
+  check both `inspectorVendorId` (inspections) and `assignedVendorId`
+  (maintenance requests) already pass through, so extending it once
+  closes the gap for both at the same choke point. Now rejects the
+  assignment with a clear `BadRequestException` if the picked vendor's
+  own `serviceCategory` is one of `LICENSE_REQUIRED_CATEGORIES`
+  (`electrical`, `security_installation`, `general_contracting` — the
+  same trio `Vendor.licenseNumber`'s own schema comment already names as
+  where a license actually means something) and that vendor has no
+  license on file, or has one that's expired. Every other category —
+  including a vendor picked as a general inspector — is unaffected, and
+  the freeform `inspectorName`/`assignedTo` path next to this one still
+  records nothing about licensing at all, same as before: there's no
+  vendor record for a freeform name to check against.
+- **Verified live**: created a fresh `VENDOR`-type account
+  (`serviceCategory: "electrical"`) with no license on file, and
+  confirmed scheduling an inspection with it as `inspectorVendorId`
+  through the real form failed with the exact expected message
+  (`"Test Electrical Co has no professional license on file — required
+  for a electrical vendor to be assigned here"`); added a real license
+  through `pages/vendors/me.tsx`'s own license form, retried the
+  identical action, and confirmed it succeeded. Confirmed no regression
+  for the existing `renovation`-category seeded vendor (whose license
+  happens to be expired, from an earlier pass's own testing) — still
+  assignable, since `renovation` isn't in the gated list.
+- **A real bug found and fixed while verifying this** — unrelated to the
+  license check itself, but it blocked testing it: creating the fresh
+  test vendor account above hit `pages/vendors/me.tsx` stuck
+  permanently on "Loading…" instead of showing the "Create your vendor
+  profile" form. Root cause was in the shared `request()` helper
+  (`lib/api.ts`), not this page: `GET /vendors/me` for an account with
+  no vendor profile yet returns `null` (Nest sends an empty body with no
+  `Content-Type` header for that, not the literal JSON string `"null"`,
+  the exact same shape `GET /tenant/lease` and several other "not found
+  yet" endpoints already use) — but `request()` only ever called
+  `res.json()` when the response actually declared an
+  `application/json` content-type, and returned `undefined` otherwise.
+  Several pages (`VendorDashboardPage` among them) use `undefined` as
+  their own "still loading" sentinel for exactly this kind of state, so
+  a real, successful "no profile yet" result was indistinguishable from
+  "hasn't resolved yet" and left those pages stuck forever — a
+  pre-existing bug affecting every such endpoint app-wide, not something
+  this pass introduced, just never triggered before because no earlier
+  pass happened to live-test a truly fresh, zero-profile account through
+  this exact page. Fixed by having the non-JSON branch drain the body
+  and resolve to `null` instead of `undefined` — the same sentinel every
+  affected page's own "no profile yet" check already expects, and it
+  also stopped the browser reporting these responses as aborted/
+  unconsumed streams (`net::ERR_ABORTED` was showing in the network
+  tab for every affected call, despite the server itself always
+  returning a clean `200`).
 
 ## Not built yet
 
@@ -3531,16 +3590,17 @@ blueprint, or explicitly cut from it:
   'pending' verification actual meaning" above), and "flagged" already
   plays a similar role for reviews, just raised by the reviewed party
   rather than the reviewer.
-- **Property inspections — closer to closed, one real gap left.**
-  `inspectorVendorId` can point at a platform `Vendor` now, and that
-  vendor can self-report a professional license (`Vendor.licenseNumber`,
-  see "A self-reported professional license for vendors" above) — but
-  there's still no inspector-specific *role*, no way to require a vendor
-  actually have a license before it can be picked for an inspection, and
-  the freeform `inspectorName` path for a non-vendor still records
-  nothing about licensing at all (see "Property inspections" and
-  "Linking inspectors and maintenance assignees to real vendor accounts"
-  above). Editing a scheduled inspection's date/type/project/inspector is
+- **Property inspections — closer to closed still.** `inspectorVendorId`
+  can point at a platform `Vendor` now, that vendor can self-report a
+  professional license, and picking an electrical/security-installation/
+  general-contracting vendor with no license (or an expired one) is now
+  actually rejected (see "A self-reported professional license for
+  vendors" and "Requiring a license for a regulated trade before a
+  vendor can be assigned" above). What's left: there's still no
+  inspector-specific *role*, and the freeform `inspectorName` path for a
+  non-vendor still records nothing about licensing at all — inherent to
+  that path, not something a license check could enforce against free
+  text. Editing a scheduled inspection's date/type/project/inspector is
   now possible — see "Edit endpoints for Inspections, Leases, and
   Maintenance requests" below.
 - **Leases — Tenant identity is fully closed now.** A tenant has a real
@@ -3551,16 +3611,19 @@ blueprint, or explicitly cut from it:
   identity gaps" above). Editing a lease's rent/dates/deposit, and
   overdue-rent detection, are also possible now — see "Edit endpoints"
   and "Overdue-rent detection" below.
-- **Maintenance requests — closer to closed, one real gap left.**
-  `assignedVendorId` can point at a platform `Vendor` now, and that
-  vendor can self-report a professional license the same way a
-  vendor-linked inspector can (see "Maintenance requests", "Linking
-  inspectors and maintenance assignees to real vendor accounts", and "A
-  self-reported professional license for vendors" above), but
-  `assignedTo` is still freeform text for anyone off-platform, and
-  nothing requires a license (let alone a *verified* one) before a
-  vendor can be assigned. Editing a request's title/description/priority
-  is now possible — see "Edit endpoints" below.
+- **Maintenance requests — closer to closed still.** `assignedVendorId`
+  can point at a platform `Vendor` now, that vendor can self-report a
+  professional license the same way a vendor-linked inspector can, and
+  assigning an unlicensed (or expired-license) electrical/security-
+  installation/general-contracting vendor is now actually rejected —
+  the same `requireVendor` check inspections use, since both pass
+  through it (see "Maintenance requests", "Linking inspectors and
+  maintenance assignees to real vendor accounts", "A self-reported
+  professional license for vendors", and "Requiring a license for a
+  regulated trade before a vendor can be assigned" above). `assignedTo`
+  is still freeform text for anyone off-platform — inherent to that
+  path, not a license-check gap. Editing a request's title/description/
+  priority is now possible — see "Edit endpoints" below.
 - **Vendor and supplier trust scores are no longer *only* the platform's
   own arithmetic, but still aren't a full independent audit of the
   business.** See "Vendor and supplier trust audits" above: the score

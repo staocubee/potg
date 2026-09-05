@@ -14,6 +14,16 @@ import { UpdateMaintenanceRequestDto } from './dto/update-maintenance-request.dt
 import { StartMaintenanceRequestDto } from './dto/start-maintenance-request.dto';
 import { ResolveMaintenanceRequestDto } from './dto/resolve-maintenance-request.dto';
 
+// Service categories where a real license is what "licensed" means in
+// this scaffold's own terms — see the schema comment on
+// Vendor.licenseNumber, which names this same trio as the ones a real
+// license actually applies to. Deliberately not the rest of
+// CreateVendorDto's own category list (renovation, plumbing,
+// landscaping, painting, roofing, interior_design, cleaning) — nothing
+// here decides which of those are genuinely regulated trades in a given
+// jurisdiction, so only the three already named elsewhere are gated.
+const LICENSE_REQUIRED_CATEGORIES = ['electrical', 'security_installation', 'general_contracting'];
+
 @Injectable()
 export class PropertiesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -180,9 +190,32 @@ export class PropertiesService {
   // used wherever inspectorVendorId/assignedVendorId is accepted, same
   // spirit as the propertyId-scoped project/lease checks above but a
   // Vendor is a marketplace-wide profile, not scoped to this property.
+  //
+  // Also the "no way to require a vendor actually have a license before
+  // it can be picked" gap the README flagged for both Property
+  // inspections and Maintenance requests — closed once, here, since this
+  // is the one choke point both inspectorVendorId and assignedVendorId
+  // already pass through. Only enforced for the trades
+  // LICENSE_REQUIRED_CATEGORIES actually names; every other category
+  // (including a vendor picked as a general inspector) is unaffected,
+  // same "record what's true, no forced workflow" reasoning the freeform
+  // inspectorName/assignedTo path next to this one already follows.
   private async requireVendor(vendorId: string) {
     const vendor = await this.prisma.vendor.findUnique({ where: { id: vendorId } });
     if (!vendor) throw new BadRequestException('That vendor does not exist');
+    if (LICENSE_REQUIRED_CATEGORIES.includes(vendor.serviceCategory)) {
+      const category = vendor.serviceCategory.replace(/_/g, ' ');
+      if (!vendor.licenseNumber) {
+        throw new BadRequestException(
+          `${vendor.businessName} has no professional license on file — required for a ${category} vendor to be assigned here`,
+        );
+      }
+      if (vendor.licenseExpiresAt && vendor.licenseExpiresAt.getTime() < Date.now()) {
+        throw new BadRequestException(
+          `${vendor.businessName}'s professional license has expired — required for a ${category} vendor to be assigned here`,
+        );
+      }
+    }
     return vendor;
   }
 

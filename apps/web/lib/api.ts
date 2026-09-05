@@ -122,8 +122,20 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
 
+  // A 2xx with no application/json content-type is what every
+  // "not found"/"no profile yet" endpoint in this API produces when its
+  // handler returns null (see e.g. GET /vendors/me, GET /tenant/lease) —
+  // Nest sends an empty body with no content-type at all for that, not
+  // the literal JSON string "null". Reading it back as `null` (not
+  // `undefined`) matters: several pages use `undefined` as their own
+  // "still loading" sentinel (e.g. VendorDashboardPage's `vendor` state),
+  // so returning `undefined` here made a real "no profile yet" result
+  // indistinguishable from "hasn't resolved yet" and left those pages
+  // stuck on their loading state forever. Draining the body either way
+  // (even though it's empty in the null case) also avoids the browser
+  // reporting the response as an aborted/unconsumed stream.
   const isJson = res.headers.get("content-type")?.includes("application/json");
-  const data = isJson ? await res.json().catch(() => undefined) : undefined;
+  const data = isJson ? await res.json().catch(() => undefined) : await res.text().then(() => null).catch(() => null);
 
   if (!res.ok) {
     // getCsrfToken() !== null is a "was there ever a session to refresh"
