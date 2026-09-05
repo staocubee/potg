@@ -2907,14 +2907,29 @@ service a `Bearer` header points at.
   plus a "Check status" button for the pull-based re-check `POST
   /identity/refresh` needs (nothing pushes a result to the browser the
   way a webhook would).
-- **Verified live**: OpenAI's key (added this same pass, for the
-  visualizer above) is real and working, but Sumsub credentials weren't
-  provided by the time this was written — confirmed live so far only
-  that the whole chain still behaves correctly when unconfigured, the
-  same bar Dojah was held to before it: clicking "Start verification"
-  through the real web form surfaces the exact clear error
-  (`"...set SUMSUB_APP_TOKEN/SUMSUB_SECRET_KEY/SUMSUB_LEVEL_NAME to
-  enable it"`), not a crash or a silent failure.
+- **Verified live, fully — real credentials arrived shortly after this
+  was first written.** First confirmed the "unconfigured" path behaves
+  correctly (clicking "Start verification" through the real web form
+  surfaced the exact clear error, `"...set SUMSUB_APP_TOKEN/
+  SUMSUB_SECRET_KEY/SUMSUB_LEVEL_NAME to enable it"`), same bar Dojah
+  was held to before it. Once real sandbox credentials and a configured
+  `SUMSUB_LEVEL_NAME` arrived, ran the actual flow end to end through
+  the real app: `POST /identity/start` created a genuine Sumsub
+  applicant (confirmed via a direct signed API call first — a status
+  lookup on a fake applicant id came back `404 "not found"` rather than
+  a `401` auth error, proving the HMAC signing and credentials were both
+  correct before ever touching this app's own code) and returned a real
+  WebSDK access token; the web card loaded Sumsub's actual CDN script
+  and launched their real onboarding widget (consent screen, real
+  Privacy Notice/data-processing links) in the browser — not a mock.
+  Stopped short of submitting an actual ID document (nothing legitimate
+  to test with, and not necessary to confirm the integration), but
+  confirmed the rest of the chain: `GET /identity/me` showed the new
+  `sumsubApplicantId` correctly persisted, and `POST /identity/refresh`
+  correctly read back `pending` (Sumsub's own review hadn't completed,
+  since no document was ever submitted) and cleared the old Dojah-era
+  failure note — reflected correctly in the web UI ("Pending" badge,
+  "Continue verification"/"Check status" buttons) after a reload.
 - **What changed from the Dojah pass that's now stale**: the exact-token
   name-matching caveat (`namesMatch`, Dojah-specific code that no longer
   exists) no longer applies — Sumsub does its own identity matching as
@@ -3458,6 +3473,19 @@ draft to get a feel for an idea.
   configured yet — see the schema comment on why it needs five separate
   values, not the two `.env` had at this point) both remain unverified
   until credits are added and R2 is fully configured.
+- **Update: real R2 credentials arrived (all five, correctly named)
+  shortly after that.** Ran `StorageService.uploadImage`'s exact logic
+  standalone against the real bucket — a real `PutObjectCommand` through
+  `@aws-sdk/client-s3` succeeded, and the resulting public URL
+  (`R2_PUBLIC_BASE_URL` plus the generated key) was independently
+  fetchable and returned the uploaded image with the correct
+  `Content-Type` — full confirmation of the one deliberate "real SDK,
+  not plain fetch" exception this file's own comment explains. OpenAI
+  generation itself is still blocked on the same billing issue above
+  (unrelated to R2, and unchanged) — so a full generate-then-store
+  request through the actual web form still isn't possible yet, but
+  every piece of the chain except OpenAI's own account balance is now
+  independently confirmed working with real credentials.
 - **What this doesn't do.** No real AR/VR, per the design decision
   above. Generation is synchronous (the request stays open until OpenAI
   and R2 both finish, no polling) since no job queue exists in this
@@ -3570,12 +3598,15 @@ blueprint, or explicitly cut from it:
   workflow to build for now, not this scaffold's.
 - **Real AR/VR renovation visualization — deliberately not attempted.**
   See "AI-generated renovation visualizations — the 2D half only" above:
-  a bounded 2D "AI-edited before/after photo" slice is built (not yet
-  live-verified against a real OpenAI key), but real AR/VR needs a
-  native mobile app or WebXR, photogrammetry/3D reconstruction, and a
-  full 3D content pipeline — none of which exist here, and none of which
-  are a bounded addition to this scaffold the way everything else on
-  this list is.
+  a bounded 2D "AI-edited before/after photo" slice is built, and its
+  storage half (Cloudflare R2) is now confirmed live with real
+  credentials — a real upload, fetched back over a real public URL. Only
+  the actual OpenAI image generation call remains unverified, blocked on
+  a billing/credits issue on the account the key belongs to, not on
+  anything left to build. Real AR/VR needs a native mobile app or
+  WebXR, photogrammetry/3D reconstruction, and a full 3D content
+  pipeline — none of which exist here, and none of which are a bounded
+  addition to this scaffold the way everything else on this list is.
 - **The stub LLM provider doesn't extract structured arguments from free
   text.** Every skill now declares a real `inputSchema` (see "Per-skill AI
   input schemas" above) and `AnthropicLlmProvider` passes it to the model,
@@ -3601,17 +3632,18 @@ blueprint, or explicitly cut from it:
   licensing/compliance workstream the blueprint says to run alongside
   all of this (Section 15) is still entirely open — that was never code
   this pass could close.
-- **Real identity verification exists now (Sumsub, swapped from Dojah),
-  but isn't fully live-verified yet.** See "Real identity (KYC)
-  verification — Sumsub" above — `SumsubService`/`IdentityService` are
-  code-complete and confirmed to degrade correctly when unconfigured (a
-  clear error, correctly persisted, shown once in the UI), the same bar
-  `StripeService` was held to before its own credentials arrived; no
-  Sumsub credentials were available to go further than that. The
-  Dojah-specific caveat this bullet used to carry (exact-token, not
-  fuzzy, name-matching) no longer applies — that code doesn't exist
-  anymore — and Sumsub's own document-review matching isn't something
-  this integration controls or can characterize the same way.
+- **Real identity verification (Sumsub, swapped from Dojah) is now
+  fully live-verified, short of submitting an actual ID document.** See
+  "Real identity (KYC) verification — Sumsub" above — real sandbox
+  credentials created a genuine Sumsub applicant, minted a real WebSDK
+  access token, and launched Sumsub's actual onboarding widget in the
+  browser; `GET /identity/me`/`POST /identity/refresh` both correctly
+  reflected the result against the real API. Only stopped short of
+  clicking through actual document upload (nothing legitimate to test
+  with). The Dojah-specific caveat this bullet used to carry
+  (exact-token, not fuzzy, name-matching) no longer applies — that code
+  doesn't exist anymore, and Sumsub's own document-review matching isn't
+  something this integration controls or can characterize the same way.
 - **Dispute arbitration's evidence gap is closed on both sides now.** See
   "Extending the neutral reviewer to dispute arbitration", "An
   evidence-request step for dispute arbitration", and "Submitting
