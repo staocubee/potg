@@ -12,6 +12,7 @@ import { ReplyToReviewDto } from '../vendors/dto/reply-to-review.dto';
 import { FlagReviewDto } from '../vendors/dto/flag-review.dto';
 import { ModerateReviewDto } from '../vendors/dto/moderate-review.dto';
 import { SetSupplierVerificationDto } from './dto/set-supplier-verification.dto';
+import { SubmitSupplierVerificationEvidenceDto } from './dto/submit-supplier-verification-evidence.dto';
 import { SubmitSupplierTrustAuditDto } from './dto/submit-supplier-trust-audit.dto';
 import { CreateRentalBookingDto } from './dto/create-rental-booking.dto';
 import { UpsertCartItemDto } from './dto/upsert-cart-item.dto';
@@ -83,6 +84,28 @@ export class MaterialsService {
       where: { id: supplierId },
       data: { verificationStatus: dto.status, verificationNotes: dto.notes ?? null },
     });
+  }
+
+  // The structured "submit more evidence" channel supplier verification
+  // was missing — the materials-marketplace counterpart to
+  // VendorsService.submitVerificationEvidence, same reasoning.
+  async submitVerificationEvidence(accountId: string, userId: string, dto: SubmitSupplierVerificationEvidenceDto) {
+    const supplier = await this.prisma.supplier.findUnique({ where: { accountId } });
+    if (!supplier) throw new NotFoundException('Supplier profile not found');
+    if (supplier.verificationStatus === 'verified') {
+      throw new BadRequestException('This supplier is already verified — nothing more to submit');
+    }
+    return this.prisma.supplierVerificationEvidence.create({
+      data: { supplierId: supplier.id, submittedByUserId: userId, note: dto.note, fileUrl: dto.fileUrl },
+    });
+  }
+
+  findMyVerificationEvidence(accountId: string) {
+    return this.prisma.supplier.findUnique({ where: { accountId } }).verificationEvidence({ orderBy: { createdAt: 'asc' } });
+  }
+
+  findVerificationEvidence(supplierId: string) {
+    return this.prisma.supplierVerificationEvidence.findMany({ where: { supplierId }, orderBy: { createdAt: 'asc' } });
   }
 
   // The real audit step — see VendorTrustAudit's schema comment (its

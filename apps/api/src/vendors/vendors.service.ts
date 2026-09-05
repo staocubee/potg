@@ -12,6 +12,7 @@ import { SubmitVendorTrustAuditDto } from './dto/submit-vendor-trust-audit.dto';
 import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
 import { SetPaypalPayoutEmailDto } from './dto/set-paypal-payout-email.dto';
 import { SetVendorLicenseDto } from './dto/set-vendor-license.dto';
+import { SubmitVendorVerificationEvidenceDto } from './dto/submit-vendor-verification-evidence.dto';
 import { getVendorTrustScore } from './trust-score';
 import { PaystackService } from '../payments/paystack.service';
 import { FlutterwaveService } from '../payments/flutterwave.service';
@@ -200,6 +201,35 @@ export class VendorsService {
       where: { id: vendorId },
       data: { verificationStatus: dto.status, verificationNotes: dto.notes ?? null },
     });
+  }
+
+  // The structured "submit more evidence" channel vendor verification was
+  // missing — see VendorVerificationEvidence's own schema comment.
+  // "pending" (SetVendorVerificationDto's own comment) was already meant
+  // as the "awaiting evidence" status; this is what actually lets the
+  // vendor respond to it, mirroring PaymentsService.submitDisputeEvidence/
+  // DocumentsService.submitEvidence — one owning account here too, not
+  // two parties.
+  async submitVerificationEvidence(accountId: string, userId: string, dto: SubmitVendorVerificationEvidenceDto) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { accountId } });
+    if (!vendor) throw new NotFoundException('Vendor profile not found');
+    if (vendor.verificationStatus === 'verified') {
+      throw new BadRequestException('This vendor is already verified — nothing more to submit');
+    }
+    return this.prisma.vendorVerificationEvidence.create({
+      data: { vendorId: vendor.id, submittedByUserId: userId, note: dto.note, fileUrl: dto.fileUrl },
+    });
+  }
+
+  // The vendor's own view of what it already submitted.
+  findMyVerificationEvidence(accountId: string) {
+    return this.prisma.vendor.findUnique({ where: { accountId } }).verificationEvidence({ orderBy: { createdAt: 'asc' } });
+  }
+
+  // The reviewer's view — same vendor:verify gate as setVerificationStatus
+  // itself, reaches any vendor's evidence platform-wide.
+  findVerificationEvidence(vendorId: string) {
+    return this.prisma.vendorVerificationEvidence.findMany({ where: { vendorId }, orderBy: { createdAt: 'asc' } });
   }
 
   // The actual audit step — see VendorTrustAudit's own schema comment for

@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, AppDocument, Lease, Property } from "../../lib/api";
+import { ApiError, AppDocument, DocumentEvidence, Lease, Property } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 // Mirrors DEFAULT_DOCUMENT_CHECKLIST in apps/api/src/ai/skills/document-checklists.ts
@@ -139,6 +139,7 @@ export default function DocumentsPage() {
                     Reviewer note: {d.verificationNotes}
                   </div>
                 )}
+                {d.verificationStatus === "submitted" && <SubmitDocumentEvidenceForm documentId={d.id} />}
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
                 {isExpiring(d.expiryDate) && <span className="potg-badge" style={{ color: "var(--potg-danger)" }}>expiring soon</span>}
@@ -170,7 +171,7 @@ function UploadDocumentForm({
   const auth = useAuth();
   const [documentType, setDocumentType] = useState<string>(DOCUMENT_TYPES[0]);
   const [customType, setCustomType] = useState("");
-  const [fileUrl, setFileUrl] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [propertyId, setPropertyId] = useState(defaultPropertyId ?? "");
   const [leaseId, setLeaseId] = useState("");
   const [leases, setLeases] = useState<Lease[]>([]);
@@ -197,12 +198,17 @@ function UploadDocumentForm({
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!file) {
+      setError("Choose a file first.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
+      const { url } = await auth.api.uploadFile(file);
       const doc = await auth.api.createDocument({
         documentType: documentType === "other" ? customType : documentType,
-        fileUrl,
+        fileUrl: url,
         propertyId: propertyId || undefined,
         leaseId: leaseId || undefined,
         expiryDate: expiryDate || undefined,
@@ -262,18 +268,13 @@ function UploadDocumentForm({
         </div>
       )}
       <div>
-        <label className="potg-label">File URL</label>
+        <label className="potg-label">File</label>
         <input
           className="potg-input"
-          type="url"
+          type="file"
           required
-          placeholder="https://…"
-          value={fileUrl}
-          onChange={(e) => setFileUrl(e.target.value)}
+          onChange={(e) => setFile(e.target.files?.[0] ?? null)}
         />
-        <p className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
-          File storage isn't wired up yet — paste a link to where the document already lives.
-        </p>
       </div>
       <div>
         <label className="potg-label">Expiry date (optional)</label>
@@ -354,6 +355,78 @@ function VerifyDocumentControls({ document, onUpdated }: { document: AppDocument
           Reject
         </button>
       </div>
+    </div>
+  );
+}
+
+// The structured "submit more evidence" channel — see the API's own
+// DocumentsService.submitEvidence comment. Rendered on the account's own
+// document row once a reviewer sets it to "submitted" (requesting more).
+function SubmitDocumentEvidenceForm({ documentId }: { documentId: string }) {
+  const auth = useAuth();
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [submitted, setSubmitted] = useState<DocumentEvidence[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    auth.api
+      .findDocumentEvidence(documentId)
+      .then(setSubmitted)
+      .catch(() => setSubmitted([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentId]);
+
+  async function onSubmit() {
+    if (!note.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      let fileUrl: string | undefined;
+      if (file) {
+        const { url } = await auth.api.uploadFile(file);
+        fileUrl = url;
+      }
+      const evidence = await auth.api.submitDocumentEvidence(documentId, { note: note.trim(), fileUrl });
+      setSubmitted((prev) => [...prev, evidence]);
+      setNote("");
+      setFile(null);
+      setOpen(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't submit that evidence.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 6 }}>
+      {submitted.length > 0 && (
+        <div className="potg-muted" style={{ fontSize: 11, marginBottom: 4 }}>
+          {submitted.length} item{submitted.length === 1 ? "" : "s"} already submitted.
+        </div>
+      )}
+      {!open ? (
+        <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setOpen(true)}>
+          Submit evidence
+        </button>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: 320 }}>
+          {error && <div className="potg-error" style={{ fontSize: 11 }}>{error}</div>}
+          <input className="potg-input" style={{ fontSize: 12 }} placeholder="What's this evidence?" value={note} onChange={(e) => setNote(e.target.value)} />
+          <input className="potg-input" style={{ fontSize: 12 }} type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <div style={{ display: "flex", gap: 4 }}>
+            <button className="potg-btn potg-btn-primary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy || !note.trim()} onClick={onSubmit}>
+              {busy ? "…" : "Submit"}
+            </button>
+            <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -450,6 +523,23 @@ function DocumentArbitrationRow({ document, onChanged }: { document: AppDocument
             <p className="potg-muted" style={{ fontSize: 12, marginTop: 8, borderLeft: "2px solid var(--potg-border)", paddingLeft: 8 }}>
               What's needed: {document.verificationNotes}
             </p>
+          )}
+          {document.evidence && document.evidence.length > 0 && (
+            <div style={{ marginTop: 8, borderLeft: "2px solid var(--potg-teal)", paddingLeft: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+              {document.evidence.map((e) => (
+                <p key={e.id} className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+                  {e.note}
+                  {e.fileUrl && (
+                    <>
+                      {" — "}
+                      <a href={e.fileUrl} target="_blank" rel="noreferrer">
+                        view file
+                      </a>
+                    </>
+                  )}
+                </p>
+              ))}
+            </div>
           )}
         </div>
         <span className="potg-badge">{document.verificationStatus.replace(/_/g, " ")}</span>

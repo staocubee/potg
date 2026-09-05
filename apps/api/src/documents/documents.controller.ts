@@ -8,6 +8,7 @@ import { DocumentsService } from './documents.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentVerificationDto } from './dto/update-document-verification.dto';
 import { ArbitrateDocumentVerificationDto } from './dto/arbitrate-document-verification.dto';
+import { SubmitDocumentEvidenceDto } from './dto/submit-document-evidence.dto';
 
 type AccountMemberCtx = { accountId: string };
 type UserCtx = { id: string };
@@ -52,6 +53,27 @@ export class DocumentsController {
     @Body() dto: UpdateDocumentVerificationDto,
   ) {
     return this.documents.verify(documentId, member.accountId, dto);
+  }
+
+  // The structured "submit more evidence" channel — see
+  // DocumentsService.submitEvidence's own comment. document:write, the
+  // same gate creating the document itself uses — this is the document's
+  // own owning account responding, not a neutral action.
+  @RequirePermissions('document:write')
+  @Post(':documentId/evidence')
+  submitEvidence(
+    @Param('documentId') documentId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @CurrentUser() user: UserCtx,
+    @Body() dto: SubmitDocumentEvidenceDto,
+  ) {
+    return this.documents.submitEvidence(documentId, member.accountId, user.id, dto);
+  }
+
+  @RequirePermissions('document:read')
+  @Get(':documentId/evidence')
+  findEvidence(@Param('documentId') documentId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.documents.findEvidence(documentId, member.accountId);
   }
 
   // Module 6's neutral-reviewer path — see

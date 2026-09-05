@@ -436,8 +436,28 @@ model Document {
   account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
   property Property? @relation(fields: [propertyId], references: [id], onDelete: SetNull)
   lease    Lease?    @relation(fields: [leaseId], references: [id], onDelete: SetNull)
+  evidence DocumentEvidence[]
 
   @@map("documents")
+}
+
+// The structured "submit more evidence" channel document verification's
+// "submitted" status was missing — same shape as DisputeEvidence (see
+// its own comment): before this, "submitted" was a status with nothing
+// behind it, no way for the account to actually attach a note/file back
+// in response to a reviewer's request.
+model DocumentEvidence {
+  id                String   @id @default(uuid())
+  documentId        String
+  accountId         String // the document owner's own account — always one party here, unlike a dispute's two
+  submittedByUserId String
+  note              String
+  fileUrl           String?
+  createdAt         DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("document_evidence")
 }
 
 // --- Section 5 / 14: the AI Copilot Layer -------------------------------
@@ -557,8 +577,28 @@ model Vendor {
   inspections            PropertyInspection[]
   maintenanceAssignments MaintenanceRequest[]
   trustAudits            VendorTrustAudit[]
+  verificationEvidence   VendorVerificationEvidence[]
 
   @@map("vendors")
+}
+
+// The structured "submit more evidence" channel vendor verification was
+// missing entirely — before this, "pending" was a status a
+// platform_reviewer could set with no way for the vendor to respond
+// through anything but general tools unrelated to verification itself.
+// Same shape as DisputeEvidence/DocumentEvidence: one party only (the
+// vendor's own account), not two.
+model VendorVerificationEvidence {
+  id                String   @id @default(uuid())
+  vendorId          String
+  submittedByUserId String
+  note              String
+  fileUrl           String?
+  createdAt         DateTime @default(now())
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@map("vendor_verification_evidence")
 }
 
 // The actual "neutral reviewer conducts a real audit" step Module 6 was
@@ -998,8 +1038,24 @@ model Supplier {
   orders   Order[]
   reviews  SupplierReview[]
   trustAudits SupplierTrustAudit[]
+  verificationEvidence SupplierVerificationEvidence[]
 
   @@map("suppliers")
+}
+
+// The materials-marketplace counterpart to VendorVerificationEvidence —
+// same shape, same reasoning.
+model SupplierVerificationEvidence {
+  id                String   @id @default(uuid())
+  supplierId        String
+  submittedByUserId String
+  note              String
+  fileUrl           String?
+  createdAt         DateTime @default(now())
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@map("supplier_verification_evidence")
 }
 
 // The materials-marketplace counterpart to VendorTrustAudit — same

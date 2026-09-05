@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateDocumentDto } from './dto/create-document.dto';
 import { UpdateDocumentVerificationDto } from './dto/update-document-verification.dto';
 import { ArbitrateDocumentVerificationDto } from './dto/arbitrate-document-verification.dto';
+import { SubmitDocumentEvidenceDto } from './dto/submit-document-evidence.dto';
 
 @Injectable()
 export class DocumentsService {
@@ -93,7 +94,39 @@ export class DocumentsService {
       include: {
         account: { select: { id: true, name: true } },
         property: { select: { id: true, name: true } },
+        // The structured channel "submitted" used to have nothing behind
+        // it — see submitEvidence below. Included inline here so the
+        // arbitrator sees exactly what was submitted in response, same
+        // place PaymentsService.findOpenDisputesForArbitration already
+        // includes DisputeEvidence for the same reason.
+        evidence: { orderBy: { createdAt: 'asc' } },
       },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  // The structured "submit more evidence" channel referenced in
+  // arbitrateVerify's old comment below — "more evidence" no longer means
+  // "whatever the account does outside this flow." Same shape as
+  // PaymentsService.submitDisputeEvidence, but simpler: a document has
+  // exactly one owning account, not two parties to disambiguate between.
+  async submitEvidence(documentId: string, accountId: string, userId: string, dto: SubmitDocumentEvidenceDto) {
+    const document = await this.prisma.document.findFirst({ where: { id: documentId, accountId } });
+    if (!document) throw new NotFoundException('Document not found');
+    if (document.verificationStatus === 'verified' || document.verificationStatus === 'rejected') {
+      throw new BadRequestException('This document has already been verified or rejected — nothing more to submit');
+    }
+    return this.prisma.documentEvidence.create({
+      data: { documentId, accountId, submittedByUserId: userId, note: dto.note, fileUrl: dto.fileUrl },
+    });
+  }
+
+  // The account's own view of what it already submitted — the reviewer's
+  // equivalent view comes inline via findPendingForArbitration's own
+  // include above, same split disputes already use.
+  findEvidence(documentId: string, accountId: string) {
+    return this.prisma.documentEvidence.findMany({
+      where: { documentId, accountId },
       orderBy: { createdAt: 'asc' },
     });
   }
@@ -102,11 +135,9 @@ export class DocumentsService {
   // request step the README used to flag as missing here — same shape as
   // PaymentsService.arbitrateDispute's "under_review": findPendingForArbitration
   // above already filters `notIn: ['verified', 'rejected']`, so a document
-  // sent back for more evidence stays in the queue on its own, and this
-  // same method can be called again later to make the actual call once
-  // that evidence shows up (a re-upload, an updated file at the same
-  // fileUrl — this scaffold has no document-revision model, so "more
-  // evidence" today means whatever the account does outside this flow).
+  // sent back for more evidence stays in the queue on its own, and
+  // submitEvidence above is now the real "more evidence" channel this
+  // comment used to say didn't exist.
   async arbitrateVerify(documentId: string, dto: ArbitrateDocumentVerificationDto) {
     const document = await this.prisma.document.findUnique({ where: { id: documentId } });
     if (!document) throw new NotFoundException('Document not found');

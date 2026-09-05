@@ -276,6 +276,37 @@ export type AppDocument = {
   // the account-scoped /documents routes already know whose document it is.
   account?: { id: string; name: string };
   property?: { id: string; name: string } | null;
+  // Also only present on GET /documents/pending — the account's own view
+  // fetches this separately via findDocumentEvidence.
+  evidence?: DocumentEvidence[];
+};
+
+export type DocumentEvidence = {
+  id: string;
+  documentId: string;
+  accountId: string;
+  submittedByUserId: string;
+  note: string;
+  fileUrl?: string | null;
+  createdAt: string;
+};
+
+export type VendorVerificationEvidence = {
+  id: string;
+  vendorId: string;
+  submittedByUserId: string;
+  note: string;
+  fileUrl?: string | null;
+  createdAt: string;
+};
+
+export type SupplierVerificationEvidence = {
+  id: string;
+  supplierId: string;
+  submittedByUserId: string;
+  note: string;
+  fileUrl?: string | null;
+  createdAt: string;
 };
 
 export type PropertyTimelineEvent = {
@@ -1042,7 +1073,7 @@ export class ApiClient {
   }
 
   // --- Accounts ---
-  createAccount(input: { accountType: string; name: string; country: string; currency: string; timezone: string }) {
+  createAccount(input: { accountType: string; name: string; country: string; currency: string; timezone: string; vendorRole?: "vendor" | "inspector" }) {
     return request<{ id: string }>("/accounts", { method: "POST", body: input, token: this.token });
   }
   listAccountMembers(accountId: string) {
@@ -2116,6 +2147,25 @@ export class ApiClient {
   }
 
   // --- Document vault ---
+  // The general upload pipeline (Cloudflare R2 via the API's own
+  // StorageService) — not routed through request<T>() since this sends
+  // multipart/form-data, not JSON. Any field that used to want a
+  // pasted-URL (Document.fileUrl, evidence fileUrls) can call this first
+  // and use the returned url exactly as before — no other shape changed.
+  async uploadFile(file: File): Promise<{ url: string }> {
+    const headers: Record<string, string> = {};
+    if (this.accountId) headers["X-Account-Id"] = this.accountId;
+    const csrf = getCsrfToken();
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(`${API_URL}/uploads`, { method: "POST", headers, body: form, credentials: "include" });
+    const data = await res.json().catch(() => undefined);
+    if (!res.ok) {
+      throw new ApiError(res.status, data?.message ?? `Request failed (${res.status})`);
+    }
+    return data;
+  }
   createDocument(input: { documentType: string; fileUrl: string; propertyId?: string; leaseId?: string; expiryDate?: string }) {
     return request<AppDocument>("/documents", { method: "POST", body: input, token: this.token, accountId: this.accountId });
   }
@@ -2140,6 +2190,54 @@ export class ApiClient {
     return request<AppDocument>(`/documents/${documentId}/arbitrate`, {
       method: "PATCH",
       body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  // The structured "submit more evidence" channel — see the API's own
+  // DocumentsService.submitEvidence comment.
+  submitDocumentEvidence(documentId: string, input: { note: string; fileUrl?: string }) {
+    return request<DocumentEvidence>(`/documents/${documentId}/evidence`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  findDocumentEvidence(documentId: string) {
+    return request<DocumentEvidence[]>(`/documents/${documentId}/evidence`, { token: this.token, accountId: this.accountId });
+  }
+  // --- Vendor/supplier verification evidence ---
+  submitVendorVerificationEvidence(input: { note: string; fileUrl?: string }) {
+    return request<VendorVerificationEvidence>("/vendors/me/verification-evidence", {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  findMyVendorVerificationEvidence() {
+    return request<VendorVerificationEvidence[]>("/vendors/me/verification-evidence", { token: this.token, accountId: this.accountId });
+  }
+  findVendorVerificationEvidence(vendorId: string) {
+    return request<VendorVerificationEvidence[]>(`/vendors/${vendorId}/verification-evidence`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  submitSupplierVerificationEvidence(input: { note: string; fileUrl?: string }) {
+    return request<SupplierVerificationEvidence>("/suppliers/me/verification-evidence", {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  findMySupplierVerificationEvidence() {
+    return request<SupplierVerificationEvidence[]>("/suppliers/me/verification-evidence", { token: this.token, accountId: this.accountId });
+  }
+  findSupplierVerificationEvidence(supplierId: string) {
+    return request<SupplierVerificationEvidence[]>(`/suppliers/${supplierId}/verification-evidence`, {
       token: this.token,
       accountId: this.accountId,
     });

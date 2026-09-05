@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../../lib/auth";
-import { ApiError, MaterialOrder, Product, RentalBooking, Supplier, SupplierReview } from "../../../lib/api";
+import { ApiError, MaterialOrder, Product, RentalBooking, Supplier, SupplierReview, SupplierVerificationEvidence } from "../../../lib/api";
 import AppShell from "../../../components/AppShell";
 
 const SUPPLIER_CATEGORIES = ["materials", "tools", "equipment"];
@@ -74,6 +74,7 @@ export default function SupplierDashboardPage() {
                 Platform reviewer's note: {supplier.verificationNotes}
               </p>
             )}
+            {supplier.verificationStatus !== "verified" && <SupplierVerificationEvidenceCard />}
           </div>
 
           <div className="potg-card" style={{ padding: 18 }}>
@@ -160,6 +161,86 @@ export default function SupplierDashboardPage() {
         </div>
       )}
     </AppShell>
+  );
+}
+
+// The structured "submit more evidence" channel supplier verification
+// was missing — the materials-marketplace counterpart to
+// VendorVerificationEvidenceCard, same reasoning.
+function SupplierVerificationEvidenceCard() {
+  const auth = useAuth();
+  const [items, setItems] = useState<SupplierVerificationEvidence[] | null>(null);
+  const [note, setNote] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    auth.api
+      .findMySupplierVerificationEvidence()
+      .then(setItems)
+      .catch(() => setItems([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function onSubmit() {
+    if (!note.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      let fileUrl: string | undefined;
+      if (file) {
+        const { url } = await auth.api.uploadFile(file);
+        fileUrl = url;
+      }
+      const evidence = await auth.api.submitSupplierVerificationEvidence({ note: note.trim(), fileUrl });
+      setItems((prev) => [...(prev ?? []), evidence]);
+      setNote("");
+      setFile(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't submit that evidence.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 10, borderTop: "1px solid var(--potg-border)", paddingTop: 10 }}>
+      <h4 style={{ fontSize: 12, margin: "0 0 6px", textTransform: "uppercase", letterSpacing: 0.3 }}>
+        Verification evidence
+      </h4>
+      {items && items.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 8 }}>
+          {items.map((e) => (
+            <p key={e.id} className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+              {e.note}
+              {e.fileUrl && (
+                <>
+                  {" — "}
+                  <a href={e.fileUrl} target="_blank" rel="noreferrer">
+                    view file
+                  </a>
+                </>
+              )}
+            </p>
+          ))}
+        </div>
+      )}
+      {error && <div className="potg-error" style={{ fontSize: 11, marginBottom: 6 }}>{error}</div>}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+        <input
+          className="potg-input"
+          style={{ fontSize: 12, flex: 1, minWidth: 200 }}
+          placeholder="Note toward verification (e.g. business registration filed)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+        <input className="potg-input" style={{ fontSize: 12 }} type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        <button className="potg-btn potg-btn-secondary" style={{ padding: "4px 9px", fontSize: 11 }} disabled={busy || !note.trim()} onClick={onSubmit}>
+          {busy ? "…" : "Submit"}
+        </button>
+      </div>
+    </div>
   );
 }
 

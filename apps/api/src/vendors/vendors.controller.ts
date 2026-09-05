@@ -17,6 +17,7 @@ import { SubmitVendorTrustAuditDto } from './dto/submit-vendor-trust-audit.dto';
 import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
 import { SetPaypalPayoutEmailDto } from './dto/set-paypal-payout-email.dto';
 import { SetVendorLicenseDto } from './dto/set-vendor-license.dto';
+import { SubmitVendorVerificationEvidenceDto } from './dto/submit-vendor-verification-evidence.dto';
 import { FlagReviewDto } from './dto/flag-review.dto';
 import { ModerateReviewDto } from './dto/moderate-review.dto';
 
@@ -60,6 +61,26 @@ export class VendorsController {
   @Patch('me/license')
   setLicense(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: SetVendorLicenseDto) {
     return this.vendors.setLicense(member.accountId, dto);
+  }
+
+  // The structured "submit more evidence" channel — see
+  // VendorsService.submitVerificationEvidence's own comment. vendor:write,
+  // same gate as setLicense above — the vendor's own account, never a
+  // reviewer.
+  @RequirePermissions('vendor:write')
+  @Post('me/verification-evidence')
+  submitVerificationEvidence(
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @CurrentUser() user: UserCtx,
+    @Body() dto: SubmitVendorVerificationEvidenceDto,
+  ) {
+    return this.vendors.submitVerificationEvidence(member.accountId, user.id, dto);
+  }
+
+  @RequirePermissions('vendor:write')
+  @Get('me/verification-evidence')
+  findMyVerificationEvidence(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.vendors.findMyVerificationEvidence(member.accountId);
   }
 
   // ?provider=flutterwave for Flutterwave's own (different) bank list —
@@ -211,6 +232,14 @@ export class VendorsController {
   @Patch(':vendorId/verification')
   setVerificationStatus(@Param('vendorId') vendorId: string, @Body() dto: SetVendorVerificationDto) {
     return this.vendors.setVerificationStatus(vendorId, dto);
+  }
+
+  // The reviewer's own view of submitted evidence — same vendor:verify
+  // gate as setVerificationStatus itself, reaches any vendor platform-wide.
+  @RequirePermissions('vendor:verify')
+  @Get(':vendorId/verification-evidence')
+  findVerificationEvidence(@Param('vendorId') vendorId: string) {
+    return this.vendors.findVerificationEvidence(vendorId);
   }
 
   // The real audit step — see VendorsService.submitTrustAudit. Same

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { OpenAiImageService } from './openai-image.service';
-import { StorageService } from './storage.service';
+import { StorageService } from '../storage/storage.service';
 import { CreateVisualizationDto } from './dto/create-visualization.dto';
 
 @Injectable()

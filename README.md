@@ -3809,6 +3809,225 @@ itself.
   more. No due-date/reminder mechanism, no file attachments per item, no
   audit trail of who changed what (only `updatedAt`, no history).
 
+## A dedicated Inspector role (this pass)
+
+Closes "a Vendor account can be picked for the job, but there's no
+distinct role type." A `VENDOR`-type account previously always got the
+identical `vendor` role — full marketplace permissions (bidding on
+projects, disputes, payouts, rentals) — regardless of whether it was
+actually a general contractor or a professional whose whole business is
+being picked as `PropertyInspection.inspectorVendorId`.
+
+- **A real, narrower `Role`, not a new `AccountType`** — the account
+  creation flow already picks exactly one fixed role per account type
+  (`AccountsService.create`'s `DEFAULT_OWNER_ROLE_BY_ACCOUNT_TYPE`); this
+  adds the one place that isn't fixed. `CreateAccountDto.vendorRole`
+  (`"vendor"` | `"inspector"`, a closed enum, never free text) is read
+  only when `accountType === "VENDOR"` and picks between the existing
+  `vendor` role and a new `inspector` role — built entirely from a
+  *smaller* slice of permissions the `vendor` role already has
+  (`vendor:read`, `vendor:write`, `document:read`, `ai:act` — no
+  `quote:*`, `dispute:*`, `payout:read`, `rental:*`, `product:read`). No
+  new permission keys were needed.
+- **Deliberately doesn't gate who can be picked as an inspector** — a
+  property owner can still assign *any* `Vendor` (any role) to
+  `inspectorVendorId`/`assignedVendorId`, still subject to the same
+  license check regulated trades already require (see "Requiring a
+  license for a regulated trade before a vendor can be assigned" above).
+  This role only narrows what the account itself can *do* — it's a
+  professional-identity choice for the vendor, not a new access-control
+  gate on the property owner's side.
+- **Web**: a "Vendor type" picker on the account-creation screen
+  (`pages/accounts/new.tsx`), shown only when `VENDOR` is selected.
+- **A real bug found and fixed while verifying this** — creating an
+  inspector-role vendor profile and loading its own dashboard
+  (`pages/vendors/me.tsx`) surfaced a confusing top-level "Missing
+  permission(s): dispute:read" error banner, even though the profile
+  itself, license form, and bank-details form all loaded and worked
+  fine. Root cause: `VendorDashboardPage.load()` used `Promise.all` over
+  `myQuotes()`/`myPayouts()`/`myDisputes()` — fine when every vendor
+  account had every one of those permissions, which was true for every
+  role that existed before this pass, but an inspector-role account
+  legitimately 403s on all three by design, and `Promise.all` rejects
+  the whole load on the first failure. Fixed with `Promise.allSettled`,
+  keeping whichever of the three actually succeed and silently leaving
+  the rest at their empty-array default — no error shown for a
+  permission gap that isn't a bug.
+- **Verified live**: created a real `VENDOR` account choosing
+  "Inspector," confirmed the account switcher shows `vendor · inspector`
+  (not `vendor · vendor`); confirmed `POST /vendors` (creating the
+  profile) succeeds; confirmed `GET /vendors/me/quotes`,
+  `.../me/payouts`, and `.../me/disputes` all correctly 403 for it;
+  confirmed the dashboard renders cleanly with no error banner after the
+  fix above.
+- **Not done**: no way to change an existing account's role after
+  creation (this is a creation-time choice only); the dashboard still
+  renders empty Quotes/Disputes/Payouts sections for an inspector
+  account rather than hiding them outright — cosmetic, not a correctness
+  issue, since they're honestly empty rather than erroring.
+
+## Structured evidence-submission channels for document and vendor/supplier verification (this pass)
+
+Closes "only dispute arbitration has a real evidence channel — document
+verification and vendor/supplier verification don't." Document
+verification already had a `"submitted"` status meaning "needs more
+evidence" (and vendor/supplier's `"pending"` was already commented as
+meaning the same thing), but neither had anywhere to actually *put* that
+evidence — `DocumentsService.arbitrateVerify`'s own comment used to say
+outright that "more evidence" meant "whatever the account does outside
+this flow."
+
+- **`DocumentEvidence`, `VendorVerificationEvidence`,
+  `SupplierVerificationEvidence`** — three separate, parallel models
+  (not one shared/polymorphic table), matching this codebase's
+  established preference for parallel implementations over cross-cutting
+  abstractions (the same choice `VendorTrustAudit`/`SupplierTrustAudit`
+  already made). All three mirror `DisputeEvidence`'s exact shape
+  (`note`, optional `fileUrl`, `submittedByUserId`, `createdAt`) — the
+  one real difference: a dispute has two parties who might each submit,
+  a document/vendor/supplier has exactly one owning account, so there's
+  no `requireDisputeParty`-style ownership-resolution step, just a plain
+  `accountId` match.
+- **Symmetric read access, same shape across all three**: the owning
+  account reads its own submissions (`GET /documents/:id/evidence`,
+  `GET /vendors/me/verification-evidence`, `GET
+  /suppliers/me/verification-evidence`); the reviewer reads any of
+  them platform-wide gated on the exact same permission that already
+  arbitrates them (`document:arbitrate`, `vendor:verify`,
+  `supplier:verify`) rather than a new key. Document evidence also
+  appears inline in `findPendingForArbitration`'s own response (same
+  place `PaymentsService.findOpenDisputesForArbitration` already
+  includes `DisputeEvidence`), so the reviewer sees it without a second
+  fetch.
+- **Web**: a "Submit evidence" control appears on the document's own row
+  once a reviewer sets it to `"submitted"`, and a "Verification
+  evidence" card appears on the vendor/supplier dashboard whenever that
+  profile isn't yet verified (not gated to a specific status — evidence
+  toward a first-time verification is exactly as legitimate as evidence
+  in response to a specific reviewer request). Both attach an optional
+  file via the new upload pipeline (see below). The reviewer's own
+  screens (`DocumentArbitrationRow`, both vendor/supplier
+  `PlatformReviewPanel`s) render the submitted thread inline.
+- **Verified live, both directions, for documents and vendors** (the
+  supplier path is byte-for-byte the same code, spot-checked via its own
+  "already verified" guard and its `GET` endpoint returning `200 []`,
+  not run through the full UI cycle): set a real document to
+  `"submitted"` as the platform reviewer, switched to the owning
+  account, submitted evidence, confirmed `POST` returned `201` and the
+  account's own view showed "1 item already submitted," switched back to
+  the reviewer and confirmed the submitted note appeared inline in the
+  arbitration queue. Identical cycle repeated for vendor verification
+  evidence against a real vendor profile, confirmed on the vendor's
+  detail page's Platform review panel.
+- **Not done**: no way for the reviewer to reply/converse within the
+  evidence thread (it's one-directional — account submits, reviewer
+  reads); no evidence-submission channel for review moderation
+  (`review:moderate`) — "flagged" already plays an analogous "needs a
+  decision" role there, raised by the reviewed party rather than
+  requested by the reviewer, so nothing parallel was missing.
+
+## Unifying two-party dispute resolution with arbitration (this pass)
+
+Closes "two-party dispute resolution and arbitration coexist, not
+unified." `PaymentsService.applyDisputeResolution` (shared by both
+`resolveDispute` and `resolveDisputeAsVendor`) only ever checked for an
+already-*final* status (`resolved`/`rejected`) before allowing a
+two-party resolution — it never checked for `under_review`. That meant
+once a `platform_reviewer` set a dispute to `under_review` (explicitly
+saying "I'm looking into this, send more evidence"), either original
+party could still call the two-party resolve endpoint and silently
+overwrite the reviewer's in-progress arbitration, including resetting
+`resolvedAt` to a fresh value — a real, live-confirmed bug, not a
+hypothetical one.
+
+- **The fix**: `applyDisputeResolution` now also rejects
+  (`ConflictException`, same exception type the already-final check
+  already used) when `dispute.status === 'under_review'`, with a message
+  pointing the caller at evidence submission instead. Once a
+  `platform_reviewer` touches a dispute, the two-party path is locked
+  out **for good** — arbitration supersedes it rather than merely
+  pausing it, so a dispute a reviewer has taken on stays theirs to
+  resolve even if they set it back to `under_review` a second time. A
+  dispute neither party nor reviewer has escalated is completely
+  unaffected — the two paths still coexist exactly as before *until*
+  arbitration is actually invoked on that specific dispute.
+- **Verified live** against a real dispute and a real project/vendor
+  assignment: created a dispute, had the platform reviewer set it to
+  `under_review` through the real arbitration queue UI, then called the
+  owning account's own `resolveDispute` endpoint directly — got back the
+  new `409 Conflict` with the exact intended message. Confirmed no
+  regression on a second, untouched dispute: the same two-party resolve
+  endpoint succeeded normally (`201`, `status: "resolved"`) when
+  arbitration had never been invoked on it.
+- **Not done**: no way for a `platform_reviewer` to hand a dispute back
+  to the two-party path once taken on (by design, per the "supersedes,
+  doesn't pause" decision above) — if that turns out to be needed, it
+  would be a deliberate new capability, not a bug fix.
+
+## A general file-upload pipeline (this pass)
+
+Closes "the only real object storage (R2) is narrowly wired for
+AI-generated visualization images; `Document.fileUrl` is still
+bring-your-own-URL." `StorageService` (Cloudflare R2 via
+`@aws-sdk/client-s3`) existed only inside the visualizations module,
+reachable only from the one AI-image-generation code path.
+
+- **`StorageService` moved to its own `StorageModule`**
+  (`apps/api/src/storage/`), imported by `VisualizationsModule` rather
+  than owned by it — the same service, now shared. Its one method grew
+  from `uploadImage(buffer, contentType, keyPrefix)` (image-only,
+  extension picked from a fixed 3-format lookup table) to a general
+  `upload(buffer, contentType, keyPrefix, originalFilename?)` — a real
+  upload always has a filename to take a real extension from, which a
+  content-type lookup table alone can't cover for arbitrary file types
+  (PDFs, Office docs, ...) the way it could for the AI visualizer's own
+  fixed output formats. `uploadImage` still exists as a one-line wrapper
+  so that call site needed no changes.
+- **`POST /uploads`** (`multipart/form-data`, field name `file`, 25MB
+  cap) — real bytes in, a real R2 URL out. Deliberately gated on nothing
+  but `JwtAuthGuard`/`AccountContextGuard` (any authenticated account
+  member), no `@RequirePermissions`: uploading bytes to storage isn't
+  itself the sensitive action, and every existing `fileUrl` field this
+  now feeds (`Document.fileUrl`, `DisputeEvidence`/`DocumentEvidence`/
+  `Vendor-`/`SupplierVerificationEvidence.fileUrl`) was already a plain
+  string the same caller could set to anything — the real authorization
+  happens at whichever permission gates attaching that URL to a real
+  resource afterward.
+- **No schema changes needed anywhere** — every field that used to say
+  "paste a URL you already host" still is one; this just gives every one
+  of them a second, real way to get a URL, on the web side by calling
+  `POST /uploads` first (`ApiClient.uploadFile`) and using the URL it
+  returns. Wired into the Documents upload form (a real `<input
+  type="file">` now, not a URL text box) and into all three of this
+  pass's new evidence-submission forms (document, vendor, supplier).
+- **Verified live against the real R2 bucket**, not mocked: since a
+  native OS file-picker dialog can't be driven by browser automation,
+  verification used the exact request shape the real web client makes —
+  a `fetch` with a `FormData`/`Blob` body plus the same CSRF token and
+  `X-Account-Id` header `ApiClient` always sends — executed from inside
+  the actual logged-in page. Got back a real `201` and a real
+  `https://pub-....r2.dev/uploads/<accountId>/<uuid>.txt` URL; fetched
+  that URL back in a separate tab and confirmed the exact uploaded bytes
+  came back. The Documents-page evidence-submission cycle (see above)
+  additionally exercised the whole flow through `DocumentsService`
+  end-to-end, short of the browser's own native file-picker step.
+- **A real, unrelated config regression found and fixed while verifying
+  this**: `.env`'s R2 variable names had reverted to (or still had) a
+  mismatch from before this session's own earlier R2 setup pass —
+  `CLOUDFARE_R2_ACCESS_KEY_ID`/`CLOUDFARE_R2_SECRET_ACCESS_KEY`
+  (misspelled prefix), `BUCKET_NAME`, and `PUBLIC_URL`, none matching
+  what `StorageService` actually reads
+  (`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/`R2_BUCKET`/
+  `R2_PUBLIC_BASE_URL`). Renamed the keys in place (values untouched,
+  `.env` stays gitignored) so `StorageService.isConfigured` — and this
+  entire pass's live verification — could actually run against real
+  credentials instead of silently falling back to the "not configured"
+  error path.
+- **Not done**: no per-file-type validation beyond the 25MB size cap
+  (any content type is accepted and stored as-is); no virus/malware
+  scanning; no deletion endpoint — an uploaded file is permanent once
+  stored, same as a pasted URL always effectively was.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -3816,8 +4035,7 @@ blueprint, or explicitly cut from it:
 
 - **Modules 6, 14, 16-24** (the full property-verification/trust
   workflow — the rest of risk flags/trust scores beyond listings and
-  vendors/suppliers, an evidence-request step for the rest of the neutral
-  reviewer's actions; the rest of valuation beyond `PropertyValuation`,
+  vendors/suppliers; the rest of valuation beyond `PropertyValuation`,
   compliance, community management, AR/VR, admin operations, ...) — this
   scaffold now proves the pattern for Modules 1, 2, 4, 5, 7, 9, 10, 11,
   and a slice of 6, 8, 12, 13, 14, 15, and 23, not the full 24. Module 14
@@ -3828,34 +4046,34 @@ blueprint, or explicitly cut from it:
   digests (a genuine `@nestjs/schedule` cron, not a fake toggle). A real
   report *builder* exists now too — see "A real report builder" further
   below — though it's a fixed metric registry projected from the same
-  portfolio computation, not a custom-query designer. Modules 8, 12, and 13
-  are slices, not the full modules: 8 and 12 can now point an
-  inspector/assignee at a
-  real `Vendor` account (see "Linking inspectors and maintenance
-  assignees to real vendor accounts" above) but still fall back to
-  freeform text for a non-platform professional, and 13 has no Tenant
-  identity to link to at all, platform vendor or otherwise. Module 6 is
-  still a slice — only review
-  `moderationStatus` doesn't carry reviewer-context/evidence-request
-  semantics the way the other three `platform_reviewer` actions now do
-  (dispute arbitration, document verification, vendor/supplier
-  verification — see "An evidence-request step for dispute arbitration",
-  its document-verification counterpart, and "Giving vendor/supplier
-  'pending' verification actual meaning" above), and "flagged" already
-  plays a similar role for reviews, just raised by the reviewed party
-  rather than the reviewer.
+  portfolio computation, not a custom-query designer. Modules 8 and 12
+  are slices, not the full modules — both can point an inspector/
+  assignee at a real `Vendor` account, now optionally carrying a
+  dedicated `inspector` role (see "A dedicated Inspector role" above),
+  but still fall back to freeform text for a non-platform professional;
+  Module 13 has no Tenant identity to link to at all, platform vendor or
+  otherwise. Module 6's own evidence-request gap is now closed for three
+  of its four neutral-reviewer actions — see "Structured
+  evidence-submission channels for document and vendor/supplier
+  verification" above — leaving only review `moderationStatus` without
+  one, which isn't a gap: "flagged" already plays an analogous "needs a
+  decision" role there, raised by the reviewed party rather than
+  requested by the reviewer.
 - **Property inspections — closer to closed still.** `inspectorVendorId`
   can point at a platform `Vendor` now, that vendor can self-report a
-  professional license, and picking an electrical/security-installation/
-  general-contracting vendor with no license (or an expired one) is now
-  actually rejected (see "A self-reported professional license for
-  vendors" and "Requiring a license for a regulated trade before a
-  vendor can be assigned" above). What's left: there's still no
-  inspector-specific *role*, and the freeform `inspectorName` path for a
-  non-vendor still records nothing about licensing at all — inherent to
-  that path, not something a license check could enforce against free
-  text. Editing a scheduled inspection's date/type/project/inspector is
-  now possible — see "Edit endpoints for Inspections, Leases, and
+  professional license, picking an electrical/security-installation/
+  general-contracting vendor with no license (or an expired one) is
+  actually rejected, and a vendor can now carry a dedicated `inspector`
+  role distinct from the general marketplace `vendor` role (see "A
+  self-reported professional license for vendors," "Requiring a license
+  for a regulated trade before a vendor can be assigned," and "A
+  dedicated Inspector role" above). What's left: the role is a
+  professional-identity choice at account-creation time, not an
+  access-control gate — a property owner can still pick *any* vendor
+  (any role) as an inspector, and the freeform `inspectorName` path for a
+  non-vendor still records nothing about licensing at all, inherent to
+  that path. Editing a scheduled inspection's date/type/project/inspector
+  is now possible — see "Edit endpoints for Inspections, Leases, and
   Maintenance requests" below.
 - **Leases — Tenant identity is fully closed now.** A tenant has a real
   account type, role, and its own lease/document/maintenance view; a
@@ -3961,19 +4179,23 @@ blueprint, or explicitly cut from it:
   (exact-token, not fuzzy, name-matching) no longer applies — that code
   doesn't exist anymore, and Sumsub's own document-review matching isn't
   something this integration controls or can characterize the same way.
-- **Dispute arbitration's evidence gap is closed on both sides now.** See
-  "Extending the neutral reviewer to dispute arbitration", "An
-  evidence-request step for dispute arbitration", and "Submitting
-  evidence on a dispute" above — `platform_reviewer` can arbitrate any
-  open dispute platform-wide without ever having raised it, set it
-  `under_review` with a note requesting more, and either party can now
-  submit evidence in response through a real `DisputeEvidence` channel
-  the arbitrator sees inline, not just general tools like a project
-  update that had nothing to do with the dispute itself. What's still
-  open: the two-party path ("Two-party dispute resolution" above — the
-  account that raised a dispute can't resolve it, an open dispute holds
-  its milestone/payment) still exists alongside arbitration rather than
-  being replaced by it.
+- **Dispute arbitration's evidence gap is closed on both sides now, and
+  the two-party path is no longer just coexisting alongside it
+  unrelated.** See "Extending the neutral reviewer to dispute
+  arbitration", "An evidence-request step for dispute arbitration", and
+  "Submitting evidence on a dispute" above — `platform_reviewer` can
+  arbitrate any open dispute platform-wide without ever having raised
+  it, set it `under_review` with a note requesting more, and either
+  party can now submit evidence in response through a real
+  `DisputeEvidence` channel the arbitrator sees inline. See "Unifying
+  two-party dispute resolution with arbitration" further below for the
+  other half: once a reviewer sets a dispute `under_review`, the
+  two-party resolve path is now actually locked out on it (a real gap
+  found live — it previously wasn't, so either original party could
+  silently overwrite an in-progress arbitration). Before arbitration
+  ever touches a given dispute, the two-party path still works exactly
+  as before — the account that raised a dispute still can't resolve it
+  itself, and an open dispute still holds its milestone/payment.
 - **Deeper AI (Priority 6)** — real AR/VR renovation visualization
   (needs Module 22 first, deliberately not attempted — see above) is the
   one item left on this list; a bounded 2D "AI-edited before/after
@@ -4029,11 +4251,11 @@ blueprint, or explicitly cut from it:
   block already documented for the visualizer below. Neither pass stood
   up new infrastructure to run or pay for — that was the explicit
   tradeoff made when choosing them. S3-compatible object storage is no
-  longer *entirely* missing either: `StorageService` (see "AI-generated
-  renovation visualizations" above) uploads to Cloudflare R2, but only
-  for AI-generated visualization images — it's not a general upload
-  pipeline. `Document.fileUrl` still expects a URL you provide yourself,
-  same as before.
+  longer narrow, either — see "A general file-upload pipeline" above:
+  `StorageService` (Cloudflare R2) moved out of the visualizations
+  module into its own, and a real `POST /uploads` endpoint feeds a real
+  URL into `Document.fileUrl` and every evidence `fileUrl` field, not
+  just AI-generated visualization images.
 - **Payment/escrow licensing, market-specific verification mechanisms,
   and data residency remain real regulatory work, not something code
   solves — but there's now a real place to track it.** See "A platform

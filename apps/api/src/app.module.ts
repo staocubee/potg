@@ -20,6 +20,7 @@ import { IdentityModule } from './identity/identity.module';
 import { TenantModule } from './tenant/tenant.module';
 import { VisualizationsModule } from './visualizations/visualizations.module';
 import { ComplianceModule } from './compliance/compliance.module';
+import { StorageModule } from './storage/storage.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { ComplianceModule } from './compliance/compliance.module';
     TenantModule,
     VisualizationsModule,
     ComplianceModule,
+    StorageModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

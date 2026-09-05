@@ -17,6 +17,7 @@ import { ReplyToReviewDto } from '../vendors/dto/reply-to-review.dto';
 import { FlagReviewDto } from '../vendors/dto/flag-review.dto';
 import { ModerateReviewDto } from '../vendors/dto/moderate-review.dto';
 import { SetSupplierVerificationDto } from './dto/set-supplier-verification.dto';
+import { SubmitSupplierVerificationEvidenceDto } from './dto/submit-supplier-verification-evidence.dto';
 import { SubmitSupplierTrustAuditDto } from './dto/submit-supplier-trust-audit.dto';
 import { CreateRentalBookingDto } from './dto/create-rental-booking.dto';
 import { UpsertCartItemDto } from './dto/upsert-cart-item.dto';
@@ -52,6 +53,25 @@ export class MaterialsController {
     return this.materials.findMySupplier(member.accountId);
   }
 
+  // The structured "submit more evidence" channel — see
+  // MaterialsService.submitVerificationEvidence's own comment.
+  // supplier:write, the account's own action, never a reviewer's.
+  @RequirePermissions('supplier:write')
+  @Post('suppliers/me/verification-evidence')
+  submitVerificationEvidence(
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @CurrentUser() user: UserCtx,
+    @Body() dto: SubmitSupplierVerificationEvidenceDto,
+  ) {
+    return this.materials.submitVerificationEvidence(member.accountId, user.id, dto);
+  }
+
+  @RequirePermissions('supplier:write')
+  @Get('suppliers/me/verification-evidence')
+  findMyVerificationEvidence(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.materials.findMyVerificationEvidence(member.accountId);
+  }
+
   @RequirePermissions('order:read')
   @Get('suppliers/me/orders')
   findOrdersForSupplier(@CurrentAccountMember() member: AccountMemberCtx) {
@@ -85,6 +105,14 @@ export class MaterialsController {
   @Patch('suppliers/:supplierId/verification')
   setSupplierVerificationStatus(@Param('supplierId') supplierId: string, @Body() dto: SetSupplierVerificationDto) {
     return this.materials.setSupplierVerificationStatus(supplierId, dto);
+  }
+
+  // The reviewer's own view of submitted evidence — same supplier:verify
+  // gate as verification itself, reaches any supplier platform-wide.
+  @RequirePermissions('supplier:verify')
+  @Get('suppliers/:supplierId/verification-evidence')
+  findVerificationEvidence(@Param('supplierId') supplierId: string) {
+    return this.materials.findVerificationEvidence(supplierId);
   }
 
   // The real audit step — see MaterialsService.submitTrustAudit. Same

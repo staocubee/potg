@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Project, Vendor, VendorTrustAudit } from "../../lib/api";
+import { ApiError, Project, Vendor, VendorTrustAudit, VendorVerificationEvidence } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 
@@ -264,6 +264,16 @@ function PlatformReviewPanel({
   const [auditError, setAuditError] = useState<string | null>(null);
   const [auditBusy, setAuditBusy] = useState(false);
 
+  const [evidence, setEvidence] = useState<VendorVerificationEvidence[] | null>(null);
+
+  useEffect(() => {
+    auth.api
+      .findVendorVerificationEvidence(vendorId)
+      .then(setEvidence)
+      .catch(() => setEvidence([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vendorId]);
+
   async function onSetStatus(newStatus: string) {
     setBusy(true);
     setError(null);
@@ -299,6 +309,23 @@ function PlatformReviewPanel({
         Set this vendor's platform verification status. Visible only to the platform reviewer role.
       </p>
       {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+      {evidence && evidence.length > 0 && (
+        <div style={{ marginBottom: 10, borderLeft: "2px solid var(--potg-teal)", paddingLeft: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+          {evidence.map((e) => (
+            <p key={e.id} className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+              {e.note}
+              {e.fileUrl && (
+                <>
+                  {" — "}
+                  <a href={e.fileUrl} target="_blank" rel="noreferrer">
+                    view file
+                  </a>
+                </>
+              )}
+            </p>
+          ))}
+        </div>
+      )}
       <textarea
         className="potg-input"
         rows={2}
