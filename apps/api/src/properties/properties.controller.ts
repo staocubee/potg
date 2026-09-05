@@ -89,6 +89,15 @@ export class PropertiesController {
     return this.properties.getRoiSummary(propertyId);
   }
 
+  // The rest of Module 15's valuation gap — see
+  // PropertiesService.getComparableValuation's own comment. Same
+  // property:read gate as everything else that just reads this property.
+  @RequirePermissions('property:read')
+  @Get(':propertyId/comparable-valuation')
+  getComparableValuation(@Param('propertyId') propertyId: string) {
+    return this.properties.getComparableValuation(propertyId);
+  }
+
   // Module 8 — its own permission pair (not property:read/write) since
   // "who can see a property" and "who can schedule/complete an inspection
   // on it" are reasonable to grant separately, unlike valuations above

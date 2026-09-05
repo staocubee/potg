@@ -4190,6 +4190,70 @@ reachable only from the one AI-image-generation code path.
   scanning; no deletion endpoint — an uploaded file is permanent once
   stored, same as a pasted URL always effectively was.
 
+## A comparable-sales valuation estimate (this pass)
+
+Closes the rest of Module 15's valuation gap: `PropertyValuation` gave a
+manual/AI-narrated history, and `model_roi_scenario` gave rent-increase/
+sell-vs-hold modeling, but nothing produced an actual *automated*
+estimate. "Comparable" means the same city and `propertyType` among
+other accounts' own active sale listings — a real market signal already
+sitting in `PropertyListing`, not a new integration or external data
+source.
+
+- **`PropertiesService.getComparableValuation`** — finds every other
+  active, `listingType: "sale"` `PropertyListing` in the same city and
+  `propertyType` (excluding the property's own listings — comparing a
+  property to itself isn't a comparable-sales estimate), grouped by
+  currency and never averaged across currencies (the same caution every
+  other cross-listing money computation in this codebase already
+  applies — `PaymentsService.getAccountOverview`, the vendor-spend
+  grouping in the report builder). Below a minimum of 2 comparables, it
+  still reports what it found (so the caller sees there's *something*
+  nearby) but returns no averaged estimate — one listing is an anecdote,
+  not a market.
+- **`estimate_comparable_value`** — the new AI skill, `NO_INPUT_SCHEMA`,
+  gated by the same `property:read` every other property-scoped skill
+  uses. Deliberately re-implements the same search/grouping logic rather
+  than calling the service method — `AiSkillDeps` only ever hands a
+  skill `prisma` and `llm`, never other Nest services, the exact "kept
+  in sync, not shared" split `model_roi_scenario`'s own comment already
+  established against `PropertiesService.getRoiSummary`.
+- **No new endpoint to "save" the estimate** — `GET
+  /properties/:id/comparable-valuation` is read-only, and saving one as
+  a real valuation reuses the *existing* `POST /properties/:id/valuations`
+  endpoint unchanged, just with a new allowed `source: "comparable_sales"`
+  value alongside `manual`/`ai_estimate`. Nothing here writes back to
+  `Property.estimatedValue` automatically — same "record what's true,
+  don't auto-recompute" tradeoff `addValuation` already established.
+- **Web**: a "Comparable-sales estimate" card on the property detail
+  page, next to the existing ROI & valuation dashboard — shows the
+  estimate, the comparable count, and a min–max range, with a "Save as
+  valuation" button that calls the existing valuation endpoint and feeds
+  the same `valuations` state the ROI chart already watches, so saving
+  one immediately updates the ROI dashboard's own "current value" too
+  (no separate refresh path to keep in sync).
+- **Verified live against real data, both paths independently**:
+  seeded two comparable properties/listings in the same city and type
+  (₦200,000,000 and ₦220,000,000 asking price) and confirmed the web
+  card computed the exact expected average (₦210,000,000, range
+  ₦200,000,000–₦220,000,000); clicked "Save as valuation" and confirmed
+  the real `POST` request, the new entry appearing in the Valuations
+  list with `source: "comparable_sales"`, and the ROI dashboard
+  recalculating its own Simple ROI/current-value tiles from it
+  immediately. Separately triggered the `estimate_comparable_value` AI
+  skill (both via its quick-action button and by confirming its
+  `POST /ai/actions` response) and confirmed its independent
+  implementation computed the identical ₦210,000,000 figure. Also
+  confirmed the "not enough comparables" path renders cleanly (a plain
+  "No comparable active listings found in ... yet" message, no error)
+  against a real property with none nearby.
+- **Not done**: no comparable estimate for rent-type listings (only
+  `listingType: "sale"` — a rental comparable would need a different,
+  per-period basis, a real product decision this pass didn't make);
+  no distance/radius matching beyond an exact city-name match — two
+  properties in the same metro area but a differently-spelled or
+  differently-granular city field won't match each other.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -4197,10 +4261,15 @@ blueprint, or explicitly cut from it:
 
 - **Modules 6, 14, 16-24** (the full property-verification/trust
   workflow — the rest of risk flags/trust scores beyond listings and
-  vendors/suppliers; the rest of valuation beyond `PropertyValuation`,
-  compliance, community management, AR/VR, admin operations, ...) — this
-  scaffold now proves the pattern for Modules 1, 2, 4, 5, 7, 9, 10, 11,
-  and a slice of 6, 8, 12, 13, 14, 15, and 23, not the full 24. Module 14
+  vendors/suppliers; compliance, community management, AR/VR, admin
+  operations, ...) — this scaffold now proves the pattern for Modules 1,
+  2, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12, 13, 14, 15, and 23, not
+  the full 24. Module 15 is a bigger slice now too — see "A comparable-
+  sales valuation estimate" above: a real automated estimate from other
+  active sale listings nearby, alongside the manual/AI-narrated history
+  and rent/hold-sell modeling that already existed. Still not a real
+  AVM (automated valuation model) integration or anything beyond a
+  same-city, same-property-type comparison. Module 14
   (Reports) is a bigger slice now — see "A project summary skill, and a real
   Reports dashboard" and "CSV export and scheduled email digests for
   Reports" above: `GET /reports/portfolio-overview` (real counts across

@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Lease, MaintenanceRequest, Project, Property, PropertyInspection, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
+import { ApiError, ComparableValuation, Lease, MaintenanceRequest, Project, Property, PropertyInspection, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -199,6 +199,13 @@ export default function PropertyDetailPage() {
           </div>
 
           {id && <RoiSummaryCard propertyId={id} refreshToken={valuations.length} />}
+
+          {id && (
+            <ComparableValuationCard
+              propertyId={id}
+              onSaved={(v) => setValuations((prev) => [v, ...prev])}
+            />
+          )}
 
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -403,6 +410,92 @@ function RoiSummaryCard({ propertyId, refreshToken }: { propertyId: string; refr
             this property's projects. Simplified, undiscounted — not professional financial advice.
           </p>
         </>
+      )}
+    </div>
+  );
+}
+
+// The rest of Module 15's valuation gap — see
+// PropertiesService.getComparableValuation's own comment. Self-fetching,
+// same pattern RoiSummaryCard already uses, but on its own — a
+// comparable estimate isn't part of the ROI computation itself, it's a
+// separate input a user might choose to save as a real valuation.
+function ComparableValuationCard({ propertyId, onSaved }: { propertyId: string; onSaved: (v: PropertyValuation) => void }) {
+  const auth = useAuth();
+  const [data, setData] = useState<ComparableValuation | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    auth.api
+      .getComparableValuation(propertyId)
+      .then((d) => {
+        if (!cancelled) setData(d);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof ApiError ? err.message : "Couldn't load a comparable-sales estimate.");
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId]);
+
+  const best = data?.estimates[0];
+
+  async function onSaveAsValuation() {
+    if (!best?.estimatedValue) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const v = await auth.api.addValuation(propertyId, {
+        estimatedValue: best.estimatedValue,
+        currency: best.currency,
+        source: "comparable_sales",
+        notes: `Based on ${best.comparableCount} comparable active listing(s) in ${data?.city ?? "this area"}`,
+      });
+      onSaved(v);
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't save that valuation.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 18 }}>
+      <h3 style={{ fontSize: 14, marginBottom: 4 }}>Comparable-sales estimate</h3>
+      <p className="potg-muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 10 }}>
+        Estimated from other active sale listings of the same property type nearby — a rough market estimate, not an
+        appraisal.
+      </p>
+      {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+      {!data && !error && <p className="potg-muted" style={{ fontSize: 12 }}>Loading…</p>}
+      {data && !best && (
+        <p className="potg-muted" style={{ fontSize: 12 }}>
+          No comparable active listings found in {data.city ?? "this area"} yet.
+        </p>
+      )}
+      {best && best.estimatedValue == null && (
+        <p className="potg-muted" style={{ fontSize: 12 }}>
+          Only {best.comparableCount} comparable listing(s) found in {data?.city} — need at least{" "}
+          {data?.minComparablesRequired} for an estimate.
+        </p>
+      )}
+      {best && best.estimatedValue != null && (
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 18 }}>{formatMoney(String(best.estimatedValue), best.currency)}</div>
+          <p className="potg-muted" style={{ fontSize: 12, margin: "4px 0 10px" }}>
+            Based on {best.comparableCount} comparable listing(s) — range{" "}
+            {formatMoney(String(best.minAskingPrice), best.currency)} to {formatMoney(String(best.maxAskingPrice), best.currency)}
+          </p>
+          <button className="potg-btn potg-btn-secondary" onClick={onSaveAsValuation} disabled={saving || saved}>
+            {saved ? "Saved as valuation" : saving ? "Saving…" : "Save as valuation"}
+          </button>
+        </div>
       )}
     </div>
   );

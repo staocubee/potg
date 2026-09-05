@@ -355,6 +355,20 @@ export type RoiSummary = {
   valuationHistory: { id: string; estimatedValue: number; currency: string; source: string; valuedAt: string }[];
 };
 
+export type ComparableValuation = {
+  city: string | null;
+  propertyType: string;
+  minComparablesRequired: number;
+  estimates: {
+    currency: string;
+    comparableCount: number;
+    estimatedValue: number | null;
+    minAskingPrice: number;
+    maxAskingPrice: number;
+    comparables: { listingId: string; title: string; askingPrice: number }[];
+  }[];
+};
+
 export type InspectionFinding = {
   id: string;
   inspectionId: string;
@@ -1189,6 +1203,12 @@ export class ApiClient {
   }
   getRoiSummary(propertyId: string) {
     return request<RoiSummary>(`/properties/${propertyId}/roi-summary`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  getComparableValuation(propertyId: string) {
+    return request<ComparableValuation>(`/properties/${propertyId}/comparable-valuation`, {
       token: this.token,
       accountId: this.accountId,
     });

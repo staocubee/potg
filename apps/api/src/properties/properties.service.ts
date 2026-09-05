@@ -191,6 +191,73 @@ export class PropertiesService {
     });
   }
 
+  // The rest of Module 15's valuation gap this scaffold left open — a
+  // real (if simple) automated estimate, not just a manual/AI-narrated
+  // history a human types numbers into. "Comparable" here means the same
+  // city and propertyType among other accounts' own active sale listings
+  // — a real market signal already sitting in PropertyListing, not a new
+  // integration. Deliberately excludes this property's own listing(s):
+  // comparing a property to itself isn't a comparable-sales estimate.
+  //
+  // Grouped by currency, never averaged across them — same caution every
+  // other cross-listing money computation in this codebase already
+  // applies (PaymentsService.getAccountOverview, ReportsService's own
+  // vendor-spend grouping): a market can have listings priced in more
+  // than one currency, and blending them would be meaningless, not just
+  // imprecise. Nothing here writes back to Property.estimatedValue —
+  // same "record what's true, don't auto-recompute" tradeoff addValuation
+  // above already established; saving this as a real valuation is a
+  // separate, explicit POST /properties/:id/valuations call the caller
+  // makes with source: "comparable_sales".
+  async getComparableValuation(propertyId: string) {
+    const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
+    if (!property) throw new NotFoundException('Property not found');
+
+    const comparableListings = await this.prisma.propertyListing.findMany({
+      where: {
+        status: 'active',
+        listingType: 'sale',
+        propertyId: { not: propertyId },
+        property: { city: property.city, propertyType: property.propertyType },
+      },
+      select: { id: true, title: true, askingPrice: true, currency: true },
+    });
+
+    const MIN_COMPARABLES = 2;
+    const byCurrency = new Map<
+      string,
+      { total: number; min: number; max: number; comparables: { listingId: string; title: string; askingPrice: number }[] }
+    >();
+    for (const listing of comparableListings) {
+      const price = Number(listing.askingPrice);
+      const group = byCurrency.get(listing.currency) ?? { total: 0, min: Infinity, max: -Infinity, comparables: [] };
+      group.total += price;
+      group.min = Math.min(group.min, price);
+      group.max = Math.max(group.max, price);
+      group.comparables.push({ listingId: listing.id, title: listing.title, askingPrice: price });
+      byCurrency.set(listing.currency, group);
+    }
+
+    const estimates = Array.from(byCurrency, ([currency, group]) => ({
+      currency,
+      comparableCount: group.comparables.length,
+      // Below MIN_COMPARABLES, still show what was found (so the caller
+      // can see there's *something* nearby), just no averaged estimate —
+      // one listing isn't a market, it's an anecdote.
+      estimatedValue: group.comparables.length >= MIN_COMPARABLES ? Math.round(group.total / group.comparables.length) : null,
+      minAskingPrice: group.min,
+      maxAskingPrice: group.max,
+      comparables: group.comparables,
+    })).sort((a, b) => b.comparableCount - a.comparableCount);
+
+    return {
+      city: property.city,
+      propertyType: property.propertyType,
+      minComparablesRequired: MIN_COMPARABLES,
+      estimates,
+    };
+  }
+
   // Module 15's "do financials" surface as a real dashboard, not just
   // model_roi_scenario's chat-narrated numbers — same current-value/
   // invested computation that AI skill uses, deliberately kept in sync
