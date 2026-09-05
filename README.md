@@ -4138,7 +4138,13 @@ blueprint, or explicitly cut from it:
   anything left to build. Real AR/VR needs a native mobile app or
   WebXR, photogrammetry/3D reconstruction, and a full 3D content
   pipeline — none of which exist here, and none of which are a bounded
-  addition to this scaffold the way everything else on this list is.
+  addition to this scaffold the way everything else on this list is. See
+  [`docs/ar-vr-feasibility-spike.md`](docs/ar-vr-feasibility-spike.md)
+  for a written-only (no code) breakdown of what each of those four
+  pieces would actually require, the mobile-vs-web tradeoff underneath
+  all of it, and one genuinely bounded first slice (a WebXR,
+  Android-only material/color preview) that would fit inside this repo
+  if a future pass wants to start somewhere real instead of nowhere.
 - **The stub LLM provider doesn't extract structured arguments from free
   text.** Every skill now declares a real `inputSchema` (see "Per-skill AI
   input schemas" above) and `AnthropicLlmProvider` passes it to the model,
