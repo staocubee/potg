@@ -44,6 +44,88 @@ const KEYWORD_ROUTES: Record<string, string[]> = {
   summarize_rental_bookings: ['rental bookings', 'rental backlog', 'anything overdue for return', 'bookings awaiting confirmation'],
 };
 
+// Heuristic argument extraction for the stub provider — deliberately not
+// a generic, schema-driven parser. `model_roi_scenario` is the only skill
+// in this entire registry whose inputSchema declares anything beyond
+// NO_INPUT_SCHEMA (see ai-skill-input-schema.ts's own comment — every
+// other skill reads nothing from `input` at all, everything comes from
+// moduleContext plus platform data), so a generic "walk the schema and
+// regex for each field type" engine would be built for a registry of one
+// real consumer. If a second skill grows a real schema, this is the
+// place to reconsider that tradeoff — not before.
+//
+// Every number/keyword pulled out here is a plain regex over the same
+// lowercased sentence KEYWORD_ROUTES already matched against — nothing
+// clever, no NLP library, the same "demonstrate the tool-calling path,
+// not be smart about it" philosophy the rest of this stub already
+// follows. A real model (AnthropicLlmProvider) still does this properly;
+// this only has to do better than always sending `{}`.
+function extractModelRoiScenarioInput(text: string): Record<string, unknown> {
+  const input: Record<string, unknown> = {};
+
+  if (/sell now|sell vs\.? hold|hold or sell|sell or hold|hold for/.test(text)) {
+    input.scenario = 'sell_now_vs_hold';
+  } else if (/rent increase|increase (the )?rent|raise (the )?rent|rent by \d/.test(text)) {
+    input.scenario = 'rent_increase';
+  }
+
+  // Tracks the character ranges consumed by a percentage or "N year(s)"
+  // match, so the rent-amount search below can skip over them by
+  // position instead of a regex lookahead — a first attempt using
+  // `(?!\s*%)` backtracked onto a *partial* digit run (matching just the
+  // "1" out of "15%") once the full "15" failed the lookahead, silently
+  // producing a wrong number instead of no match. Caught live before
+  // this ever shipped: "increase the rent by 15% to 500,000" produced
+  // `currentMonthlyRent: 1`, not 500000.
+  const consumed: [number, number][] = [];
+  let match: RegExpExecArray | null;
+
+  // Only one of these two percentages is ever meaningful per scenario
+  // (rentIncreasePercent for rent_increase, appreciationRatePercent for
+  // sell_now_vs_hold) — see MODEL_ROI_SCENARIO_INPUT_SCHEMA — so the last
+  // percentage found is unambiguous once the scenario is known.
+  const percentRe = /(\d+(?:\.\d+)?)\s*%/g;
+  let percentValue: number | undefined;
+  while ((match = percentRe.exec(text))) {
+    consumed.push([match.index, match.index + match[0].length]);
+    percentValue = Number(match[1]);
+  }
+  if (percentValue != null) {
+    if (input.scenario === 'sell_now_vs_hold') input.appreciationRatePercent = percentValue;
+    else input.rentIncreasePercent = percentValue;
+  }
+
+  const yearsRe = /(\d+(?:\.\d+)?)\s*year/g;
+  let yearsValue: number | undefined;
+  while ((match = yearsRe.exec(text))) {
+    consumed.push([match.index, match.index + match[0].length]);
+    yearsValue = Number(match[1]);
+  }
+  if (yearsValue != null) input.holdYears = yearsValue;
+
+  // A rent *amount* (as opposed to rentIncreasePercent above) — the
+  // largest freestanding number in the sentence that isn't part of an
+  // already-consumed percentage/years match, only looked for at all when
+  // "rent" appears somewhere in the sentence. Picking the largest, not
+  // the nearest-to-"rent", because a real rent figure (hundreds/
+  // thousands+) is reliably bigger than the percentages (≤500 per the
+  // schema's own maximum) or hold-years (≤50) it needs to be
+  // disambiguated from, and proximity-to-a-keyword is exactly the
+  // brittle approach that produced the bug above.
+  if (text.includes('rent')) {
+    const numberRe = /[\d][\d,]*(?:\.\d+)?/g;
+    let best: number | undefined;
+    while ((match = numberRe.exec(text))) {
+      if (consumed.some(([start, end]) => match!.index >= start && match!.index < end)) continue;
+      const value = Number(match[0].replace(/,/g, ''));
+      if (best == null || value > best) best = value;
+    }
+    if (best != null) input.currentMonthlyRent = best;
+  }
+
+  return input;
+}
+
 // Default provider when no ANTHROPIC_API_KEY is configured — lets the AI
 // service, skill registry, and permission checks run and be tested end to
 // end (including in this sandbox) without a live model call. Every skill's
@@ -71,15 +153,16 @@ export class StubLlmProvider implements LlmProvider {
 
     for (const [toolName, keywords] of Object.entries(KEYWORD_ROUTES)) {
       if (offered.has(toolName) && keywords.some((k) => text.includes(k))) {
-        // Every tool now carries a real inputSchema (see
-        // ai-skill-input-schema.ts) that a real model would read to pull
-        // structured arguments out of the sentence — e.g. "model a 10% rent
-        // increase" -> { scenario: "rent_increase", rentIncreasePercent: 10
-        // }. This keyword router only matches a tool name, it doesn't parse
-        // free text into arguments, so it always calls with `{}` and leans
-        // on each skill's own in-schema defaults (model_roi_scenario falls
-        // back to the "current" scenario). Set ANTHROPIC_API_KEY for a
-        // provider that actually extracts arguments from what was typed.
+        // Every tool carries a real inputSchema (see
+        // ai-skill-input-schema.ts) a real model reads to pull structured
+        // arguments out of the sentence — e.g. "model a 10% rent increase"
+        // -> { scenario: "rent_increase", rentIncreasePercent: 10 }. This
+        // keyword router only matches a tool *name*; extractModelRoiScenarioInput
+        // above is the one heuristic exception, for the one skill in this
+        // registry with a real (non-empty) schema — every other tool still
+        // calls with `{}` and leans on its own schema defaults, correctly,
+        // since there's nothing else to extract (see that function's own
+        // comment for why this isn't generalized further).
         //
         // The keyword search re-scans the same original human sentence on
         // every loop turn (see the lastUserMessage lookup above), and
@@ -88,7 +171,8 @@ export class StubLlmProvider implements LlmProvider {
         // through each of them in turn, same as a real model reasoning
         // over one request with several parts, until nothing offered
         // matches anymore and this falls through to a text reply.
-        return { type: 'tool_call', toolUseId: `stub-${toolName}`, toolName, toolInput: {} };
+        const toolInput = toolName === 'model_roi_scenario' ? extractModelRoiScenarioInput(text) : {};
+        return { type: 'tool_call', toolUseId: `stub-${toolName}`, toolName, toolInput };
       }
     }
 

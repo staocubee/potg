@@ -3681,6 +3681,62 @@ them, ignoring signals a real search product would obviously use.
   (`0.05` each) are a reasonable starting point, not tuned against real
   usage data, since none exists yet for this scaffold.
 
+## Stub LLM argument extraction (this pass)
+
+Closes "the stub LLM provider doesn't extract structured arguments from
+free text." Turned out to be a much smaller gap than it sounded:
+`model_roi_scenario` is the *only* skill in this entire registry whose
+`inputSchema` declares anything beyond `NO_INPUT_SCHEMA` — every other
+skill reads nothing from `input` at all, everything comes from
+`moduleContext` plus platform data (see `ai-skill-input-schema.ts`'s own
+comment, confirmed again here by grepping the whole skill registry).
+So "extract structured arguments" reduces to one dedicated heuristic
+parser for one skill, not a general schema-driven engine.
+
+- **`extractModelRoiScenarioInput`** (`stub-llm.provider.ts`) — plain
+  regexes over the same lowercased sentence `KEYWORD_ROUTES` already
+  matches against, deliberately not generalized to read the schema
+  itself: a registry of one real consumer doesn't justify a generic
+  engine, and if a second skill ever grows a real schema, that's the
+  point to reconsider the tradeoff, not before. Detects `scenario` from
+  phrasing ("sell now", "rent increase", ...), pulls whichever of
+  `rentIncreasePercent`/`appreciationRatePercent` is relevant to that
+  scenario, `holdYears`, and a `currentMonthlyRent` amount.
+- **A real bug caught before it ever shipped, not after**: the first
+  version of the rent-amount regex used a negative lookahead
+  (`(?!\s*%)`) to avoid matching a percentage figure — for "increase the
+  rent by 15% to 500,000", it backtracked onto a *partial* digit run
+  (just the "1" out of "15") once the full "15" failed the lookahead,
+  silently returning `currentMonthlyRent: 1` instead of the intended
+  500000 (or, correctly, nothing at all from that fragment). Caught by a
+  standalone test script before touching the live app, not by the live
+  test itself. Fixed by tracking which character ranges a percentage or
+  "N year(s)" phrase already consumed, then picking the *largest*
+  remaining freestanding number in the sentence (a real rent figure is
+  reliably bigger than a percentage capped at 500 or hold-years capped
+  at 50 by the schema itself) — proximity-to-a-keyword was exactly the
+  brittle approach that produced the bug, so the fix doesn't lean on
+  proximity at all.
+- **Verified live through the real running app** (this environment has
+  no `ANTHROPIC_API_KEY` configured, so `StubLlmProvider` is what
+  actually answers every Ask AI request here, not a mocked path): asked
+  "what if i increase the rent by 15% to 500,000 naira" against a real
+  property and got back a real `model_roi_scenario` draft computing
+  against `Current rent: 500,000 NGN/month` and `At +15%: 575,000
+  NGN/month` — both numbers correct, confirming the exact bug above
+  stayed fixed end-to-end, not just in the standalone test. Asked
+  "should i sell now or hold for 5 years at 7% appreciation" and got
+  back `Hold 5 year(s) at 7%/year appreciation` — confirming
+  `holdYears` and `appreciationRatePercent` extract correctly and
+  independently from the `rent_increase` scenario's own two fields, with
+  no cross-contamination between scenarios.
+- **Not done**: no extraction for any other skill, because no other
+  skill has anything to extract; a real `ANTHROPIC_API_KEY` still
+  produces meaningfully better argument-filling than this heuristic ever
+  will (it reads the actual schema and full sentence semantics, not a
+  handful of regexes) — this only ever had to do better than the `{}`
+  it replaced, not compete with a real model.
+
 ## Semantic property search — pgvector + OpenAI embeddings (this pass)
 
 Closes the other half of "Search and vector layers still entirely
@@ -4251,14 +4307,16 @@ blueprint, or explicitly cut from it:
   all of it, and one genuinely bounded first slice (a WebXR,
   Android-only material/color preview) that would fit inside this repo
   if a future pass wants to start somewhere real instead of nowhere.
-- **The stub LLM provider doesn't extract structured arguments from free
-  text.** Every skill now declares a real `inputSchema` (see "Per-skill AI
-  input schemas" above) and `AnthropicLlmProvider` passes it to the model,
-  but `StubLlmProvider`'s keyword router only ever calls a matched tool with
-  `{}` — a real model reads the sentence and the schema together to fill in
-  arguments (e.g. "model a 10% rent increase" → `{ scenario:
-  "rent_increase", rentIncreasePercent: 10 }`); the no-API-key stub doesn't
-  attempt that.
+- **The stub LLM provider now extracts structured arguments for the one
+  skill that has any to extract.** See "Stub LLM argument extraction"
+  above: `model_roi_scenario` is the only skill in the registry whose
+  `inputSchema` declares anything beyond `NO_INPUT_SCHEMA`, so a
+  dedicated heuristic parser (plain regexes, not a schema-driven engine)
+  closes the actual gap rather than a generic one built for a registry
+  of one real consumer. `AnthropicLlmProvider` (a real model reading the
+  sentence and the schema together) still does this properly for every
+  skill; the stub only ever had to do better than always sending `{}`,
+  which it now does for the one skill where that mattered.
 - **All four gateways Section 16 named are live now — deposits on all
   four, payouts on three of them.** See "A real payout gateway —
   Paystack Transfers", "Flutterwave and PayPal: a second and third real
