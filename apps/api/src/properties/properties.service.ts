@@ -1,5 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { OpenAiEmbeddingService } from './openai-embedding.service';
+import { Property } from '@prisma/client';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { CreateValuationDto } from './dto/create-valuation.dto';
 import { ScheduleInspectionDto } from './dto/schedule-inspection.dto';
@@ -26,7 +28,12 @@ const LICENSE_REQUIRED_CATEGORIES = ['electrical', 'security_installation', 'gen
 
 @Injectable()
 export class PropertiesService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(PropertiesService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly embeddings: OpenAiEmbeddingService,
+  ) {}
 
   // Shared by every inspectorVendor/assignedVendor include below, so a
   // just-created row and a re-fetched one carry the same shape.
@@ -46,7 +53,96 @@ export class PropertiesService {
         label: 'Property added to portfolio',
       },
     });
+    // Fire-and-forget: semantic search is an enrichment, not something the
+    // caller is waiting on, and OpenAI being unconfigured/rate-limited/
+    // out of credit shouldn't fail property creation itself. Swallowed and
+    // logged, not the "record-then-rethrow" pattern the visualizer/
+    // identity services use for their own primary action.
+    this.indexEmbedding(property).catch((err) => {
+      this.logger.warn(`Skipping embedding for property ${property.id}: ${err instanceof Error ? err.message : err}`);
+    });
     return property;
+  }
+
+  // The text representation embedded for semantic search — every field a
+  // free-text query like "3 bedroom flat in Lekki under renovation" could
+  // plausibly be asking about. Deliberately excludes ids/dates/computed
+  // fields that add noise, not signal, to a semantic match.
+  private embeddingText(property: Property): string {
+    return [
+      property.name,
+      property.propertyType,
+      property.addressLine,
+      property.city,
+      property.state,
+      property.country,
+      property.currentUse ? `currently used as ${property.currentUse}` : null,
+      property.estimatedValue ? `estimated value ${property.estimatedValue.toString()}` : null,
+    ]
+      .filter(Boolean)
+      .join('. ');
+  }
+
+  // Raw SQL for the vector column — Prisma's query builder can't read or
+  // write an Unsupported("vector(1536)") field, same "$queryRaw/
+  // $executeRaw for the part Prisma can't express" split the marketplace
+  // fuzzy-search pass used for pg_trgm. The embedding array is passed as
+  // a normal string parameter (pgvector accepts '[0.1,0.2,...]' text
+  // input) and cast with `::vector` — never string-concatenated into the
+  // query itself.
+  private async indexEmbedding(property: Property) {
+    const embedding = await this.embeddings.embed(this.embeddingText(property));
+    const vectorLiteral = `[${embedding.join(',')}]`;
+    await this.prisma.$executeRaw`
+      INSERT INTO property_embeddings ("propertyId", "accountId", embedding, "updatedAt")
+      VALUES (${property.id}, ${property.accountId}, ${vectorLiteral}::vector, now())
+      ON CONFLICT ("propertyId") DO UPDATE SET embedding = EXCLUDED.embedding, "updatedAt" = now()
+    `;
+  }
+
+  // Manual backfill/reindex for properties created before this pass (or
+  // after OpenAI credit is restored) — see the README's own note on why
+  // this can't be verified end-to-end yet. Sequential, not Promise.all,
+  // to stay gentle on OpenAI's own per-account rate limit; per-property
+  // errors are collected rather than aborting the whole batch on the
+  // first failure, since "OpenAI has no credit" fails every one of them
+  // identically and the caller should still see that clearly.
+  async reindexEmbeddings(accountId: string) {
+    const properties = await this.prisma.property.findMany({ where: { accountId } });
+    let indexed = 0;
+    const failures: { propertyId: string; error: string }[] = [];
+    for (const property of properties) {
+      try {
+        await this.indexEmbedding(property);
+        indexed += 1;
+      } catch (err) {
+        failures.push({ propertyId: property.id, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return { total: properties.length, indexed, failed: failures.length, failures };
+  }
+
+  // Semantic search (Module — "vector DB for AI context retrieval"): embed
+  // the query, rank property ids by cosine distance in raw SQL, then
+  // hydrate+re-sort with Prisma — the exact same "raw SQL for ranking,
+  // Prisma for hydration, JS sort for order" split ListingsService.findAll
+  // uses for pg_trgm. accountId is filtered directly on
+  // property_embeddings (denormalized there for this reason) so this
+  // never returns another account's properties.
+  async semanticSearch(accountId: string, q: string) {
+    const embedding = await this.embeddings.embed(q);
+    const vectorLiteral = `[${embedding.join(',')}]`;
+    const matches = await this.prisma.$queryRaw<{ propertyId: string }[]>`
+      SELECT "propertyId" FROM property_embeddings
+      WHERE "accountId" = ${accountId}
+      ORDER BY embedding <=> ${vectorLiteral}::vector
+      LIMIT 20
+    `;
+    const order = matches.map((m) => m.propertyId);
+    if (order.length === 0) return [];
+    const properties = await this.prisma.property.findMany({ where: { id: { in: order } } });
+    const rank = new Map(order.map((id, i) => [id, i]));
+    return properties.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
   }
 
   findAllForAccount(accountId: string) {

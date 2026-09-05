@@ -33,6 +33,17 @@ export default function PortfolioPage() {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
+  // Semantic search (pgvector + OpenAI embeddings) is a separate result
+  // set from the plain portfolio list, not a client-side filter of it —
+  // it only runs on submit (Enter/button), not per-keystroke, since each
+  // search is a real OpenAI API call, unlike the free-text pg_trgm search
+  // on the marketplaces.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Property[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [reindexStatus, setReindexStatus] = useState<string | null>(null);
+
   function load() {
     if (!auth.currentAccountId) return;
     auth.api
@@ -45,6 +56,37 @@ export default function PortfolioPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.currentAccountId]);
+
+  async function runSemanticSearch(e: FormEvent) {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    setSearchError(null);
+    try {
+      const results = await auth.api.searchProperties(searchQuery.trim());
+      setSearchResults(results);
+    } catch (err) {
+      setSearchError(err instanceof ApiError ? err.message : "Couldn't run that search.");
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function runReindex() {
+    setReindexStatus("Reindexing…");
+    try {
+      const result = await auth.api.reindexPropertyEmbeddings();
+      setReindexStatus(
+        result.failed > 0
+          ? `Indexed ${result.indexed}/${result.total}. ${result.failed} failed — ${result.failures[0]?.error ?? "see server logs"}.`
+          : `Indexed ${result.indexed}/${result.total} properties for semantic search.`,
+      );
+    } catch (err) {
+      setReindexStatus(err instanceof ApiError ? err.message : "Couldn't reindex.");
+    }
+  }
+
+  const shownProperties = searchResults ?? properties;
 
   return (
     <AppShell
@@ -67,19 +109,54 @@ export default function PortfolioPage() {
         />
       )}
 
+      <form onSubmit={runSemanticSearch} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+        <input
+          className="potg-input"
+          style={{ width: 320 }}
+          placeholder="Semantic search, e.g. “flat under renovation in Lekki”…"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+        <button className="potg-btn potg-btn-secondary" type="submit" disabled={searching || !searchQuery.trim()}>
+          {searching ? "Searching…" : "Search"}
+        </button>
+        {searchResults && (
+          <button
+            type="button"
+            className="potg-btn potg-btn-secondary"
+            onClick={() => {
+              setSearchResults(null);
+              setSearchQuery("");
+              setSearchError(null);
+            }}
+          >
+            Clear search
+          </button>
+        )}
+        <button type="button" className="potg-btn potg-btn-secondary" onClick={runReindex}>
+          Reindex for search
+        </button>
+      </form>
+      {searchError && <div className="potg-error" style={{ marginBottom: 16 }}>{searchError}</div>}
+      {reindexStatus && (
+        <p className="potg-muted" style={{ fontSize: 12, marginBottom: 16 }}>
+          {reindexStatus}
+        </p>
+      )}
+
       {!properties && !error && <p className="potg-muted">Loading your portfolio…</p>}
 
-      {properties && properties.length === 0 && (
+      {shownProperties && shownProperties.length === 0 && (
         <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
           <p className="potg-muted" style={{ margin: 0 }}>
-            No properties yet. Add your first one, or ask the AI panel to help you get started.
+            {searchResults ? "No properties matched that search." : "No properties yet. Add your first one, or ask the AI panel to help you get started."}
           </p>
         </div>
       )}
 
-      {properties && properties.length > 0 && (
+      {shownProperties && shownProperties.length > 0 && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
-          {properties.map((p) => (
+          {shownProperties.map((p) => (
             <Link key={p.id} href={`/properties/${p.id}`} className="potg-card" style={{ display: "block", padding: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                 <h3 style={{ fontSize: 15 }}>{p.name}</h3>

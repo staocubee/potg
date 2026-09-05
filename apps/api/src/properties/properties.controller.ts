@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -36,6 +36,26 @@ export class PropertiesController {
   @Get()
   findAll(@CurrentAccountMember() member: AccountMemberCtx) {
     return this.properties.findAllForAccount(member.accountId);
+  }
+
+  // Semantic search over this account's portfolio — the "vector DB for AI
+  // context retrieval" gap the Technical Architecture section calls out.
+  // Must be registered before GET :propertyId below so "search" doesn't
+  // get swallowed as a property id.
+  @RequirePermissions('property:read')
+  @Get('search')
+  semanticSearch(@CurrentAccountMember() member: AccountMemberCtx, @Query('q') q: string) {
+    return this.properties.semanticSearch(member.accountId, q);
+  }
+
+  // Manual backfill/reindex — see PropertiesService.reindexEmbeddings's
+  // own comment on why this exists alongside the automatic on-create
+  // indexing. property:write since it's a write to this account's own
+  // derived search data, not a new permission tier.
+  @RequirePermissions('property:write')
+  @Post('reindex-embeddings')
+  reindexEmbeddings(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.properties.reindexEmbeddings(member.accountId);
   }
 
   // :propertyId (not :id) is deliberate — PermissionsGuard's ABAC check

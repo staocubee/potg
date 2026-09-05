@@ -291,8 +291,30 @@ model Property {
   leases         Lease[]
   maintenanceRequests MaintenanceRequest[]
   visualizations RenovationVisualization[]
+  embedding      PropertyEmbedding?
 
   @@map("properties")
+}
+
+// The vector half of "Search and vector infrastructure" (the other half
+// is pg_trgm fuzzy search on the three marketplaces — see the migration
+// enabling that). `embedding` is `vector(1536)` (OpenAI text-embedding-3-
+// small's own dimension) — Prisma has no native vector type, so it's
+// `Unsupported` here: every read/write of this column goes through raw
+// SQL ($queryRaw/$executeRaw) in OpenAiEmbeddingService/PropertiesService,
+// never the Prisma Client query builder. `accountId` is denormalized from
+// Property.accountId purely so semantic search can filter by account
+// directly in the raw SQL without a join — same tenant-isolation
+// boundary property:read already enforces everywhere else.
+model PropertyEmbedding {
+  propertyId String                  @id
+  accountId  String
+  embedding  Unsupported("vector(1536)")
+  updatedAt  DateTime
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("property_embeddings")
 }
 
 // --- Module 3: Ownership and Governance ---------------------------------

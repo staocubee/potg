@@ -1081,6 +1081,18 @@ export class ApiClient {
   listProperties() {
     return request<Property[]>("/properties", { token: this.token, accountId: this.accountId });
   }
+  // Semantic search (pgvector + OpenAI embeddings) — a free-text query
+  // like "flat under renovation in Lekki", not a field filter.
+  searchProperties(q: string) {
+    const params = new URLSearchParams({ q });
+    return request<Property[]>(`/properties/search?${params.toString()}`, { token: this.token, accountId: this.accountId });
+  }
+  reindexPropertyEmbeddings() {
+    return request<{ total: number; indexed: number; failed: number; failures: { propertyId: string; error: string }[] }>(
+      "/properties/reindex-embeddings",
+      { method: "POST", token: this.token, accountId: this.accountId },
+    );
+  }
   getProperty(propertyId: string) {
     return request<Property>(`/properties/${propertyId}`, { token: this.token, accountId: this.accountId });
   }

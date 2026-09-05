@@ -3620,6 +3620,83 @@ approximate matches.
   names, ...) — only the three marketplaces the blueprint's own search
   gap called out.
 
+## Semantic property search — pgvector + OpenAI embeddings (this pass)
+
+Closes the other half of "Search and vector layers still entirely
+missing" — the vector half, specifically "a vector DB for AI context
+retrieval." The decision (see the options laid out and the choice made
+when this pass started) was `pgvector` on the existing Postgres instance,
+not a dedicated vector DB service (Pinecone/Weaviate/Qdrant) — same
+reasoning as choosing `pg_trgm` over Elasticsearch above: no new service
+to run, pay for, or operate.
+
+- **`PropertyEmbedding` model** (`Unsupported("vector(1536)")` — Prisma
+  has no native vector type, so every read/write of this one column goes
+  through raw SQL, never the Prisma Client query builder) plus a
+  hand-written migration (`CREATE EXTENSION vector`, one table, no
+  ivfflat/hnsw ANN index — row counts at this scale don't need one, a
+  plain cosine-distance `ORDER BY embedding <=> query` is fast enough).
+  `accountId` is denormalized onto the embeddings table itself so
+  semantic search can filter by account directly, without a join — the
+  same tenant-isolation boundary `property:read` enforces everywhere
+  else in this codebase.
+- **`OpenAiEmbeddingService`** — the same "plain fetch, no SDK,
+  `isConfigured` gate" shape every other optional third-party
+  integration in this codebase uses (`OpenAiImageService`, `SumsubService`
+  before it). `text-embedding-3-small` (1536 dimensions), OpenAI's
+  cheapest embedding model — fine for a portfolio-search feature, not a
+  precision-critical one.
+- **Automatic indexing is fire-and-forget, not "record failure then
+  re-throw"** — a deliberate difference from the visualizer/identity
+  services' own pattern. A property's embedding is an enrichment nobody
+  is waiting on synchronously; `PropertiesService.create` calls
+  `indexEmbedding` without awaiting its result on the response path, and
+  swallows+logs any failure so an unconfigured or out-of-credit OpenAI
+  account never breaks property creation itself. There's no `update()`
+  endpoint on `Property` in this scaffold yet, so create is currently the
+  only automatic trigger.
+- **Manual reindex for backfill**: `POST /properties/reindex-embeddings`
+  (account-scoped) re-embeds every property on the current account,
+  sequentially (gentle on OpenAI's own rate limit, not `Promise.all`),
+  collecting per-property failures instead of aborting the whole batch on
+  the first one — since "OpenAI has no credit" fails every property
+  identically, the caller should see that clearly rather than a single
+  opaque 500.
+- **`GET /properties/search?q=...`** (account-scoped): embeds the query,
+  then the exact same "raw SQL ranks ids by relevance, Prisma hydrates
+  the full typed rows, JS `.sort()` restores order" split the pg_trgm
+  marketplace search above uses — cosine distance (`<=>`) instead of
+  `word_similarity()` is the only real difference.
+- **Web**: a "Semantic search" box on the Portfolio page
+  (`pages/properties/index.tsx`), separate from the plain property list
+  rather than a client-side filter of it, and a "Reindex for search"
+  button for backfill. Deliberately submit-only (Enter/button), not
+  debounced-as-you-type like the free pg_trgm search — each call is a
+  real OpenAI API request, not a free Postgres query.
+- **Verified live, honestly**: every part of the pipeline that doesn't
+  require an actual OpenAI response — routing (`/properties/search`
+  registered ahead of `GET :propertyId` so it isn't swallowed as a
+  property id), auth/account-scoping, the fire-and-forget hook not
+  blocking property creation (confirmed: creating a property returned
+  immediately, with a `Skipping embedding for property ...` warning
+  logged afterward), and both new endpoints surfacing a clean, specific
+  `BadRequestException` instead of a crash or opaque 500 — all verified
+  live against the real running app. The embedding call itself hits the
+  same pre-existing OpenAI billing block already documented for the
+  visualizer (`"You have no credits remaining"` — confirmed live, both
+  from the reindex button and the search box); this is an account-level
+  limitation on the user's end already flagged as an open, acknowledged
+  item, not a code bug, and this pass didn't attempt to work around it or
+  fake a result.
+- **Not done**: no automatic re-indexing on property update (no
+  `PATCH`/update endpoint exists on `Property` at all yet — nothing to
+  hook), no embeddings for anything other than `Property` (listings,
+  vendors, projects, documents — all still pg_trgm/exact-match only), no
+  hybrid search combining vector similarity with the pg_trgm results
+  above, and — same honest caveat as the AI-generated visualizer — no
+  actual embedding has ever been generated end-to-end, since that
+  requires OpenAI credit this account doesn't currently have.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -3823,20 +3900,25 @@ blueprint, or explicitly cut from it:
   authenticate with a bearer header, only a browser holding the httpOnly
   cookies can — a production system serving non-browser clients too would
   need a second auth mechanism (API keys) alongside this one.
-- **Vector layer for AI context retrieval still missing; object storage
-  now exists, but only for one narrow purpose.** A vector DB (or
-  `pgvector` on the existing Postgres) for AI context retrieval — the
-  Technical Architecture section calls it out, it isn't wired up here.
-  The search half of this same bullet is now closed — see "Fuzzy
-  free-text search for all three marketplaces" above — with Postgres
-  `pg_trgm` rather than a real Elasticsearch/OpenSearch cluster; that's
-  honestly not the same thing as Elasticsearch (no fielded queries, no
-  relevance tuning, no distributed index), but it does close the actual
-  "can't search by name/keyword" gap for listings, vendors, and
-  materials. S3-compatible object storage is no longer *entirely*
-  missing either: `StorageService` (see "AI-generated renovation
-  visualizations" above) uploads to Cloudflare R2, but only for
-  AI-generated visualization images — it's not a general upload
+- **Both halves of "Search and vector layers" now wired, neither one a
+  literal match for what the Technical Architecture section named; object
+  storage exists, but only for one narrow purpose.** The search half —
+  see "Fuzzy free-text search for all three marketplaces" above — uses
+  Postgres `pg_trgm`, not a real Elasticsearch/OpenSearch cluster: no
+  fielded queries, no relevance tuning, no distributed index, but it does
+  close the actual "can't search by name/keyword" gap for listings,
+  vendors, and materials. The vector half — see "Semantic property search
+  — pgvector + OpenAI embeddings" above — uses `pgvector` on the same
+  Postgres instance rather than a dedicated vector DB service, and is
+  fully wired for `Property` only (routing, auth/account-scoping, and
+  error handling all verified live) but has never actually generated a
+  real embedding end-to-end: it hits the same pre-existing OpenAI billing
+  block already documented for the visualizer below. Neither pass stood
+  up new infrastructure to run or pay for — that was the explicit
+  tradeoff made when choosing them. S3-compatible object storage is no
+  longer *entirely* missing either: `StorageService` (see "AI-generated
+  renovation visualizations" above) uploads to Cloudflare R2, but only
+  for AI-generated visualization images — it's not a general upload
   pipeline. `Document.fileUrl` still expects a URL you provide yourself,
   same as before.
 - **Payment/escrow licensing, market-specific verification mechanisms,
