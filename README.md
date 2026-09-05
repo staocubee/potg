@@ -4254,17 +4254,73 @@ source.
   properties in the same metro area but a differently-spelled or
   differently-granular city field won't match each other.
 
+## Risk flags for projects and leases (this pass)
+
+Closes the other named sub-piece of "the rest of risk flags/trust scores
+beyond listings and vendors/suppliers" — `assess_listing_risk` was the
+only entity with an explicit, flat risk-flag list; a project or a lease
+only ever got prose narration (`summarize_project`,
+`summarize_lease_status`) with no discrete "here's what's wrong" output
+to act on.
+
+- **`assess_project_risk`** — account-scoped (`ctx.accountId`), unlike
+  `assess_listing_risk`: a project has no public/buyer-facing angle a
+  marketplace listing does, so there's no reason for anyone outside the
+  owning account to ask whether it looks risky. Flags overdue milestones,
+  open disputes, spend released exceeding the project's own budget, and
+  a project marked `in_progress` with no vendor assigned at all.
+- **`assess_lease_risk`** — scoped at the *property* level, same
+  `moduleContextPrefix` `summarize_lease_status` already uses, not
+  per-lease: a property can carry more than one lease over time, and
+  "which of this property's leases need attention" is the real
+  owner-facing question. Flags each active lease that looks overdue
+  (the identical anchor/period-day calculation `summarize_lease_status`
+  already uses) or is ending within 60 days.
+- **Both are separate skills from their existing `summarize_*`
+  counterparts, not replacements for them** — the same split
+  `assess_listing_risk`/`summarize_listing` already draws for listings:
+  the `summarize_*` skill narrates overall health in prose: this pair
+  produces a flat, explicit flag list plus a `warn` boolean a caller can
+  act on without parsing a paragraph. Both reach the account's existing
+  Ask AI panel automatically (`AskAiPanel` renders every registered
+  skill generically) — no new REST endpoint, no new dashboard card,
+  matching `assess_listing_risk`'s own footprint exactly rather than
+  the fuller service+endpoint+web-card treatment the comparable-
+  valuation pass just above used.
+- **Verified live against real data**: ran `assess_project_risk` against
+  the demo "Kitchen Renovation" project (which was carrying a real
+  `under_review` test dispute from an earlier pass's own verification)
+  and got back `"1 open dispute(s) on this project"` with `warn: true`;
+  ran `assess_lease_risk` against "14 Ocean Drive" (carrying a real
+  overdue lease from earlier seed/test data) and got back `"Overdue
+  Test Tenant: rent looks ~66 day(s) overdue"` with `warn: true`;
+  confirmed the clean path too — a property with no leases at all
+  returned `"No risk factors flagged..."` with `warn: false`, not an
+  error.
+- **Not done**: no persisted/historical risk score (each call
+  recomputes fresh from current data, same as every other `assess_*`/
+  `summarize_*` skill in this registry); no portfolio-wide "show me
+  every at-risk project/lease" view — each skill answers for one
+  project or one property at a time, reachable only through that
+  record's own Ask AI panel, not a cross-portfolio dashboard.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
 blueprint, or explicitly cut from it:
 
 - **Modules 6, 14, 16-24** (the full property-verification/trust
-  workflow — the rest of risk flags/trust scores beyond listings and
-  vendors/suppliers; compliance, community management, AR/VR, admin
+  workflow; compliance, community management, AR/VR, admin
   operations, ...) — this scaffold now proves the pattern for Modules 1,
   2, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12, 13, 14, 15, and 23, not
-  the full 24. Module 15 is a bigger slice now too — see "A comparable-
+  the full 24. Module 6's risk-flag coverage is wider now too — see
+  "Risk flags for projects and leases" above: `assess_listing_risk` used
+  to be the only entity with a flat, explicit flag list; `Project` and
+  `Lease` now have the same treatment (`assess_project_risk`,
+  `assess_lease_risk`). Still not extended to `Vendor`/`Supplier` beyond
+  their existing trust-score computation, and no cross-portfolio "show
+  every at-risk record" view exists — each skill answers for one record
+  at a time. Module 15 is a bigger slice now too — see "A comparable-
   sales valuation estimate" above: a real automated estimate from other
   active sale listings nearby, alongside the manual/AI-narrated history
   and rent/hold-sell modeling that already existed. Still not a real

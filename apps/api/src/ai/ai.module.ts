@@ -30,6 +30,8 @@ import { explainSupplierTrustScoreSkill } from './skills/explain-supplier-trust-
 import { summarizeRentalBookingsSkill } from './skills/summarize-rental-bookings.skill';
 import { summarizeMyTenancySkill } from './skills/summarize-my-tenancy.skill';
 import { estimateComparableValueSkill } from './skills/estimate-comparable-value.skill';
+import { assessProjectRiskSkill } from './skills/assess-project-risk.skill';
+import { assessLeaseRiskSkill } from './skills/assess-lease-risk.skill';
 
 @Module({
   imports: [ProjectsModule, ListingsModule],
@@ -76,6 +78,8 @@ import { estimateComparableValueSkill } from './skills/estimate-comparable-value
         summarizeRentalBookingsSkill,
         summarizeMyTenancySkill,
         estimateComparableValueSkill,
+        assessProjectRiskSkill,
+        assessLeaseRiskSkill,
       ],
     },
   ],
