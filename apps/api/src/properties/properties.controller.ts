@@ -1,12 +1,13 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
-import { CurrentAccountMember } from '../common/decorators/current-user.decorator';
+import { CurrentAccountMember, CurrentUser } from '../common/decorators/current-user.decorator';
 import { PropertiesService } from './properties.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { CreateValuationDto } from './dto/create-valuation.dto';
+import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { ScheduleInspectionDto } from './dto/schedule-inspection.dto';
 import { UpdateInspectionDto } from './dto/update-inspection.dto';
 import { CompleteInspectionDto } from './dto/complete-inspection.dto';
@@ -20,6 +21,7 @@ import { StartMaintenanceRequestDto } from './dto/start-maintenance-request.dto'
 import { ResolveMaintenanceRequestDto } from './dto/resolve-maintenance-request.dto';
 
 type AccountMemberCtx = { accountId: string };
+type UserCtx = { id: string };
 
 @UseGuards(JwtAuthGuard, AccountContextGuard, PermissionsGuard)
 @Controller('properties')
@@ -56,6 +58,33 @@ export class PropertiesController {
   @Post('reindex-embeddings')
   reindexEmbeddings(@CurrentAccountMember() member: AccountMemberCtx) {
     return this.properties.reindexEmbeddings(member.accountId);
+  }
+
+  // "Community management" — account-wide, like search/reindex-embeddings
+  // above, not nested under :propertyId (an announcement can reach the
+  // whole portfolio — see PropertyAnnouncement's own schema comment).
+  // Must be registered before GET :propertyId below, same reasoning
+  // semanticSearch's own comment gives for "search".
+  @RequirePermissions('property:write')
+  @Post('announcements')
+  createAnnouncement(
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @CurrentUser() user: UserCtx,
+    @Body() dto: CreateAnnouncementDto,
+  ) {
+    return this.properties.createAnnouncement(member.accountId, user.id, dto);
+  }
+
+  @RequirePermissions('property:read')
+  @Get('announcements')
+  findAnnouncements(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.properties.findAnnouncements(member.accountId);
+  }
+
+  @RequirePermissions('property:write')
+  @Delete('announcements/:announcementId')
+  deleteAnnouncement(@CurrentAccountMember() member: AccountMemberCtx, @Param('announcementId') announcementId: string) {
+    return this.properties.deleteAnnouncement(member.accountId, announcementId);
   }
 
   // :propertyId (not :id) is deliberate — PermissionsGuard's ABAC check

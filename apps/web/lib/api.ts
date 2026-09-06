@@ -241,6 +241,17 @@ export type Property = {
   timelineEvents?: PropertyTimelineEvent[];
 };
 
+export type Announcement = {
+  id: string;
+  accountId: string;
+  propertyId?: string | null;
+  title: string;
+  body: string;
+  createdByUserId: string;
+  createdAt: string;
+  property?: { id: string; name: string } | null;
+};
+
 export type PropertyDocument = {
   id: string;
   documentType: string;
@@ -1199,6 +1210,27 @@ export class ApiClient {
   }) {
     return request<Property>("/properties", { method: "POST", body: input, token: this.token, accountId: this.accountId });
   }
+  // "Community management" — account-wide (no propertyId means every
+  // tenant across the portfolio, see PropertyAnnouncement's own schema
+  // comment), not nested under one property's own routes.
+  listAnnouncements() {
+    return request<Announcement[]>("/properties/announcements", { token: this.token, accountId: this.accountId });
+  }
+  createAnnouncement(input: { title: string; body: string; propertyId?: string }) {
+    return request<Announcement>("/properties/announcements", {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  deleteAnnouncement(announcementId: string) {
+    return request<{ deleted: boolean }>(`/properties/announcements/${announcementId}`, {
+      method: "DELETE",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   addValuation(propertyId: string, input: { estimatedValue: number; currency?: string; source?: string; notes?: string }) {
     return request<PropertyValuation>(`/properties/${propertyId}/valuations`, {
       method: "POST",
@@ -1405,6 +1437,9 @@ export class ApiClient {
   }
   myTenantDocuments() {
     return request<AppDocument[]>("/tenant/documents", { token: this.token, accountId: this.accountId });
+  }
+  myTenantAnnouncements() {
+    return request<Announcement[]>("/tenant/announcements", { token: this.token, accountId: this.accountId });
   }
   updateMaintenanceRequest(propertyId: string, requestId: string, input: { title?: string; description?: string; priority?: string }) {
     return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests/${requestId}`, {

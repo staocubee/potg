@@ -4,6 +4,7 @@ import { OpenAiEmbeddingService } from './openai-embedding.service';
 import { Property } from '@prisma/client';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { CreateValuationDto } from './dto/create-valuation.dto';
+import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { ScheduleInspectionDto } from './dto/schedule-inspection.dto';
 import { UpdateInspectionDto } from './dto/update-inspection.dto';
 import { CompleteInspectionDto } from './dto/complete-inspection.dto';
@@ -161,6 +162,42 @@ export class PropertiesService {
         timelineEvents: { orderBy: { occurredAt: 'asc' } },
       },
     });
+  }
+
+  // "Community management" — see PropertyAnnouncement's own schema
+  // comment for the full scoping reasoning. Account-scoped like
+  // findAllForAccount above, not nested under :propertyId — an
+  // announcement can reach the whole portfolio, not just one property —
+  // so propertyId (when given) is validated by hand here rather than by
+  // PermissionsGuard's own :propertyId ABAC, which only ever fires for a
+  // route *param* literally named :propertyId, never a body field.
+  async createAnnouncement(accountId: string, createdByUserId: string, dto: CreateAnnouncementDto) {
+    if (dto.propertyId) {
+      const property = await this.prisma.property.findUnique({ where: { id: dto.propertyId } });
+      if (!property || property.accountId !== accountId) {
+        throw new NotFoundException('Property not found');
+      }
+    }
+    return this.prisma.propertyAnnouncement.create({
+      data: { accountId, createdByUserId, title: dto.title, body: dto.body, propertyId: dto.propertyId },
+    });
+  }
+
+  findAnnouncements(accountId: string) {
+    return this.prisma.propertyAnnouncement.findMany({
+      where: { accountId },
+      include: { property: { select: { id: true, name: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async deleteAnnouncement(accountId: string, announcementId: string) {
+    const announcement = await this.prisma.propertyAnnouncement.findUnique({ where: { id: announcementId } });
+    if (!announcement || announcement.accountId !== accountId) {
+      throw new NotFoundException('Announcement not found');
+    }
+    await this.prisma.propertyAnnouncement.delete({ where: { id: announcementId } });
+    return { deleted: true };
   }
 
   // Module 15's "manual valuation records... appreciation tracking" — a

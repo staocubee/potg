@@ -41,6 +41,12 @@ export class TenantController {
     return this.tenant.findMyDocuments(member.accountId);
   }
 
+  @RequirePermissions('lease:read')
+  @Get('announcements')
+  findMyAnnouncements(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.tenant.findMyAnnouncements(member.accountId);
+  }
+
   @RequirePermissions('maintenance:write')
   @Post('maintenance-requests')
   reportMaintenanceRequest(

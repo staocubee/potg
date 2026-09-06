@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { ApiError, AppDocument, Lease, MaintenanceRequest } from "../../lib/api";
+import { ApiError, Announcement, AppDocument, Lease, MaintenanceRequest } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 
@@ -26,6 +26,7 @@ export default function TenantLeasePage() {
   const [lease, setLease] = useState<Lease | null | undefined>(undefined); // undefined = loading
   const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
   const [documents, setDocuments] = useState<AppDocument[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
@@ -36,10 +37,16 @@ export default function TenantLeasePage() {
       .myTenantLease()
       .then((l) => {
         setLease(l);
-        if (l) return Promise.all([auth.api.myTenantMaintenanceRequests(), auth.api.myTenantDocuments()]).then(([r, d]) => {
-          setRequests(r);
-          setDocuments(d);
-        });
+        if (l)
+          return Promise.all([
+            auth.api.myTenantMaintenanceRequests(),
+            auth.api.myTenantDocuments(),
+            auth.api.myTenantAnnouncements(),
+          ]).then(([r, d, a]) => {
+            setRequests(r);
+            setDocuments(d);
+            setAnnouncements(a);
+          });
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load your lease."));
   }
@@ -79,6 +86,23 @@ export default function TenantLeasePage() {
 
       {lease && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {announcements.length > 0 && (
+            <div className="potg-card" style={{ padding: 18 }}>
+              <h3 style={{ fontSize: 14, marginBottom: 10 }}>Announcements from your landlord</h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {announcements.map((a) => (
+                  <div key={a.id} style={{ borderTop: "1px solid var(--potg-border)", paddingTop: 8 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}>{a.title}</div>
+                    <p style={{ fontSize: 12, margin: "2px 0 0" }}>{a.body}</p>
+                    <p className="potg-muted" style={{ fontSize: 10, margin: "4px 0 0" }}>
+                      {new Date(a.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div>

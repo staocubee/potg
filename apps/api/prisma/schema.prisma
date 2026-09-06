@@ -80,6 +80,7 @@ model Account {
   tenantLeases    Lease[]          @relation("TenantAccountLeases")
   reportDefinitions ReportDefinition[]
   adminActions    PlatformAdminAction[]
+  announcements   PropertyAnnouncement[]
 
   @@map("accounts")
 }
@@ -367,6 +368,7 @@ model Property {
   maintenanceRequests MaintenanceRequest[]
   visualizations RenovationVisualization[]
   embedding      PropertyEmbedding?
+  announcements  PropertyAnnouncement[]
 
   @@map("properties")
 }
@@ -1471,6 +1473,35 @@ model MaintenanceRequest {
   assignedVendor Vendor?  @relation(fields: [assignedVendorId], references: [id], onDelete: SetNull)
 
   @@map("maintenance_requests")
+}
+
+// "Community management" — the second, and last, sub-piece the genuinely
+// undefined Modules 3, 16-21, 24 bucket has real scope for (see "Admin
+// operations" above for the first). No blueprint text names what this
+// bucket contains beyond the bare label, but "community management" in
+// every real property-management product means the same thing: a
+// landlord communicating with the tenants of its own portfolio — an
+// announcement/notice board, not a social feature. propertyId is
+// deliberately nullable: null reaches every tenant currently linked to
+// any of this account's properties (a portfolio-wide notice — "the
+// tenant portal will be down this weekend"), set reaches only that one
+// property's own tenant(s) (a building-specific notice — "the elevator
+// is broken"). Read entirely through TenantService.findMyAnnouncements,
+// the same "my own thing, never an id the caller supplies" shape every
+// other tenant-facing route already uses.
+model PropertyAnnouncement {
+  id              String   @id @default(uuid())
+  accountId       String
+  propertyId      String?
+  title           String
+  body            String
+  createdByUserId String
+  createdAt       DateTime @default(now())
+
+  account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("property_announcements")
 }
 
 // The 2D half of "AI-generated renovation visualizations" (Priority 6's

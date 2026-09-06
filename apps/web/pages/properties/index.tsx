@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Property } from "../../lib/api";
+import { ApiError, Announcement, Property } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 
@@ -99,6 +99,8 @@ export default function PortfolioPage() {
       aiPanel={auth.currentAccountId ? <AskAiPanel moduleContext={`account:${auth.currentAccountId}`} heading="Portfolio AI" /> : undefined}
     >
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
+
+      <AnnouncementsCard properties={properties ?? []} />
 
       {showForm && (
         <AddPropertyForm
@@ -255,6 +257,151 @@ function AddPropertyForm({ onCreated }: { onCreated: (p: Property) => void }) {
       <div>
         <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
           {busy ? "Adding…" : "Add property"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+// "Community management" — the landlord-facing half. Self-fetching, same
+// pattern every other account-wide card in this app uses (DigestSubscriptionCard,
+// AtRiskOverviewCard, ...). propertyId left blank in the form means "every
+// tenant across the portfolio" — see PropertyAnnouncement's own schema
+// comment for why that's the deliberate default, not an oversight.
+function AnnouncementsCard({ properties }: { properties: Property[] }) {
+  const auth = useAuth();
+  const [announcements, setAnnouncements] = useState<Announcement[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+
+  function load() {
+    if (!auth.currentAccountId) return;
+    auth.api
+      .listAnnouncements()
+      .then(setAnnouncements)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load announcements."));
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  async function onDelete(id: string) {
+    try {
+      await auth.api.deleteAnnouncement(id);
+      setAnnouncements((prev) => (prev ?? []).filter((a) => a.id !== id));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't delete that announcement.");
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 18, marginBottom: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <h3 style={{ fontSize: 14, margin: 0 }}>Announcements to your tenants</h3>
+        <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
+          {showForm ? "Cancel" : "+ New announcement"}
+        </button>
+      </div>
+      {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+      {showForm && (
+        <NewAnnouncementForm
+          properties={properties}
+          onCreated={(a) => {
+            // The create response has no joined `property` (a plain
+            // Prisma .create(), not the .findMany({ include }) list
+            // endpoint uses) — resolve it from the properties already in
+            // hand rather than showing "All properties" for a scoped
+            // announcement until the next reload corrects it.
+            const property = a.propertyId ? properties.find((p) => p.id === a.propertyId) : null;
+            setAnnouncements((prev) => [
+              { ...a, property: property ? { id: property.id, name: property.name } : null },
+              ...(prev ?? []),
+            ]);
+            setShowForm(false);
+          }}
+        />
+      )}
+      {announcements && announcements.length === 0 && !showForm && (
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+          No announcements sent yet. Tenants linked to your properties will see one here the moment you post it.
+        </p>
+      )}
+      {announcements && announcements.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: showForm ? 12 : 0 }}>
+          {announcements.map((a) => (
+            <div key={a.id} style={{ borderTop: "1px solid var(--potg-border)", paddingTop: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{a.title}</div>
+                  <p className="potg-muted" style={{ fontSize: 12, margin: "2px 0 0" }}>{a.body}</p>
+                  <p className="potg-muted" style={{ fontSize: 10, margin: "4px 0 0" }}>
+                    {a.property ? a.property.name : "All properties"} · {new Date(a.createdAt).toLocaleDateString()}
+                  </p>
+                </div>
+                <button
+                  className="potg-btn potg-btn-secondary"
+                  style={{ padding: "3px 8px", fontSize: 11, flexShrink: 0, marginLeft: 10 }}
+                  onClick={() => onDelete(a.id)}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NewAnnouncementForm({ properties, onCreated }: { properties: Property[]; onCreated: (a: Announcement) => void }) {
+  const auth = useAuth();
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [propertyId, setPropertyId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!title.trim() || !body.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const a = await auth.api.createAnnouncement({
+        title: title.trim(),
+        body: body.trim(),
+        propertyId: propertyId || undefined,
+      });
+      onCreated(a);
+      setTitle("");
+      setBody("");
+      setPropertyId("");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't post that announcement.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
+      {error && <div className="potg-error">{error}</div>}
+      <input className="potg-input" required autoFocus placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
+      <textarea className="potg-input" rows={2} required placeholder="Message" value={body} onChange={(e) => setBody(e.target.value)} />
+      <select className="potg-input" value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
+        <option value="">All properties (every tenant in your portfolio)</option>
+        {properties.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name} only
+          </option>
+        ))}
+      </select>
+      <div>
+        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !title.trim() || !body.trim()}>
+          {busy ? "Posting…" : "Post announcement"}
         </button>
       </div>
     </form>

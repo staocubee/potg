@@ -4540,6 +4540,66 @@ closing a defined gap.
   regulatory work — that's still Section 15, tracked but not done by
   code, same as the compliance tracker above.
 
+## Community management — landlord-to-tenant announcements (this pass)
+
+The second, and last, sub-piece the genuinely undefined Modules 3,
+16-21, 24 bucket has real scope for — see "Admin operations" above for
+the first, and its own comment for why building this bucket at all
+means picking a scope rather than finding one in a blueprint that never
+names what it contains. "Community management" means the same thing in
+every real property-management product: a landlord communicating with
+the tenants of its own portfolio — an announcement/notice board, not a
+social feature.
+
+- **`PropertyAnnouncement`** — `propertyId` is deliberately nullable:
+  null reaches every tenant currently linked to any of the account's
+  properties (a portfolio-wide notice — "the tenant portal will be down
+  this weekend"), set reaches only that one property's own tenant(s) (a
+  building-specific notice — "the elevator is broken"). No new
+  permission keys — reuses `property:write`/`property:read` for the
+  landlord side and `lease:read` for the tenant side, the same "reuse
+  what already gates the exact same tenancy" reasoning `TenantController`
+  itself documents for every one of its own routes.
+- **`POST/GET/DELETE /properties/announcements`** — account-wide, not
+  nested under `:propertyId` (an announcement can reach the whole
+  portfolio), registered before `GET /properties/:propertyId` for the
+  same route-ordering reason `semanticSearch`'s own comment gives for
+  "search". A `propertyId` supplied in the body is validated by hand
+  against the caller's own account — `PermissionsGuard`'s `:propertyId`
+  ABAC only ever fires for a route *param* of that exact name, never a
+  body field.
+- **`GET /tenant/announcements`** — a tenant sees exactly two kinds: one
+  scoped to its own leased property, and any portfolio-wide one from the
+  same account that owns that property. Never another landlord's
+  account, and never another property's own announcement — enforced by
+  the query itself (`propertyId = my lease's property OR (propertyId IS
+  NULL AND accountId = my property's owning account)`), on top of
+  `AccountContextGuard`'s own membership check, which already refuses
+  the request entirely for an account the caller doesn't belong to.
+- **Web**: an "Announcements to your tenants" card on the Portfolio page
+  (create/list/delete, with a property picker defaulting to "All
+  properties"), and an "Announcements from your landlord" card at the
+  top of the tenant's own "My Lease" page.
+- **A real bug found and fixed during verification**: the create
+  response is a plain `Prisma.create()` result with no joined
+  `property` — the web page's optimistic list update was showing "All
+  properties" for a announcement actually scoped to one property, until
+  the next full reload corrected it. Fixed by resolving the property
+  name client-side from the portfolio list already in hand, rather than
+  trusting the raw create response's shape to match the list endpoint's
+  joined one.
+- **Verified live end-to-end**: posted one portfolio-wide and one
+  property-scoped announcement as the demo owner, confirmed both showed
+  the correct property label immediately (no reload needed, post-fix),
+  switched to the linked "Demo Tenant" account and confirmed both
+  appeared in `GET /tenant/announcements` — the property-scoped one
+  because it matches the tenant's own lease, the portfolio-wide one
+  because it matches the owning account — and confirmed delete removes
+  one from the landlord's own list.
+- **Not done**: no read receipts, no notification (email/push) when one
+  is posted — a tenant only sees it by opening their own portal; no edit
+  after posting, only delete-and-repost.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -4549,13 +4609,16 @@ blueprint, or explicitly cut from it:
   workflow; compliance, community management, AR/VR, admin
   operations, ...) — this scaffold now proves the pattern for Modules 1,
   2, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12, 13, 14, 15, 23, and now
-  a first slice of the 16-24 bucket itself — see "Admin operations — a
-  platform accounts directory and account suspension" above: a
-  `platform_admin` role, a cross-tenant accounts directory, account
-  suspension/reinstatement (wiring up `Account.status`, unused since
-  Module 1), and an audit log. "Community management" and the rest of
-  16-24 beyond that one slice are still genuinely unscoped — no blueprint
-  text anywhere names what they contain. Module 6's risk-flag coverage is
+  two real slices of the 16-24 bucket itself — see "Admin operations — a
+  platform accounts directory and account suspension" and "Community
+  management — landlord-to-tenant announcements" above: a `platform_admin`
+  role with a cross-tenant accounts directory, account suspension/
+  reinstatement (wiring up `Account.status`, unused since Module 1), and
+  an audit log; and a landlord-to-tenant announcement board, scoped
+  either to one property or the whole portfolio. Both are the only real
+  scope this bucket has ever had — no blueprint text anywhere names what
+  the rest of Modules 3, 17-21, 24 actually contain, so nothing further
+  here is buildable without real input. Module 6's risk-flag coverage is
   complete now across every entity type that has one — see "Risk flags
   for projects and leases" and
   "Risk flags for vendors and suppliers" above: `assess_listing_risk` used

@@ -60,6 +60,27 @@ export class TenantService {
     });
   }
 
+  // "Community management," the tenant-facing read half — see
+  // PropertyAnnouncement's own schema comment for the full scoping
+  // reasoning. Reuses lease:read, same as findMyLease, not a new
+  // permission — an announcement is landlord-to-tenant content about the
+  // exact same tenancy that permission already gates. A tenant sees
+  // exactly two kinds: one scoped to its own leased property, and any
+  // portfolio-wide one (propertyId null) from the same account that owns
+  // that property — never another landlord's account, and never another
+  // property's own announcement.
+  async findMyAnnouncements(accountId: string) {
+    const lease = await this.requireMyLease(accountId);
+    const property = await this.prisma.property.findUniqueOrThrow({
+      where: { id: lease.propertyId },
+      select: { accountId: true },
+    });
+    return this.prisma.propertyAnnouncement.findMany({
+      where: { OR: [{ propertyId: lease.propertyId }, { propertyId: null, accountId: property.accountId }] },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   // Reuses PropertiesService's own model shape (propertyId/leaseId set
   // from the lease, not client-supplied) but doesn't call
   // PropertiesService.reportMaintenanceRequest directly — that method
