@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../notifications/email.service';
 import { PaymentsService } from '../payments/payments.service';
+import { getVendorRiskFlags } from '../vendors/trust-score';
+import { getSupplierRiskFlags } from '../materials/trust-score';
 
 // Same 30-day-per-month approximation summarize_lease_status
 // (ai/skills/summarize-lease-status.skill.ts) already uses for "does this
@@ -282,6 +284,52 @@ export class ReportsService {
       lines.push(csvRow([`Total vendor spend (${v.currency})`, v.total]));
     }
     return lines.join('\r\n');
+  }
+
+  // The cross-portfolio "show every at-risk record" view the README used
+  // to flag as missing for vendors/suppliers — assess_vendor_risk and
+  // assess_supplier_risk (the AI skills) only ever answer for one vendor
+  // or supplier at a time, reachable only through that record's own Ask
+  // AI panel. This answers "which of the vendors/suppliers I actually
+  // work with need attention right now" across the whole account in one
+  // call. "Work with" means: a vendor with a ProjectVendorAssignment on
+  // one of this account's own projects, or a supplier this account has
+  // placed at least one Order with — not the whole marketplace, which
+  // would be meaningless for an owner account to see (thousands of
+  // vendors/suppliers it's never dealt with). Flags reuse
+  // getVendorRiskFlags/getSupplierRiskFlags word-for-word — see those
+  // functions' own comments for why this is a shared helper rather than
+  // this codebase's usual "duplicate with a cross-reference comment"
+  // convention.
+  async getAtRiskPartners(accountId: string) {
+    const [assignedVendors, orderedSuppliers] = await Promise.all([
+      this.prisma.vendor.findMany({
+        where: { assignments: { some: { project: { accountId } } } },
+        select: { id: true, businessName: true, verificationStatus: true, licenseExpiresAt: true },
+      }),
+      this.prisma.supplier.findMany({
+        where: { orders: { some: { accountId } } },
+        select: { id: true, businessName: true, verificationStatus: true },
+      }),
+    ]);
+
+    const vendorFlags = await Promise.all(
+      assignedVendors.map(async (v) => ({ id: v.id, businessName: v.businessName, flags: await getVendorRiskFlags(this.prisma, v) })),
+    );
+    const supplierFlags = await Promise.all(
+      orderedSuppliers.map(async (s) => ({ id: s.id, businessName: s.businessName, flags: await getSupplierRiskFlags(this.prisma, s) })),
+    );
+
+    return {
+      vendors: {
+        total: assignedVendors.length,
+        atRisk: vendorFlags.filter((v) => v.flags.length > 0),
+      },
+      suppliers: {
+        total: orderedSuppliers.length,
+        atRisk: supplierFlags.filter((s) => s.flags.length > 0),
+      },
+    };
   }
 
   async setDigestSubscription(accountId: string, frequency: string) {

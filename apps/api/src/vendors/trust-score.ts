@@ -74,6 +74,44 @@ export function computeVendorTrustScore(factors: VendorTrustFactors): VendorTrus
   return { score, band, factors };
 }
 
+// The flag list assess_vendor_risk (the AI skill) and
+// ReportsService.getAtRiskPartners (the cross-portfolio dashboard view)
+// both need word-for-word identical — unlike isLeaseOverdue's own
+// "duplicate with a cross-reference comment" precedent (reports.service.ts's
+// own comment), these two callers show the exact same flag strings to the
+// same account side by side (one on a vendor's own page, one on the
+// portfolio dashboard), so drift between them would be a visible
+// inconsistency, not just a maintenance annoyance. Same reasoning
+// computeVendorTrustScore itself already established for the score formula.
+export async function getVendorRiskFlags(
+  prisma: PrismaService,
+  vendor: { id: string; businessName: string; verificationStatus: string; licenseExpiresAt: Date | null },
+): Promise<string[]> {
+  const [openDisputes, latestAudit] = await Promise.all([
+    prisma.dispute.count({
+      where: { status: { in: ['open', 'under_review'] }, project: { assignments: { some: { vendorId: vendor.id } } } },
+    }),
+    prisma.vendorTrustAudit.findFirst({ where: { vendorId: vendor.id }, orderBy: { createdAt: 'desc' } }),
+  ]);
+
+  const flags: string[] = [];
+  if (vendor.verificationStatus !== 'verified') {
+    flags.push(`Vendor verification status is "${vendor.verificationStatus}", not verified`);
+  }
+  if (openDisputes > 0) {
+    flags.push(`${openDisputes} open dispute(s) on projects this vendor is assigned to`);
+  }
+  if (vendor.licenseExpiresAt != null && vendor.licenseExpiresAt.getTime() < Date.now()) {
+    flags.push('Listed professional license has expired');
+  }
+  if (latestAudit?.rating === 'major_concerns') {
+    flags.push('Most recent platform audit rated "major concerns"');
+  } else if (latestAudit?.rating === 'minor_concerns') {
+    flags.push('Most recent platform audit rated "minor concerns"');
+  }
+  return flags;
+}
+
 export async function getVendorTrustScore(
   prisma: PrismaService,
   vendor: {

@@ -1,12 +1,13 @@
 import { NotFoundException } from '@nestjs/common';
 import { AiSkill } from './ai-skill.interface';
 import { NO_INPUT_SCHEMA } from './ai-skill-input-schema';
+import { getSupplierRiskFlags } from '../../materials/trust-score';
 
 // The materials-marketplace counterpart to assess_vendor_risk — same
-// public/buyer-facing shape, swapped for supplier-appropriate signals:
-// cancelled orders stand in for open disputes (suppliers have no
-// Dispute-equivalent model — see materials/trust-score.ts's own comment
-// on cancelledOrders for why that's the closest analogue).
+// public/buyer-facing shape. The flags come from getSupplierRiskFlags
+// (materials/trust-score.ts) — shared with ReportsService.getAtRiskPartners,
+// the cross-portfolio dashboard view, so both surfaces show byte-identical
+// wording for the same supplier.
 export const assessSupplierRiskSkill: AiSkill = {
   key: 'assess_supplier_risk',
   label: 'Assess supplier risk',
@@ -19,23 +20,7 @@ export const assessSupplierRiskSkill: AiSkill = {
     const supplier = await prisma.supplier.findUnique({ where: { id: supplierId } });
     if (!supplier) throw new NotFoundException('Supplier not found');
 
-    const [cancelledOrders, latestAudit] = await Promise.all([
-      prisma.order.count({ where: { supplierId, status: 'cancelled' } }),
-      prisma.supplierTrustAudit.findFirst({ where: { supplierId }, orderBy: { createdAt: 'desc' } }),
-    ]);
-
-    const flags: string[] = [];
-    if (supplier.verificationStatus !== 'verified') {
-      flags.push(`Supplier verification status is "${supplier.verificationStatus}", not verified`);
-    }
-    if (cancelledOrders > 0) {
-      flags.push(`${cancelledOrders} cancelled order(s) on record`);
-    }
-    if (latestAudit?.rating === 'major_concerns') {
-      flags.push("Most recent platform audit rated \"major concerns\"");
-    } else if (latestAudit?.rating === 'minor_concerns') {
-      flags.push("Most recent platform audit rated \"minor concerns\"");
-    }
+    const flags = await getSupplierRiskFlags(prisma, supplier);
 
     const summary = await llm.complete({
       systemPrompt:

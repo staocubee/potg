@@ -806,6 +806,11 @@ export type PortfolioOverview = {
   topVendors: { vendorId: string; businessName: string; currency: string; total: number }[];
 };
 
+export type AtRiskPartners = {
+  vendors: { total: number; atRisk: { id: string; businessName: string; flags: string[] }[] };
+  suppliers: { total: number; atRisk: { id: string; businessName: string; flags: string[] }[] };
+};
+
 export type ReportDefinition = {
   id: string;
   accountId: string;
@@ -1715,6 +1720,9 @@ export class ApiClient {
   }
   getPortfolioOverview() {
     return request<PortfolioOverview>("/reports/portfolio-overview", { token: this.token, accountId: this.accountId });
+  }
+  getAtRiskPartners() {
+    return request<AtRiskPartners>("/reports/at-risk-partners", { token: this.token, accountId: this.accountId });
   }
   // Not routed through request<T>() — that helper only ever parses JSON
   // responses (see its own isJson check), and this one is a real CSV

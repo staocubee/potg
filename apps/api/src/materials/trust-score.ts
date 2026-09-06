@@ -51,6 +51,35 @@ export function computeSupplierTrustScore(factors: SupplierTrustFactors): Suppli
   return { score, band, factors };
 }
 
+// The supplier counterpart to vendors/trust-score.ts's own
+// getVendorRiskFlags — see that function's comment for why this is a
+// shared helper (assess_supplier_risk and ReportsService.getAtRiskPartners
+// need identical wording) rather than the codebase's usual "duplicate with
+// a cross-reference comment" convention.
+export async function getSupplierRiskFlags(
+  prisma: PrismaService,
+  supplier: { id: string; businessName: string; verificationStatus: string },
+): Promise<string[]> {
+  const [cancelledOrders, latestAudit] = await Promise.all([
+    prisma.order.count({ where: { supplierId: supplier.id, status: 'cancelled' } }),
+    prisma.supplierTrustAudit.findFirst({ where: { supplierId: supplier.id }, orderBy: { createdAt: 'desc' } }),
+  ]);
+
+  const flags: string[] = [];
+  if (supplier.verificationStatus !== 'verified') {
+    flags.push(`Supplier verification status is "${supplier.verificationStatus}", not verified`);
+  }
+  if (cancelledOrders > 0) {
+    flags.push(`${cancelledOrders} cancelled order(s) on record`);
+  }
+  if (latestAudit?.rating === 'major_concerns') {
+    flags.push('Most recent platform audit rated "major concerns"');
+  } else if (latestAudit?.rating === 'minor_concerns') {
+    flags.push('Most recent platform audit rated "minor concerns"');
+  }
+  return flags;
+}
+
 export async function getSupplierTrustScore(
   prisma: PrismaService,
   supplier: { id: string; accountId: string; verificationStatus: string; ratingAverage: unknown },
