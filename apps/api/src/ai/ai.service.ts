@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { ProjectsService } from '../projects/projects.service';
 import { ListingsService } from '../listings/listings.service';
+import { ReportsService } from '../reports/reports.service';
 import { AI_SKILLS, LLM_PROVIDER } from './llm/llm.constants';
 import { AiSkill } from './skills/ai-skill.interface';
 import { AiSkillInputSchema } from './skills/ai-skill-input-schema';
@@ -40,6 +41,7 @@ export class AiService {
     private readonly prisma: PrismaService,
     private readonly projects: ProjectsService,
     private readonly listings: ListingsService,
+    private readonly reports: ReportsService,
     @Inject(AI_SKILLS) skills: AiSkill[],
     @Inject(LLM_PROVIDER) private readonly llm: LlmProvider,
   ) {
@@ -141,7 +143,7 @@ export class AiService {
       { accountId: accountMember.accountId, accountMemberId: accountMember.id, permissions },
       moduleContext,
       coercedInput,
-      { prisma: this.prisma, llm: this.llm },
+      { prisma: this.prisma, llm: this.llm, reports: this.reports },
     );
 
     const output = await this.prisma.aiOutput.create({

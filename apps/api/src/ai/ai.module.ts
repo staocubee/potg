@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ProjectsModule } from '../projects/projects.module';
 import { ListingsModule } from '../listings/listings.module';
+import { ReportsModule } from '../reports/reports.module';
 import { AiService } from './ai.service';
 import { ChatService } from './chat.service';
 import { AiController } from './ai.controller';
@@ -32,9 +33,10 @@ import { summarizeMyTenancySkill } from './skills/summarize-my-tenancy.skill';
 import { estimateComparableValueSkill } from './skills/estimate-comparable-value.skill';
 import { assessProjectRiskSkill } from './skills/assess-project-risk.skill';
 import { assessLeaseRiskSkill } from './skills/assess-lease-risk.skill';
+import { narrateReportSkill } from './skills/narrate-report.skill';
 
 @Module({
-  imports: [ProjectsModule, ListingsModule],
+  imports: [ProjectsModule, ListingsModule, ReportsModule],
   controllers: [AiController],
   providers: [
     AiService,
@@ -80,6 +82,7 @@ import { assessLeaseRiskSkill } from './skills/assess-lease-risk.skill';
         estimateComparableValueSkill,
         assessProjectRiskSkill,
         assessLeaseRiskSkill,
+        narrateReportSkill,
       ],
     },
   ],

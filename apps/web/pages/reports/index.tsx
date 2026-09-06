@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
 import { ApiError, PortfolioOverview, ReportDefinition } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import AiDraftCard, { DraftDecision } from "../../components/AiDraftCard";
 
 const DIGEST_FREQUENCIES = ["off", "weekly", "monthly"] as const;
 
@@ -304,6 +305,13 @@ function ReportBuilderCard() {
   const [runResult, setRunResult] = useState<{ id: string; name: string; rows: { label: string; value: string | number }[] } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
+  // Keyed by report definition id — narrate_report's own AiOutput per
+  // saved report, rendered with the same AiDraftCard/Accept-Edit-Discard
+  // flow every other AI draft in this app already uses (Section 5.4's
+  // human-in-the-loop rule applies here too, not just to chat).
+  const [narrations, setNarrations] = useState<Record<string, { outputId: string; draftLabel: string; items: string[]; warn: boolean }>>({});
+  const [narrationDecisions, setNarrationDecisions] = useState<Record<string, DraftDecision>>({});
+
   function load() {
     if (!auth.currentAccountId) return;
     Promise.all([auth.api.listReportMetrics(), auth.api.listReportDefinitions()])
@@ -366,6 +374,32 @@ function ReportBuilderCard() {
     }
   }
 
+  async function onNarrate(def: ReportDefinition) {
+    if (!auth.currentAccountId) return;
+    setBusyId(def.id);
+    setError(null);
+    try {
+      const result = await auth.api.runAiAction(`account:${auth.currentAccountId}`, "narrate_report", {
+        reportDefinitionId: def.id,
+      });
+      setNarrations((prev) => ({ ...prev, [def.id]: result }));
+      setNarrationDecisions((prev) => {
+        const next = { ...prev };
+        delete next[def.id];
+        return next;
+      });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't narrate that report.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onDecideNarration(defId: string, outputId: string, decision: DraftDecision, notes?: string) {
+    await auth.api.decideAiOutput(outputId, decision, notes);
+    setNarrationDecisions((prev) => ({ ...prev, [defId]: decision }));
+  }
+
   async function onDelete(def: ReportDefinition) {
     setBusyId(def.id);
     setError(null);
@@ -373,6 +407,11 @@ function ReportBuilderCard() {
       await auth.api.deleteReportDefinition(def.id);
       setDefinitions((prev) => (prev ?? []).filter((d) => d.id !== def.id));
       if (runResult?.id === def.id) setRunResult(null);
+      setNarrations((prev) => {
+        const next = { ...prev };
+        delete next[def.id];
+        return next;
+      });
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't delete that report.");
     } finally {
@@ -450,6 +489,9 @@ function ReportBuilderCard() {
                   <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busyId === def.id} onClick={() => onExport(def)}>
                     Export CSV
                   </button>
+                  <button className="potg-btn potg-btn-ai" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busyId === def.id} onClick={() => onNarrate(def)}>
+                    ✦ Narrate
+                  </button>
                   <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busyId === def.id} onClick={() => onDelete(def)}>
                     Delete
                   </button>
@@ -466,6 +508,15 @@ function ReportBuilderCard() {
                     ))}
                   </tbody>
                 </table>
+              )}
+              {narrations[def.id] && (
+                <AiDraftCard
+                  draftLabel={narrations[def.id].draftLabel}
+                  items={narrations[def.id].items}
+                  warn={narrations[def.id].warn}
+                  decision={narrationDecisions[def.id] ?? null}
+                  onDecide={(decision, notes) => onDecideNarration(def.id, narrations[def.id].outputId, decision, notes)}
+                />
               )}
             </div>
           ))}

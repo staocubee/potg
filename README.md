@@ -4304,6 +4304,67 @@ to act on.
   project or one property at a time, reachable only through that
   record's own Ask AI panel, not a cross-portfolio dashboard.
 
+## AI narration for the report builder (this pass)
+
+Closes the rest of Module 23's "natural-language report generation on
+top of every report type" — `generate_portfolio_report` already
+narrated the one fixed portfolio-overview report; the report *builder*'s
+own custom, saved reports had no narration option at all.
+
+- **`narrate_report`** — `moduleContextPrefix: "account"`, same shape
+  `generate_portfolio_report` already uses (a saved `ReportDefinition`
+  is account-scoped, not tied to one property/project/listing). The
+  *second* skill in this entire 22-skill registry with a real
+  (non-empty) `inputSchema`, after `model_roi_scenario` — a required
+  `reportDefinitionId` field, since there's no sensible default for
+  "which saved report," unlike `model_roi_scenario`'s own all-optional,
+  all-defaulted fields.
+- **A deliberate, one-time exception to "duplicate, don't share"**:
+  every other skill that overlaps with a REST service
+  (`model_roi_scenario`/`getRoiSummary`, `estimate_comparable_value`/
+  `getComparableValuation`) re-implements its own small (10-20 line)
+  computation directly against `prisma`, rather than calling the
+  service — `AiSkillDeps` only ever exposed `prisma` and `llm`. This
+  skill breaks that pattern on purpose: `ReportsService.runDefinition`
+  is a 100+ line, cross-module computation (the fixed metric registry
+  itself, plus a real dependency on `PaymentsService.getAccountOverview`
+  via `ReportsModule`'s own import) — duplicating *that* a third time
+  would be the actual anti-pattern, not sharing it. `AiSkillDeps` gained
+  a third field, `reports: ReportsService`, and `AiModule` now imports
+  `ReportsModule` (which gained a real `exports: [ReportsService]` it
+  didn't have before — nothing outside its own controller could inject
+  it until now), the same "AiService already imports another module's
+  service when a skill genuinely needs it" shape `AiModule` already
+  established by importing `ProjectsModule`/`ListingsModule` for its own
+  accept-drafted-action chaining.
+- **Deliberately not reachable via free-text chat or a generic quick-
+  action button** — unlike every other skill, `narrate_report` has no
+  `KEYWORD_ROUTES` entry in `StubLlmProvider`: there's no sentence-level
+  heuristic (or, for a real model, no context) that tells you *which*
+  saved report id a free-text sentence means, and `AskAiPanel`'s own
+  generic per-field form would otherwise ask the user to paste a raw
+  UUID. Instead, a "✦ Narrate" button sits directly on each saved
+  report's own row in the report builder (next to Run/Export/Delete),
+  which already has that report's real id in hand — the narration
+  result renders through the exact same `AiDraftCard`
+  (Accept/Edit/Discard) component every other AI output in this app
+  uses, not a bespoke text block.
+- **Verified live end-to-end**: clicked "Narrate" on a real saved
+  report (3 metrics: deposited-by-currency, documents-by-status,
+  overdue-leases) and confirmed the narrated numbers matched the
+  report's own "Run" output exactly — proof `runDefinition` was actually
+  reused, not recomputed differently by the skill. Accepted the
+  resulting draft and confirmed the real `POST /ai/outputs/:id/decision`
+  call and the card updating to show "Accepted." No server errors, and
+  no circular-dependency issue at boot from the new
+  `AiModule` → `ReportsModule` → `PaymentsModule` import chain.
+- **Not done**: no universal `warn` signal — unlike
+  `generate_portfolio_report` (which can key its own warning on its one
+  fixed open-dispute count), a saved report is an arbitrary, user-chosen
+  combination of metrics with no universal way to decide what counts as
+  "needs attention," so `warn` is always `false` here, deliberately, not
+  an oversight.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -4333,7 +4394,12 @@ blueprint, or explicitly cut from it:
   digests (a genuine `@nestjs/schedule` cron, not a fake toggle). A real
   report *builder* exists now too — see "A real report builder" further
   below — though it's a fixed metric registry projected from the same
-  portfolio computation, not a custom-query designer. Modules 8 and 12
+  portfolio computation, not a custom-query designer; it also now has an
+  AI-narration option of its own — see "AI narration for the report
+  builder" above — closing the piece of Module 23's "natural-language
+  report generation on top of every report type" that
+  `generate_portfolio_report` alone didn't reach (the report builder's
+  own custom, saved reports). Modules 8 and 12
   are slices, not the full modules — both can point an inspector/
   assignee at a real `Vendor` account, now optionally carrying a
   dedicated `inspector` role (see "A dedicated Inspector role" above),
