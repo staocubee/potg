@@ -4414,57 +4414,56 @@ explicit risk-*flag* list the way `assess_listing_risk`/
   cross-portfolio at-risk view for vendors and suppliers" below for the
   aggregate dashboard built on top of these two skills' own flag logic.
 
-## A cross-portfolio at-risk view for vendors and suppliers (this pass)
+## A cross-portfolio at-risk view (this pass)
 
 Closes the "no cross-portfolio 'show every at-risk record' view exists"
-gap for vendors and suppliers specifically — `assess_vendor_risk`/
-`assess_supplier_risk` (above) only ever answer for one vendor or
-supplier at a time, reachable only through that record's own Ask AI
-panel; there was no single place to see "which of the vendors/suppliers
-I actually work with need attention right now."
+gap in full — started as vendors/suppliers only in the previous pass
+(`getAtRiskPartners`), then extended in the same pass to cover projects
+and leases too, since every `assess_*_risk` skill has the identical
+problem: each only ever answers for one record at a time, reachable
+only through that record's own Ask AI panel. There was no single place
+to see "what across my whole account needs attention right now."
 
-- **A real extraction, not a new computation**: the flag logic itself
-  moved out of the two AI skills and into `getVendorRiskFlags`
-  (`vendors/trust-score.ts`) and `getSupplierRiskFlags`
-  (`materials/trust-score.ts`) — the same file, and the same "shared
-  formula" shape, `computeVendorTrustScore`/`computeSupplierTrustScore`
-  already used for the trust-score formula itself. This is a deliberate
-  departure from this codebase's usual "duplicate near-identical logic
-  with a cross-reference comment" convention (see `isLeaseOverdue` in
-  `reports.service.ts` for that convention's own reasoning): a vendor's
-  risk flags now render identically whether reached from that vendor's
-  own Ask AI panel or from this new portfolio-wide view, and letting
-  those two wordings drift apart would be a visible inconsistency to an
-  owner looking at both, not just a maintenance annoyance.
-- **`ReportsService.getAtRiskPartners`** (`GET /reports/at-risk-
-  partners`, `property:read`, same tier as `portfolio-overview`) —
-  "work with" means a vendor with a `ProjectVendorAssignment` on one of
-  the account's own projects, or a supplier the account has placed at
-  least one `Order` with. Deliberately not every vendor/supplier in the
-  whole marketplace, which would be meaningless noise for an owner
-  account that's never dealt with the vast majority of them. Returns
-  each vendor/supplier the account actually works with, annotated with
-  its own flags (word-for-word identical to what `assess_vendor_risk`/
-  `assess_supplier_risk` would say), plus a total count for context.
-- **A new dashboard card on the Reports page** (`AtRiskPartnersCard`,
-  self-fetching, next to "Top vendors by amount paid") — not folded into
-  the existing `getPortfolioOverview` payload, since this comes from a
-  genuinely separate query path (`Vendor`/`Supplier`, not `Property`/
-  `Project`), matching how `ComparableValuationCard` on the property
-  page already self-fetches rather than joining an unrelated payload.
-- **Verified live**: the demo owner account's "Lekki Renovations Co."
-  (assigned to its "Kitchen Renovation" project) and "Lagos BuildMart"
-  (a supplier it has ordered from) both appeared in `GET /reports/
-  at-risk-partners` with exactly the same flag wording the individual
-  `assess_vendor_risk`/`assess_supplier_risk` calls returned moments
-  earlier — proof the extraction didn't just typecheck, it produces the
-  identical output both call sites now share.
-- **Not done**: scoped to vendors/suppliers only, per what was actually
-  asked — the equivalent aggregate view for at-risk projects/leases
-  (`assess_project_risk`/`assess_lease_risk`) still doesn't exist; each
-  of those still answers for one record at a time. No persisted
-  history either — recomputed fresh on every request, same as every
-  `assess_*` skill.
+- **Renamed, not duplicated**: `ReportsService.getAtRiskPartners`
+  became `getAtRiskOverview` (`GET /reports/at-risk-overview`,
+  `property:read`, same tier as `portfolio-overview`) rather than adding
+  a second, near-identical endpoint for projects/leases — "partners"
+  never fit projects/leases anyway, since those are the account's own
+  assets, not external parties it works with. Returns four identically-
+  shaped buckets (`projects`, `leases`, `vendors`, `suppliers`), each
+  `{ total, atRisk: [{ id, label, flags }] }`.
+- **Two more shared flag-helper extractions**, same reasoning
+  `getVendorRiskFlags`/`getSupplierRiskFlags` already established (a
+  deliberate departure from this codebase's usual "duplicate
+  near-identical logic with a cross-reference comment" convention — see
+  `isLeaseOverdue` in `reports.service.ts` for that convention's own
+  reasoning): `getProjectRiskFlags` (`projects/risk-flags.ts`) and
+  `getPropertyLeaseRiskFlags` (`properties/lease-risk-flags.ts`), both
+  now shared between their `assess_*_risk` skill and this dashboard so
+  the wording can never drift between the two surfaces. Lease risk stays
+  scoped at the *property* level in both places, same reason
+  `assess_lease_risk` itself is — a property can carry more than one
+  active lease, so the dashboard's own "lease" row is a property (with
+  each flag naming its own tenant), and its `total` counts properties
+  with at least one active lease, not raw lease rows.
+- **A dashboard card on the Reports page** (`AtRiskOverviewCard`,
+  renamed from `AtRiskPartnersCard`, self-fetching) — one generic
+  `AtRiskEntryRow` renders all four buckets identically rather than
+  four near-duplicate blocks, since every bucket now shares the exact
+  same `{id, label, flags}` shape.
+- **Verified live**: the demo owner account's "Kitchen Renovation"
+  project (its real `under_review` test dispute) and "14 Ocean Drive"
+  (its real overdue lease) both appeared in `GET /reports/
+  at-risk-overview` alongside the vendor/supplier rows from the
+  previous pass. Re-ran `assess_project_risk` and `assess_lease_risk`
+  against those same two records directly afterward and got back
+  exactly the same flag text the dashboard showed — proof the
+  extraction reused the logic rather than recomputing a second,
+  possibly-diverging version of it.
+- **Not done**: no persisted history — recomputed fresh on every
+  request, same as every `assess_*` skill; no severity ranking or
+  sorting across the four buckets — every at-risk record is shown, in
+  the order its own category query returned it.
 
 ## Not built yet
 
@@ -4482,10 +4481,8 @@ blueprint, or explicitly cut from it:
   `Lease`, `Vendor`, and `Supplier` now all have the same treatment
   (`assess_project_risk`, `assess_lease_risk`, `assess_vendor_risk`,
   `assess_supplier_risk`). A cross-portfolio "show every at-risk record"
-  view exists now too, for vendors/suppliers specifically — see "A
-  cross-portfolio at-risk view for vendors and suppliers" above
-  (`GET /reports/at-risk-partners`); projects and leases still only
-  answer one record at a time, with no equivalent aggregate view yet.
+  view exists now too, across all four — see "A cross-portfolio at-risk
+  view" above (`GET /reports/at-risk-overview`).
   Module 15 is a bigger slice now too — see "A comparable-
   sales valuation estimate" above: a real automated estimate from other
   active sale listings nearby, alongside the manual/AI-narrated history

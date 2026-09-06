@@ -1,33 +1,7 @@
 import { NotFoundException } from '@nestjs/common';
 import { AiSkill } from './ai-skill.interface';
 import { NO_INPUT_SCHEMA } from './ai-skill-input-schema';
-
-const UPCOMING_END_WARNING_DAYS = 60;
-
-// Same 30-day-per-month approximation summarize_lease_status already
-// uses for "does this lease look overdue" — not for anything financial.
-const FREQUENCY_DAYS: Record<string, number> = { weekly: 7, monthly: 30, annually: 365 };
-
-type LeaseWithPayments = {
-  id: string;
-  status: string;
-  tenantName: string;
-  endDate: Date | null;
-  startDate: Date;
-  rentFrequency: string;
-  rentPayments: { periodEnd: Date }[];
-};
-
-function overdueDays(lease: LeaseWithPayments, now: number): number | null {
-  const periodDays = FREQUENCY_DAYS[lease.rentFrequency] ?? FREQUENCY_DAYS.monthly;
-  const anchor =
-    lease.rentPayments.length > 0
-      ? new Date(Math.max(...lease.rentPayments.map((p) => new Date(p.periodEnd).getTime())))
-      : lease.startDate;
-  const daysSinceAnchor = (now - anchor.getTime()) / (1000 * 60 * 60 * 24);
-  const overdue = Math.floor(daysSinceAnchor - periodDays);
-  return overdue > 0 ? overdue : null;
-}
+import { getPropertyLeaseRiskFlags } from '../../properties/lease-risk-flags';
 
 // Module 6's risk-flag pattern (see assess_listing_risk's own comment),
 // extended to leases — the second sub-piece of "the rest of risk flags/
@@ -42,6 +16,10 @@ function overdueDays(lease: LeaseWithPayments, now: number): number | null {
 // replacement — same split assess_listing_risk/summarize_listing already
 // draws for listings: summarize_lease_status narrates the whole tenancy
 // picture in prose; this produces a flat, explicit per-lease flag list.
+// The flags themselves come from getPropertyLeaseRiskFlags
+// (properties/lease-risk-flags.ts) — shared with
+// ReportsService.getAtRiskOverview, the cross-portfolio dashboard view,
+// so both surfaces show byte-identical wording for the same property.
 export const assessLeaseRiskSkill: AiSkill = {
   key: 'assess_lease_risk',
   label: 'Assess lease/tenant risk',
@@ -54,24 +32,7 @@ export const assessLeaseRiskSkill: AiSkill = {
     const property = await prisma.property.findFirst({ where: { id: propertyId, accountId: ctx.accountId } });
     if (!property) throw new NotFoundException('Property not found');
 
-    const leases = await prisma.lease.findMany({
-      where: { propertyId, status: 'active' },
-      include: { rentPayments: { select: { periodEnd: true } } },
-      orderBy: { startDate: 'desc' },
-    });
-
-    const now = Date.now();
-    const flags: string[] = [];
-
-    for (const lease of leases as unknown as LeaseWithPayments[]) {
-      const overdue = overdueDays(lease, now);
-      if (overdue != null) {
-        flags.push(`${lease.tenantName}: rent looks ~${overdue} day(s) overdue`);
-      }
-      if (lease.endDate && (lease.endDate.getTime() - now) / (1000 * 60 * 60 * 24) <= UPCOMING_END_WARNING_DAYS) {
-        flags.push(`${lease.tenantName}: lease ending within ${UPCOMING_END_WARNING_DAYS} days, no renewal on record`);
-      }
-    }
+    const flags = await getPropertyLeaseRiskFlags(prisma, propertyId);
 
     const summary = await llm.complete({
       systemPrompt:

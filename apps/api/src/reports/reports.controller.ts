@@ -41,16 +41,16 @@ export class ReportsController {
     return csv;
   }
 
-  // The cross-portfolio "at-risk vendors/suppliers" view — see
-  // ReportsService.getAtRiskPartners's own comment for what "work with"
-  // means. property:read, same tier as portfolio-overview: this is an
-  // owner-side report over the vendors/suppliers an owner account deals
-  // with, not a marketplace-facing endpoint a vendor/supplier account
-  // itself would call.
+  // The cross-portfolio "at-risk projects/leases/vendors/suppliers" view
+  // — see ReportsService.getAtRiskOverview's own comment for what "work
+  // with" means for the vendor/supplier half. property:read, same tier
+  // as portfolio-overview: this is an owner-side report, not a
+  // marketplace-facing endpoint a vendor/supplier account itself would
+  // call.
   @RequirePermissions('property:read')
-  @Get('at-risk-partners')
-  getAtRiskPartners(@CurrentAccountMember() member: AccountMemberCtx) {
-    return this.reports.getAtRiskPartners(member.accountId);
+  @Get('at-risk-overview')
+  getAtRiskOverview(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.reports.getAtRiskOverview(member.accountId);
   }
 
   // Module 14's scheduled-reports half — see ReportsSchedulerService's

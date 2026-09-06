@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { ApiError, AtRiskPartners, PortfolioOverview, ReportDefinition } from "../../lib/api";
+import { ApiError, AtRiskOverview, PortfolioOverview, ReportDefinition } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AiDraftCard, { DraftDecision } from "../../components/AiDraftCard";
 
@@ -204,7 +204,7 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <AtRiskPartnersCard />
+          <AtRiskOverviewCard />
 
           <DigestSubscriptionCard frequency={overview.digestFrequency} onChanged={load} />
           <ReportBuilderCard />
@@ -214,28 +214,51 @@ export default function ReportsPage() {
   );
 }
 
-// The cross-portfolio "show every at-risk vendor/supplier" view —
-// assess_vendor_risk/assess_supplier_risk (the Ask AI quick actions) only
-// ever answer for one vendor or supplier page at a time; this answers
-// "which of the vendors/suppliers I actually work with need attention"
-// across the whole account in one place. Self-fetching, same pattern
+// One row of AtRiskOverview's four identically-shaped categories.
+type AtRiskEntry = { id: string; label: string; flags: string[] };
+
+function AtRiskEntryRow({ entry, kind }: { entry: AtRiskEntry; kind: string }) {
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+        <span>{entry.label}</span>
+        <span className="potg-muted" style={{ fontWeight: 400, fontSize: 11 }}>
+          {kind}
+        </span>
+      </div>
+      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
+        {entry.flags.map((flag, i) => (
+          <li key={i} style={{ color: "var(--potg-danger)" }}>
+            {flag}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// The cross-portfolio "show every at-risk record" view — every
+// assess_*_risk AI skill (Ask AI quick actions) only ever answers for one
+// record at a time; this answers "what across my whole account needs
+// attention right now" across all four entity types that have a
+// risk-flag skill, in one place. Self-fetching, same pattern
 // DigestSubscriptionCard/ReportBuilderCard already use, rather than
 // folding into the one getPortfolioOverview payload above — this comes
-// from a genuinely separate query (Vendor/Supplier, not Property/Project),
-// same reasoning ComparableValuationCard (properties/[id].tsx) already
-// applies for its own self-fetching card.
-function AtRiskPartnersCard() {
+// from genuinely separate queries (Project/Lease/Vendor/Supplier, not
+// Property alone), same reasoning ComparableValuationCard
+// (properties/[id].tsx) already applies for its own self-fetching card.
+function AtRiskOverviewCard() {
   const auth = useAuth();
-  const [data, setData] = useState<AtRiskPartners | null>(null);
+  const [data, setData] = useState<AtRiskOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth.currentAccountId) return;
     setError(null);
     auth.api
-      .getAtRiskPartners()
+      .getAtRiskOverview()
       .then(setData)
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load at-risk vendors/suppliers."));
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load your at-risk overview."));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.currentAccountId]);
 
@@ -250,61 +273,41 @@ function AtRiskPartnersCard() {
     return (
       <div className="potg-card" style={{ padding: 18 }}>
         <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
-          Loading at-risk vendors &amp; suppliers…
+          Loading your at-risk overview…
         </p>
       </div>
     );
   }
 
-  const totalAtRisk = data.vendors.atRisk.length + data.suppliers.atRisk.length;
+  const totalAtRisk =
+    data.projects.atRisk.length + data.leases.atRisk.length + data.vendors.atRisk.length + data.suppliers.atRisk.length;
 
   return (
     <div className="potg-card" style={{ padding: 18 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
-        <h3 style={{ fontSize: 14, margin: 0 }}>At-risk vendors &amp; suppliers</h3>
+        <h3 style={{ fontSize: 14, margin: 0 }}>At-risk overview</h3>
         <p className="potg-muted" style={{ fontSize: 11, margin: 0 }}>
-          Across {data.vendors.total} vendor(s) and {data.suppliers.total} supplier(s) you work with
+          {data.projects.total} project(s) · {data.leases.total} propert{data.leases.total === 1 ? "y" : "ies"} with active
+          lease(s) · {data.vendors.total} vendor(s) · {data.suppliers.total} supplier(s)
         </p>
       </div>
       {totalAtRisk === 0 ? (
         <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
-          No flagged risk factors on any vendor or supplier you currently work with.
+          No flagged risk factors across your projects, leases, vendors, or suppliers right now.
         </p>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {data.projects.atRisk.map((p) => (
+            <AtRiskEntryRow key={`project-${p.id}`} entry={p} kind="Project" />
+          ))}
+          {data.leases.atRisk.map((p) => (
+            <AtRiskEntryRow key={`lease-${p.id}`} entry={p} kind="Property (lease)" />
+          ))}
           {data.vendors.atRisk.map((v) => (
-            <div key={v.id}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
-                <span>{v.businessName}</span>
-                <span className="potg-muted" style={{ fontWeight: 400, fontSize: 11 }}>
-                  Vendor
-                </span>
-              </div>
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
-                {v.flags.map((flag, i) => (
-                  <li key={i} style={{ color: "var(--potg-danger)" }}>
-                    {flag}
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <AtRiskEntryRow key={`vendor-${v.id}`} entry={v} kind="Vendor" />
           ))}
           {data.suppliers.atRisk.map((s) => (
-            <div key={s.id}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
-                <span>{s.businessName}</span>
-                <span className="potg-muted" style={{ fontWeight: 400, fontSize: 11 }}>
-                  Supplier
-                </span>
-              </div>
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12 }}>
-                {s.flags.map((flag, i) => (
-                  <li key={i} style={{ color: "var(--potg-danger)" }}>
-                    {flag}
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <AtRiskEntryRow key={`supplier-${s.id}`} entry={s} kind="Supplier" />
           ))}
         </div>
       )}
