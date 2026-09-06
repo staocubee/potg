@@ -79,6 +79,7 @@ model Account {
   // Lease indirectly through Property, and this is a second, direct path.
   tenantLeases    Lease[]          @relation("TenantAccountLeases")
   reportDefinitions ReportDefinition[]
+  adminActions    PlatformAdminAction[]
 
   @@map("accounts")
 }
@@ -242,6 +243,33 @@ model ComplianceItem {
   updatedAt    DateTime @updatedAt
 
   @@map("compliance_items")
+}
+
+// Module 16-24's "admin operations" bucket, scoped to its one genuinely
+// buildable slice: nothing anywhere on this platform could see every
+// account that exists (Role/Permission and ComplianceItem above are the
+// only other account-independent tables, and neither is a directory of
+// tenants), or act on one platform-wide the way platform_reviewer already
+// acts on any vendor/supplier/dispute/document/review. Every row here is
+// one platform_admin action against one account — not a generic activity
+// log, just the two actions PlatformAdminService actually exposes
+// (suspend/reinstate) — kept forever, never edited or deleted, same
+// "an audit with no reasoning recorded isn't an audit" reasoning
+// VendorTrustAudit.notes already establishes. performedByUserId is a
+// plain string with no relation, same as VendorTrustAudit.
+// reviewedByUserId — this is a record of who did it, not a live
+// reference anything needs to join through.
+model PlatformAdminAction {
+  id              String   @id @default(uuid())
+  targetAccountId String
+  action          String // suspend | reinstate
+  reason          String
+  performedByUserId String
+  createdAt       DateTime @default(now())
+
+  targetAccount Account @relation(fields: [targetAccountId], references: [id], onDelete: Cascade)
+
+  @@map("platform_admin_actions")
 }
 
 // A user may belong to several accounts at once (personal, family, company,

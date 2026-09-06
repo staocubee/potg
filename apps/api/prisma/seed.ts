@@ -22,6 +22,12 @@ const PERMISSIONS = [
   { key: 'document:arbitrate', label: 'Verify or reject any document platform-wide (neutral reviewer only — never granted to document:write roles)' },
   { key: 'account:manage_members', label: 'Manage account members' },
   { key: 'ai:act', label: 'Use the AI copilot' },
+  // Admin operations (Modules 16-24 bucket) — platform_admin only, never
+  // granted alongside account:manage_members: that permission only ever
+  // reaches the caller's own account (see PermissionsGuard's :accountId
+  // check), this reaches every account platform-wide.
+  { key: 'account:read_all', label: 'View every account platform-wide (platform admin only)' },
+  { key: 'account:suspend', label: 'Suspend or reinstate any account platform-wide (platform admin only)' },
   // Modules 7 & 9 — Vendor Marketplace & Project Tracking (Priority 3).
   { key: 'vendor:read', label: 'Browse vendor profiles' },
   { key: 'vendor:write', label: 'Create or edit a vendor profile' },
@@ -315,6 +321,13 @@ const ROLES: Record<string, string[]> = {
     'compliance:read',
     'compliance:write',
   ],
+  // Admin operations — a distinct job from platform_reviewer's own trust
+  // & safety work (reviewing one vendor/supplier/dispute/document/review
+  // at a time): this operates on accounts themselves, platform-wide.
+  // Deliberately just these two permissions, nothing else — same
+  // "a handful of mechanical actions on other accounts' data" reasoning
+  // platform_reviewer's own comment gives, not even ai:act.
+  platform_admin: ['account:read_all', 'account:suspend'],
 };
 
 const DEMO_ACCOUNT_ID = '00000000-0000-0000-0000-000000000001';
@@ -336,6 +349,7 @@ const DEMO_CONVERSATION_ID = '00000000-0000-0000-0000-00000000000e';
 const DEMO_PLATFORM_ACCOUNT_ID = '00000000-0000-0000-0000-00000000000f';
 const DEMO_TENANT_ACCOUNT_ID = '00000000-0000-0000-0000-000000000010';
 const DEMO_LEASE_ID = '00000000-0000-0000-0000-000000000011';
+const DEMO_PLATFORM_ADMIN_ACCOUNT_ID = '00000000-0000-0000-0000-000000000012';
 // Matches ProjectsService.create's default stage sequence — kept in sync by
 // hand since the seed script doesn't call the service directly.
 const DEFAULT_STAGES = ['Scope', 'Quote', 'Materials', 'Work', 'Handover'];
@@ -858,6 +872,33 @@ async function main() {
     create: { accountId: platformAccount.id, userId: user.id, roleId: platformReviewerRole.id },
   });
 
+  console.log('Seeding demo platform-admin account (admin operations)...');
+  // A separate account from platformAccount above, not a second role on
+  // the same one — AccountMember's own @@unique([accountId, userId]) only
+  // allows one role per user per account, and trust & safety review
+  // (platform_reviewer) and admin operations (platform_admin) are
+  // genuinely distinct jobs a real platform would likely staff
+  // separately, same "one user, several accounts" pattern every other
+  // demo membership above already uses.
+  const platformAdminRole = await prisma.role.findUniqueOrThrow({ where: { key: 'platform_admin' } });
+  const platformAdminAccount = await prisma.account.upsert({
+    where: { id: DEMO_PLATFORM_ADMIN_ACCOUNT_ID },
+    update: {},
+    create: {
+      id: DEMO_PLATFORM_ADMIN_ACCOUNT_ID,
+      accountType: 'COMPANY',
+      name: 'PropertyOnTheGo Operations',
+      country: 'NG',
+      currency: 'NGN',
+      timezone: 'Africa/Lagos',
+    },
+  });
+  await prisma.accountMember.upsert({
+    where: { accountId_userId: { accountId: platformAdminAccount.id, userId: user.id } },
+    update: {},
+    create: { accountId: platformAdminAccount.id, userId: user.id, roleId: platformAdminRole.id },
+  });
+
   console.log('Seeding demo tenant account and lease (Module 13)...');
   // A fifth membership on the same demo user — same "one user, several
   // accounts" pattern the vendor/supplier/platform-reviewer accounts
@@ -925,6 +966,9 @@ async function main() {
   console.log(`  conversation:     ${DEMO_CONVERSATION_ID} — GET /ai/conversations/${DEMO_CONVERSATION_ID} to see the tool-call pattern`);
   console.log(
     `  platform account: ${platformAccount.id} (switch X-Account-Id to this to act as the neutral platform reviewer — vendor:verify/supplier:verify only)`,
+  );
+  console.log(
+    `  platform-admin account: ${platformAdminAccount.id} (switch X-Account-Id to this to act as platform_admin — GET /platform-admin/accounts)`,
   );
   console.log(
     `  tenant account:   ${tenantAccount.id} (switch X-Account-Id to this to act as the tenant — GET /tenant/lease once it's linked)`,

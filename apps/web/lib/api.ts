@@ -822,6 +822,25 @@ export type ReportDefinition = {
   updatedAt: string;
 };
 
+export type PlatformAccountSummary = {
+  id: string;
+  name: string;
+  accountType: string;
+  status: string;
+  memberCount: number;
+  createdAt: string;
+};
+
+export type PlatformAdminActionEntry = {
+  id: string;
+  targetAccountId: string;
+  targetAccountName: string;
+  action: "suspend" | "reinstate" | string;
+  reason: string;
+  performedByUserId: string;
+  createdAt: string;
+};
+
 export type ComplianceItem = {
   id: string;
   jurisdiction: string;
@@ -1821,6 +1840,29 @@ export class ApiClient {
       token: this.token,
       accountId: this.accountId,
     });
+  }
+  // --- Admin operations (account:read_all/account:suspend — platform_admin only) ---
+  listPlatformAccounts() {
+    return request<PlatformAccountSummary[]>("/platform-admin/accounts", { token: this.token, accountId: this.accountId });
+  }
+  suspendPlatformAccount(targetAccountId: string, reason: string) {
+    return request<PlatformAccountSummary>(`/platform-admin/accounts/${targetAccountId}/suspend`, {
+      method: "POST",
+      body: { reason },
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  reinstatePlatformAccount(targetAccountId: string, reason: string) {
+    return request<PlatformAccountSummary>(`/platform-admin/accounts/${targetAccountId}/reinstate`, {
+      method: "POST",
+      body: { reason },
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  getPlatformAdminAuditLog() {
+    return request<PlatformAdminActionEntry[]>("/platform-admin/audit-log", { token: this.token, accountId: this.accountId });
   }
   findOpenDisputesForArbitration() {
     return request<Dispute[]>("/payments/disputes/open", { token: this.token, accountId: this.accountId });

@@ -4465,6 +4465,81 @@ to see "what across my whole account needs attention right now."
   sorting across the four buckets — every at-risk record is shown, in
   the order its own category query returned it.
 
+## Admin operations — a platform accounts directory and account suspension (this pass)
+
+The first real sub-piece of the genuinely undefined Modules 3, 16-21, 24
+bucket — nothing in this repo's history, including the blueprint review
+itself, ever names what those modules actually contain beyond bare
+labels ("compliance," "community management," "AR/VR," "admin
+operations"). Compliance already has a real tracker (see "A platform
+compliance tracker" above) and AR/VR has a written feasibility spike;
+"admin operations" had nothing. Picked over "community management" for
+this pass specifically because it's a well-understood SaaS pattern with
+an undebatable gap in this codebase, while "community management" on a
+property/vendor/materials marketplace could mean several genuinely
+different things (tenant forums, HOA tools, event postings) with no
+existing hint of which — building it would mean guessing at scope, not
+closing a defined gap.
+
+- **The actual gap**: this platform is fully multi-tenant by design —
+  every account only ever sees its own data — but nothing platform-wide
+  existed to *operate* the platform itself: no way to see every account
+  that exists, no way to act on one that's abusive or dormant, no record
+  of who did what. `platform_reviewer` (Module 6's neutral reviewer)
+  never crosses tenant boundaries either — it reviews one vendor/
+  supplier/dispute/document/review at a time, never lists or acts on
+  accounts themselves.
+- **A new `platform_admin` role**, deliberately distinct from
+  `platform_reviewer` — trust & safety review and platform operations
+  are different jobs a real platform would likely staff separately. Same
+  "one user, several accounts" demo pattern as every other role in this
+  scaffold: a sixth membership on the demo user, on a new "PropertyOnTheGo
+  Operations" account (`COMPANY` type, not a new enum value — same
+  reasoning the existing "PropertyOnTheGo Trust & Safety" account already
+  uses). Carries exactly two permissions, `account:read_all` and
+  `account:suspend` — not even `ai:act`, same "a handful of mechanical
+  actions on other accounts' data" scope `platform_reviewer` itself
+  keeps to.
+- **`GET /platform-admin/accounts`** — the directory itself: every
+  account platform-wide, with `accountType`, `status`, `memberCount`, and
+  `createdAt`. Deliberately no "last activity" signal — nothing on
+  `Account` tracks that honestly (`updatedAt` only moves when the account
+  row itself changes, not on general use), and a fabricated signal would
+  be worse than none. Suspended accounts sort first, for triage.
+- **`POST /platform-admin/accounts/:targetAccountId/{suspend,reinstate}`**
+  — wires up `Account.status`, a column that has existed in the schema
+  since Module 1 and was never once read or written anywhere in this
+  codebase until now. A suspended account can no longer act as itself on
+  *any* route — enforced in `AccountContextGuard` itself (the one place
+  every authenticated request already resolves its account context), not
+  a new check bolted onto each controller. No token to revoke and
+  nothing cached: the very next request re-hits the same guard and gets
+  turned away immediately. A real, cheap safeguard against self-lockout:
+  a platform_admin cannot suspend the account it's currently acting as.
+  Both actions require a `reason`, and both are recorded in a new
+  `PlatformAdminAction` table — permanent, never edited or deleted, same
+  "an audit with no reasoning recorded isn't an audit" reasoning
+  `VendorTrustAudit.notes` already established — surfaced as
+  `GET /platform-admin/audit-log`.
+- **A subtle correctness detail worth naming**: every route here uses
+  `:targetAccountId`, never literally `:accountId` — `PermissionsGuard`
+  already hardcodes a same-account IDOR check on any route param
+  literally named `:accountId` (see its own comment), which would have
+  silently 404'd a `platform_admin` trying to act on any account but its
+  own. `vendor:verify`'s own `:vendorId` param avoids the identical trap
+  for the identical reason.
+- **A new `/admin` page**, shown only to the `platform_admin` role — same
+  "gated entirely server-side, this page just renders whatever the API
+  returns" shape `CompliancePage` already uses for its own single-role
+  screen.
+- **Not done**: no severity/pagination on the audit log (capped at 200,
+  most recent first); no way to suspend a *member* rather than a whole
+  account (Module 6's own moderation tools already cover a misbehaving
+  individual within an otherwise-fine account); nothing here obtains a
+  license, verifies a jurisdiction, or performs any of the actual
+  regulatory work — that's still Section 15, tracked but not done by
+  code, same as the compliance tracker above.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -4473,9 +4548,16 @@ blueprint, or explicitly cut from it:
 - **Modules 6, 14, 16-24** (the full property-verification/trust
   workflow; compliance, community management, AR/VR, admin
   operations, ...) — this scaffold now proves the pattern for Modules 1,
-  2, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12, 13, 14, 15, and 23, not
-  the full 24. Module 6's risk-flag coverage is complete now across every
-  entity type that has one — see "Risk flags for projects and leases" and
+  2, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12, 13, 14, 15, 23, and now
+  a first slice of the 16-24 bucket itself — see "Admin operations — a
+  platform accounts directory and account suspension" above: a
+  `platform_admin` role, a cross-tenant accounts directory, account
+  suspension/reinstatement (wiring up `Account.status`, unused since
+  Module 1), and an audit log. "Community management" and the rest of
+  16-24 beyond that one slice are still genuinely unscoped — no blueprint
+  text anywhere names what they contain. Module 6's risk-flag coverage is
+  complete now across every entity type that has one — see "Risk flags
+  for projects and leases" and
   "Risk flags for vendors and suppliers" above: `assess_listing_risk` used
   to be the only entity with a flat, explicit flag list; `Project`,
   `Lease`, `Vendor`, and `Supplier` now all have the same treatment

@@ -21,6 +21,7 @@ import { TenantModule } from './tenant/tenant.module';
 import { VisualizationsModule } from './visualizations/visualizations.module';
 import { ComplianceModule } from './compliance/compliance.module';
 import { StorageModule } from './storage/storage.module';
+import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { StorageModule } from './storage/storage.module';
     VisualizationsModule,
     ComplianceModule,
     StorageModule,
+    PlatformAdminModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

@@ -32,6 +32,15 @@ export class AccountContextGuard implements CanActivate {
     if (!accountMember || accountMember.status !== 'active') {
       throw new ForbiddenException('You are not an active member of this account');
     }
+    // The actual enforcement point for platform_admin's suspendAccount —
+    // Account.status existed in the schema long before anything read it.
+    // Checked here, not at login, since login is per-User and a user can
+    // hold other, unsuspended accounts too; this only blocks acting AS
+    // the suspended one, on every route, immediately (no caching, no
+    // token to revoke — the next request simply re-hits this check).
+    if (accountMember.account.status === 'suspended') {
+      throw new ForbiddenException('This account has been suspended');
+    }
 
     req.accountMember = accountMember;
     req.account = accountMember.account;

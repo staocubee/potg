@@ -41,6 +41,13 @@ const TENANT_NAV_ITEM: NavItem = { href: "/tenant", label: "My Lease", icon: "�
 // inside, so it gets its own item, shown only to this one role.
 const COMPLIANCE_NAV_ITEM: NavItem = { href: "/compliance", label: "Compliance", icon: "⚖️", enabled: true };
 
+// Same reasoning as COMPLIANCE_NAV_ITEM above — admin operations
+// (account directory, suspend/reinstate, the audit log) is its own,
+// unrelated concern from every other nav item, and platform_admin is a
+// distinct role from platform_reviewer (see PlatformAdminAction's own
+// schema comment), so it gets its own item shown only to this one role.
+const ADMIN_NAV_ITEM: NavItem = { href: "/admin", label: "Admin", icon: "🛡️", enabled: true };
+
 export default function AppShell({
   title,
   actions,
@@ -67,6 +74,7 @@ export default function AppShell({
   const navItems = [
     ...(auth.currentAccount?.accountType === "TENANT" ? [TENANT_NAV_ITEM] : []),
     ...(auth.currentAccount?.role === "platform_reviewer" ? [COMPLIANCE_NAV_ITEM] : []),
+    ...(auth.currentAccount?.role === "platform_admin" ? [ADMIN_NAV_ITEM] : []),
     ...NAV_ITEMS,
   ];
 
