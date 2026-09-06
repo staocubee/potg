@@ -6,6 +6,7 @@ import { ApiError, Dispute, DisputeEvidence, DISPUTE_TYPES, EscrowAccount, Payou
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
+import AiDraftCard, { DraftDecision } from "../../components/AiDraftCard";
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -877,6 +878,14 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const [evidenceBusy, setEvidenceBusy] = useState(false);
 
+  // Module 20 Phase 1's "AI dispute summary" — same per-item "✦" button
+  // shape narrate_report already established on the report builder page,
+  // since a dispute (like a saved report) has no sensible default id an
+  // AskAiPanel's generic form could ever fill in for itself.
+  const [summary, setSummary] = useState<{ outputId: string; draftLabel: string; items: string[]; warn: boolean } | null>(null);
+  const [summaryDecision, setSummaryDecision] = useState<DraftDecision | null>(null);
+  const [summarizing, setSummarizing] = useState(false);
+
   const open = dispute.status === "open" || dispute.status === "under_review";
   // The account that raised a dispute can't be the one that resolves it —
   // the API 403s that, this just avoids showing a button that can't work.
@@ -895,6 +904,27 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
     } finally {
       setBusy(null);
     }
+  }
+
+  async function onSummarize() {
+    if (!auth.currentAccountId) return;
+    setSummarizing(true);
+    setError(null);
+    try {
+      const result = await auth.api.runAiAction(`account:${auth.currentAccountId}`, "summarize_dispute", { disputeId: dispute.id });
+      setSummary(result);
+      setSummaryDecision(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't summarize that dispute.");
+    } finally {
+      setSummarizing(false);
+    }
+  }
+
+  async function onDecideSummary(decision: DraftDecision, notes?: string) {
+    if (!summary) return;
+    await auth.api.decideAiOutput(summary.outputId, decision, notes);
+    setSummaryDecision(decision);
   }
 
   async function loadEvidence() {
@@ -965,13 +995,23 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
           </div>
         </div>
       )}
-      <button
-        className="potg-btn potg-btn-secondary"
-        style={{ padding: "3px 8px", fontSize: 11, marginTop: 6 }}
-        onClick={onToggleEvidence}
-      >
-        {showEvidence ? "Hide evidence" : "View/add evidence"}
-      </button>
+      <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+        <button
+          className="potg-btn potg-btn-secondary"
+          style={{ padding: "3px 8px", fontSize: 11 }}
+          onClick={onToggleEvidence}
+        >
+          {showEvidence ? "Hide evidence" : "View/add evidence"}
+        </button>
+        <button className="potg-btn potg-btn-ai" style={{ padding: "3px 8px", fontSize: 11 }} disabled={summarizing} onClick={onSummarize}>
+          {summarizing ? "…" : "✦ Summarize"}
+        </button>
+      </div>
+      {summary && (
+        <div style={{ marginTop: 8 }}>
+          <AiDraftCard draftLabel={summary.draftLabel} items={summary.items} warn={summary.warn} decision={summaryDecision} onDecide={onDecideSummary} />
+        </div>
+      )}
       {showEvidence && (
         <div style={{ marginTop: 8, borderTop: "1px solid var(--potg-border)", paddingTop: 8 }}>
           {evidenceError && <div className="potg-error" style={{ marginBottom: 6 }}>{evidenceError}</div>}

@@ -404,8 +404,31 @@ export class PaymentsService {
   // Releasing a milestone is the one action in this module gated by
   // "payment:approve" rather than a plain read/write permission — moving
   // money out of escrow deserves its own permission, not just whichever
-  // role can edit a project.
-  async releaseMilestone(projectId: string, milestoneId: string) {
+  // role can edit a project. Module 21 Phase 1 adds a second way in: a
+  // PropertyAccessGrant.canApprovePayments for this project's own
+  // property — "milestone approvals" and "family representative access"
+  // are the same feature from two different angles in that blueprint, so
+  // this is the one method where both meet. The controller no longer
+  // hard-gates this route on payment:approve (see its own comment) —
+  // this check is the real authorization now, an OR, never a narrowing
+  // of what payment:approve itself could already do.
+  async releaseMilestone(
+    projectId: string,
+    milestoneId: string,
+    member: { id: string; role: { permissions: { permission: { key: string } }[] } },
+  ) {
+    const hasRolePermission = member.role.permissions.some((rp) => rp.permission.key === 'payment:approve');
+    if (!hasRolePermission) {
+      const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { propertyId: true } });
+      const grant = project
+        ? await this.prisma.propertyAccessGrant.findUnique({
+            where: { propertyId_accountMemberId: { propertyId: project.propertyId, accountMemberId: member.id } },
+          })
+        : null;
+      if (!grant?.canApprovePayments) {
+        throw new ForbiddenException('You do not have permission to release milestone funds on this project');
+      }
+    }
     const milestone = await this.prisma.projectMilestone.findFirst({ where: { id: milestoneId, projectId } });
     if (!milestone) throw new NotFoundException('Milestone not found on this project');
     if (milestone.approvalStatus !== 'approved') {

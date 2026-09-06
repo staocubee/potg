@@ -36,6 +36,7 @@ import { assessLeaseRiskSkill } from './skills/assess-lease-risk.skill';
 import { narrateReportSkill } from './skills/narrate-report.skill';
 import { assessVendorRiskSkill } from './skills/assess-vendor-risk.skill';
 import { assessSupplierRiskSkill } from './skills/assess-supplier-risk.skill';
+import { summarizeDisputeSkill } from './skills/summarize-dispute.skill';
 
 @Module({
   imports: [ProjectsModule, ListingsModule, ReportsModule],
@@ -87,6 +88,7 @@ import { assessSupplierRiskSkill } from './skills/assess-supplier-risk.skill';
         narrateReportSkill,
         assessVendorRiskSkill,
         assessSupplierRiskSkill,
+        summarizeDisputeSkill,
       ],
     },
   ],

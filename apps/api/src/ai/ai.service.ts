@@ -48,6 +48,47 @@ export class AiService {
     this.registry = new Map(skills.map((skill) => [skill.key, skill]));
   }
 
+  // Module 20 Phase 1's "ai_usage_logs" — the log already existed
+  // (AiRequest, written by every single runAction call since the AI
+  // layer's own first pass), it just had no user-facing view. Nothing
+  // here is a new query path so much as a real surface on data that was
+  // always being written and never once read back as "usage."
+  async getUsageSummary(accountId: string) {
+    const requests = await this.prisma.aiRequest.findMany({
+      where: { accountId },
+      select: {
+        actionType: true,
+        createdAt: true,
+        output: { select: { approval: { select: { decision: true } } } },
+      },
+    });
+
+    const byActionType = new Map<string, number>();
+    const byDecision = new Map<string, number>();
+    let undecided = 0;
+    const thirtyDaysAgo = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    let last30Days = 0;
+
+    for (const r of requests) {
+      byActionType.set(r.actionType, (byActionType.get(r.actionType) ?? 0) + 1);
+      if (r.createdAt.getTime() > thirtyDaysAgo) last30Days += 1;
+      const decision = r.output?.approval?.decision;
+      if (decision) {
+        byDecision.set(decision, (byDecision.get(decision) ?? 0) + 1);
+      } else {
+        undecided += 1;
+      }
+    }
+
+    return {
+      total: requests.length,
+      last30Days,
+      undecided,
+      byActionType: Array.from(byActionType, ([actionType, count]) => ({ actionType, count })).sort((a, b) => b.count - a.count),
+      byDecision: Array.from(byDecision, ([decision, count]) => ({ decision, count })),
+    };
+  }
+
   listSkills() {
     return Array.from(this.registry.values()).map((s) => ({
       key: s.key,

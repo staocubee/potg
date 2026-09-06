@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { ApiError, AtRiskOverview, PortfolioOverview, ReportDefinition } from "../../lib/api";
+import { ApiError, AiUsageSummary, AtRiskOverview, PortfolioOverview, ReportDefinition } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AiDraftCard, { DraftDecision } from "../../components/AiDraftCard";
 
@@ -206,6 +206,8 @@ export default function ReportsPage() {
 
           <AtRiskOverviewCard />
 
+          <AiUsageCard />
+
           <DigestSubscriptionCard frequency={overview.digestFrequency} onChanged={load} />
           <ReportBuilderCard />
         </div>
@@ -309,6 +311,94 @@ function AtRiskOverviewCard() {
           {data.suppliers.atRisk.map((s) => (
             <AtRiskEntryRow key={`supplier-${s.id}`} entry={s} kind="Supplier" />
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Module 20 Phase 1 — "ai_usage_logs," a real surface on data that
+// already existed: every AI action this account has ever taken was
+// already written to AiRequest, nothing surfaced it as "usage" before
+// this. Self-fetching, same pattern every other account-wide card on
+// this page already uses.
+function AiUsageCard() {
+  const auth = useAuth();
+  const [usage, setUsage] = useState<AiUsageSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!auth.currentAccountId) return;
+    setError(null);
+    auth.api
+      .getAiUsageSummary()
+      .then(setUsage)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load AI usage."));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  if (error) {
+    return (
+      <div className="potg-card" style={{ padding: 18 }}>
+        <div className="potg-error">{error}</div>
+      </div>
+    );
+  }
+  if (!usage) {
+    return (
+      <div className="potg-card" style={{ padding: 18 }}>
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+          Loading AI usage…
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 18 }}>
+      <h3 style={{ fontSize: 14, marginTop: 0, marginBottom: 12 }}>AI usage</h3>
+      <div style={{ display: "flex", gap: 20, marginBottom: 14, flexWrap: "wrap" }}>
+        <StatTile label="Total AI actions" value={String(usage.total)} />
+        <StatTile label="Last 30 days" value={String(usage.last30Days)} />
+        <StatTile label="Awaiting a decision" value={String(usage.undecided)} />
+      </div>
+      {usage.total === 0 ? (
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+          No AI actions taken yet — try the Ask AI panel on any page.
+        </p>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div>
+            <p className="potg-muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", margin: "0 0 8px" }}>
+              By action
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {usage.byActionType.map((a) => (
+                <div key={a.actionType} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                  <span>{a.actionType.replace(/_/g, " ")}</span>
+                  <span style={{ fontWeight: 600 }}>{a.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="potg-muted" style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", margin: "0 0 8px" }}>
+              By decision
+            </p>
+            {usage.byDecision.length === 0 && (
+              <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+                No drafts decided yet.
+              </p>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {usage.byDecision.map((d) => (
+                <div key={d.decision} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                  <span style={{ textTransform: "capitalize" }}>{d.decision}</span>
+                  <span style={{ fontWeight: 600 }}>{d.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>

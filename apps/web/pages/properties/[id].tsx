@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, ComparableValuation, Lease, MaintenanceRequest, Project, Property, PropertyInspection, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
+import { AccessGrant, AccountMemberSummary, ApiError, ComparableValuation, Lease, MaintenanceRequest, Project, Property, PropertyInspection, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -130,6 +130,8 @@ export default function PropertyDetailPage() {
           </div>
 
           <PropertyDetailsCard property={property} onUpdated={setProperty} />
+
+          <AccessGrantsCard propertyId={property.id} />
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <div className="potg-card" style={{ padding: 18 }}>
@@ -718,6 +720,122 @@ function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUp
             )
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+// Module 21 Phase 1 — "Family representative access." Wires up
+// PropertyAccessGrant, unused since Module 1: an owner grants a trusted
+// account member (typically a "viewer"-role family representative, who
+// otherwise has no payment:approve at all) the ability to release a
+// specific property's own milestone funds while remote. Only
+// canApprovePayments is exposed here — canView/canEdit are stored by the
+// API but not yet enforced anywhere, so a control for them here would
+// promise something this pass doesn't actually deliver.
+function AccessGrantsCard({ propertyId }: { propertyId: string }) {
+  const auth = useAuth();
+  const [grants, setGrants] = useState<AccessGrant[] | null>(null);
+  const [members, setMembers] = useState<AccountMemberSummary[] | null>(null);
+  const [selectedMemberId, setSelectedMemberId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function load() {
+    if (!auth.currentAccountId) return;
+    setError(null);
+    Promise.all([auth.api.listAccessGrants(propertyId), auth.api.listAccountMembers(auth.currentAccountId)])
+      .then(([g, m]) => {
+        setGrants(g);
+        setMembers(m.members);
+      })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load access grants."));
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId, auth.currentAccountId]);
+
+  const grantedMemberIds = new Set((grants ?? []).map((g) => g.accountMemberId));
+  const grantableMembers = (members ?? []).filter((m) => !grantedMemberIds.has(m.id));
+
+  async function onGrant() {
+    if (!selectedMemberId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.createAccessGrant(propertyId, { accountMemberId: selectedMemberId, canApprovePayments: true });
+      setSelectedMemberId("");
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't grant access.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRevoke(grantId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.revokeAccessGrant(propertyId, grantId);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't revoke that grant.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 18 }}>
+      <h3 style={{ fontSize: 14, marginTop: 0, marginBottom: 4 }}>Family representative access</h3>
+      <p className="potg-muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 12 }}>
+        Let a trusted account member release this property&rsquo;s own milestone funds on your behalf — useful while
+        you&rsquo;re remote and they&rsquo;re not.
+      </p>
+      {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+
+      {grantableMembers.length > 0 && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+          <select className="potg-input" style={{ flex: 1 }} value={selectedMemberId} onChange={(e) => setSelectedMemberId(e.target.value)}>
+            <option value="">Choose a member…</option>
+            {grantableMembers.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.user.name} ({m.role.name})
+              </option>
+            ))}
+          </select>
+          <button className="potg-btn potg-btn-primary" disabled={busy || !selectedMemberId} onClick={onGrant}>
+            {busy ? "…" : "Grant payment approval"}
+          </button>
+        </div>
+      )}
+
+      {grants && grants.length === 0 && (
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+          No one has been granted access to this property yet.
+        </p>
+      )}
+      {grants && grants.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {grants.map((g) => (
+            <div key={g.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, borderTop: "1px solid var(--potg-border)", paddingTop: 8 }}>
+              <div>
+                <span style={{ fontWeight: 600 }}>{g.accountMember?.user.name ?? "Member"}</span>
+                {g.canApprovePayments && (
+                  <span className="potg-badge" style={{ marginLeft: 8 }}>
+                    can approve payments
+                  </span>
+                )}
+              </div>
+              <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy} onClick={() => onRevoke(g.id)}>
+                Revoke
+              </button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

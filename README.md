@@ -4898,6 +4898,132 @@ something it can't.
   reminders) that would each need either a new scheduled check or a new
   "messages" entity this phase didn't build.
 
+## Module 20: AI Property Assistant — Phase 1 (this pass)
+
+Real, user-supplied scope. Of the blueprint's 14 named AI features, 8 were
+already fully built by prior passes under different names: AI property
+summary (`summarize_property`), AI listing description generator
+(`generate_listing_description`), AI budget estimator (`estimate_budget`),
+AI BOQ helper (`generate_boq`), AI document checklist
+(`suggest_document_checklist`), AI vendor comparison summary
+(`compare_vendor_quotes`), AI project report summary
+(`summarize_project`/`narrate_report`), and AI risk summary (collectively,
+the five `assess_*_risk` skills from Module 6's risk-flag work). Rather than
+pad the registry with more overlapping skills, this pass targeted the two
+things the blueprint asked for that genuinely didn't exist yet:
+
+- **`GET /ai/usage`** — the blueprint's own `ai_usage_logs` entity, taken
+  literally: every AI action already writes an `AiRequest`/`AiOutput`row
+  (and, once decided, an `AiActionApproval`), but nothing had ever
+  aggregated them. `AiService.getUsageSummary` returns total requests,
+  requests in the last 30 days, how many drafts are still undecided, a
+  breakdown by `actionType` (most-used first), and a breakdown by decision
+  (accepted/edited/discarded) — all computed from data that already
+  existed, no new table. Surfaced as a real card (`AiUsageCard`) on the
+  Reports dashboard.
+- **`summarize_dispute`** — the one genuinely missing feature (AI dispute
+  summary) that Module 18's own generalization work (optional
+  `Dispute.projectId` + `orderId`, `disputeType`) made possible to build
+  once, for both dispute kinds, with no per-type branching. Same
+  party-check shape as `PaymentsService.requireDisputeParty` (project
+  owner or assigned vendor; order buyer or supplier) — duplicated directly
+  in the skill rather than exposing `PaymentsService` to `AiSkillDeps`,
+  since the check is ~15 lines and doesn't clear the bar Module 15's
+  `narrate_report`/`AiSkillDeps.reports` exception set. Surfaced as a
+  per-dispute "✦ Summarize" button (not a generic chat field) next to
+  "View/add evidence" on both the project dispute list and the order
+  dispute list, using the same `AiDraftCard` accept/edit/discard flow
+  every other skill in this codebase already uses.
+- **Verified live**: the usage dashboard showed real, correct numbers (44
+  total actions, correctly sorted by action type, correct decision
+  counts) computed from actions taken across this whole session's prior
+  testing. `summarize_dispute` was called on a real, still-`open` project
+  dispute and returned a correct, factual paragraph plus its evidence
+  list with `warn: true`; called again on a real, `resolved` order
+  dispute and returned the correct summary with `warn: false` — proving
+  the same skill code handles both dispute shapes without modification.
+- **Not done, by explicit scope, not oversight**: `ai_templates` (skills
+  compose prompts inline, same as every other skill in this codebase —
+  no stored/editable template system exists anywhere yet, not just here);
+  `ai_credit_usage`/metering or billing per AI action; AI renovation scope
+  generator, AI project checklist generator, AI maintenance
+  recommendation, AI inspection checklist, and AI tenant communication
+  drafts (five more genuinely new skills the blueprint names that this
+  pass didn't build, to keep this slice bounded to the two most
+  evidence-backed gaps rather than mass-producing skills).
+
+## Module 21: Diaspora Property Management — Phase 1 (this pass)
+
+Real, user-supplied scope. Of the blueprint's 11 key features, the large
+majority were already fully built by prior passes: remote property
+dashboard (the portfolio view every account already has), verified vendor
+access (Module 6's trust/verification work), escrow payments, independent
+inspections, progress photos/videos, legal document vault, and multi-currency
+payments. This pass used the same "dead schema" technique that closed
+Module 3's `bedrooms` gap and Module 16's `Account.status` gap: two fields
+have existed since Module 1 with **zero** code ever reading or writing them
+beyond creation — the single most defensible, evidence-based scope, since
+it's a provable historical gap rather than an invented one.
+
+- **`PropertyAccessGrant`** (existed in the schema since Module 1, confirmed
+  via grep to have no references anywhere in the codebase before this pass)
+  → **Family representative access** and **Milestone approvals**.
+  `POST/GET /properties/:propertyId/access-grants` and `DELETE
+  .../access-grants/:grantId` let a property owner grant an existing
+  account member `canView`/`canEdit`/`canApprovePayments` on one property,
+  independent of that member's platform role. `PaymentsService
+  .releaseMilestone` now accepts the release if the caller either holds
+  the `payment:approve` role permission **or** holds a grant with
+  `canApprovePayments` on the milestone's project's property — an
+  additive OR that can only ever widen who can act, never narrow existing
+  access. Deliberately not wired into the generic `PermissionsGuard`
+  (used by every protected route in the app — too broad a blast radius for
+  a one-route need); instead the `@RequirePermissions('payment:approve')`
+  decorator was removed from this one route only, and the real
+  authorization decision moved into the service method itself, which now
+  receives the caller's full role/permissions shape instead of a bare
+  account id. `AccountContextGuard`'s own active-membership and
+  `:projectId`-ownership checks still gate the route regardless — this
+  change only affects *which* already-legitimate account members can
+  additionally take this one action.
+- **`Account.timezone`** (write-only since account creation, confirmed via
+  grep to never be read anywhere before this pass) →
+  **Time-zone-aware notifications**. Module 19's document-expiry cron
+  (`NotificationsSchedulerService`) now runs hourly instead of once daily,
+  and only actually creates a notification for an account when the
+  current wall-clock hour in that account's own timezone matches a fixed
+  local target hour (9am) — using Node's built-in `Intl.DateTimeFormat`,
+  no new dependency. An account with an invalid/unrecognized timezone
+  fails closed (never notified at the wrong hour, rather than silently
+  guessing UTC). The manual trigger
+  (`POST /notifications/check-document-expiry`) takes an optional
+  `targetLocalHour` query param so this could be verified over real HTTP
+  without waiting for a real matching hour to occur.
+- **Verified live end-to-end, including the security-sensitive part**:
+  granted a real "viewer"-role account member `canApprovePayments: true`
+  on the demo property via the new UI (`AccessGrantsCard`), confirmed via
+  the real `201 Created` response; reset that member's own login password
+  (test-only, in the local dev database), signed in as them through the
+  real browser, confirmed the client's own account switcher auto-selected
+  the granted account with role "Viewer" showing, navigated to the
+  project, and clicked the pre-existing, ungated "Release funds" button
+  on a real pending milestone ("PayPal payout test") — the real
+  `POST /projects/:id/milestones/:id/release` call returned
+  `201 Created` with a real payout record
+  (`amount: "500"`, `status: "processing"`), proving a member with **no**
+  `payment:approve` role permission released real milestone funds solely
+  because of the grant. The grant was revoked again afterward to leave
+  the demo account back in its original state.
+- **Not done, by explicit scope, not oversight**: remote handover
+  approvals (the handover stage already exists on projects; no
+  diaspora-specific approval step was added on top of it); any UI
+  surfacing of `Account.timezone` itself (still set only at signup, no
+  settings page to change it); per-notification-type timezone rules
+  (only the one existing document-expiry cron was made timezone-aware);
+  and multi-representative workflows beyond a flat per-property grant
+  list (no approval hierarchy or delegation chains between
+  representatives).
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -4942,10 +5068,19 @@ blueprint, or explicitly cut from it:
   infrastructure (in-app notifications), wired to five real, event-driven
   triggers across four different modules. SMS/WhatsApp/push/voice,
   notification preferences, message templates, delivery logs, and four
-  of the nine named features are explicitly deferred. What's left
-  genuinely unscoped is narrower now: Modules 20, 21, and 24 — no
-  blueprint text anywhere names what they contain, so nothing further
-  here is buildable without real input. Module 6's risk-flag coverage is
+  of the nine named features are explicitly deferred. Module 20 (AI
+  Property Assistant) and Module 21 (Diaspora Property Management) now
+  have real, user-supplied scope too — see "Module 20: AI Property
+  Assistant — Phase 1" and "Module 21: Diaspora Property Management —
+  Phase 1" above: an AI usage dashboard and a new `summarize_dispute`
+  skill for Module 20; a `PropertyAccessGrant`-based delegated
+  payment-approval flow (verified live to actually authorize a real
+  milestone release for an account with no role-level permission to do
+  so) and a timezone-aware notification cron for Module 21, both closing
+  fields that had sat unused in the schema since Module 1. What's left
+  genuinely unscoped is narrower now: Module 24 — no blueprint text
+  anywhere names what it contains, so nothing further here is buildable
+  without real input. Module 6's risk-flag coverage is
   complete now across every entity type that has one — see "Risk flags
   for projects and leases" and
   "Risk flags for vendors and suppliers" above: `assess_listing_risk` used

@@ -9,6 +9,7 @@ import { CreatePropertyDto } from './dto/create-property.dto';
 import { CreateValuationDto } from './dto/create-valuation.dto';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
+import { CreateAccessGrantDto } from './dto/create-access-grant.dto';
 import { ScheduleInspectionDto } from './dto/schedule-inspection.dto';
 import { UpdateInspectionDto } from './dto/update-inspection.dto';
 import { CompleteInspectionDto } from './dto/complete-inspection.dto';
@@ -70,6 +71,31 @@ export class PropertiesController {
   @Patch(':propertyId')
   update(@Param('propertyId') propertyId: string, @Body() dto: UpdatePropertyDto) {
     return this.properties.updateProperty(propertyId, dto);
+  }
+
+  // Module 21 Phase 1 — "Family representative access." property:write,
+  // same tier account:manage_members already sits at: this is standing
+  // access-control configuration, not everyday property data.
+  @RequirePermissions('property:write')
+  @Post(':propertyId/access-grants')
+  createAccessGrant(
+    @Param('propertyId') propertyId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Body() dto: CreateAccessGrantDto,
+  ) {
+    return this.properties.createOrUpdateAccessGrant(propertyId, member.accountId, dto);
+  }
+
+  @RequirePermissions('property:write')
+  @Get(':propertyId/access-grants')
+  findAccessGrants(@Param('propertyId') propertyId: string) {
+    return this.properties.findAccessGrants(propertyId);
+  }
+
+  @RequirePermissions('property:write')
+  @Delete(':propertyId/access-grants/:grantId')
+  revokeAccessGrant(@Param('propertyId') propertyId: string, @Param('grantId') grantId: string) {
+    return this.properties.revokeAccessGrant(propertyId, grantId);
   }
 
   // "Community management" — account-wide, like search/reindex-embeddings

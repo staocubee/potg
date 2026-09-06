@@ -15,6 +15,10 @@ import { FinalizePayoutOtpDto } from './dto/finalize-payout-otp.dto';
 
 type AccountMemberCtx = { accountId: string };
 type UserCtx = { id: string; email: string };
+// Module 21 Phase 1 — releaseMilestone needs more than accountId now: its
+// own authorization check (role permission OR PropertyAccessGrant) needs
+// this account member's own id and permission set.
+type ApprovalMemberCtx = { accountId: string; id: string; role: { permissions: { permission: { key: string } }[] } };
 
 // Controller-level :projectId (rather than each route repeating it) — same
 // param name PermissionsGuard's ABAC check looks for, so every route here
@@ -78,10 +82,22 @@ export class PaymentsController {
     return this.payments.approveMilestone(projectId, milestoneId);
   }
 
-  @RequirePermissions('payment:approve')
+  // No @RequirePermissions here — see PaymentsService.releaseMilestone's
+  // own comment. Role-based payment:approve is only one of two ways in
+  // now (Module 21 Phase 1's own PropertyAccessGrant.canApprovePayments
+  // is the other), so the real authorization check moved into the
+  // service, which needs the caller's own role permissions and
+  // accountMemberId to run it. AccountContextGuard's active-membership
+  // check still runs regardless — this never opens the route to anyone
+  // outside the project's own account, only widens who *within* it can
+  // release funds.
   @Post('milestones/:milestoneId/release')
-  releaseMilestone(@Param('projectId') projectId: string, @Param('milestoneId') milestoneId: string) {
-    return this.payments.releaseMilestone(projectId, milestoneId);
+  releaseMilestone(
+    @Param('projectId') projectId: string,
+    @Param('milestoneId') milestoneId: string,
+    @CurrentAccountMember() member: ApprovalMemberCtx,
+  ) {
+    return this.payments.releaseMilestone(projectId, milestoneId, member);
   }
 
   @RequirePermissions('payout:read')

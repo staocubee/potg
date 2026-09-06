@@ -36,6 +36,14 @@ export class AiController {
     return this.ai.listSkills();
   }
 
+  // Module 20 Phase 1 — "ai_usage_logs," a real surface, see
+  // AiService.getUsageSummary's own comment.
+  @RequirePermissions('ai:act')
+  @Get('usage')
+  getUsageSummary(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.ai.getUsageSummary(member.accountId);
+  }
+
   @RequirePermissions('ai:act')
   @Post('actions')
   runAction(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: RunAiActionDto) {

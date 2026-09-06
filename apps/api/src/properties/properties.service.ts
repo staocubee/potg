@@ -6,6 +6,7 @@ import { CreatePropertyDto } from './dto/create-property.dto';
 import { CreateValuationDto } from './dto/create-valuation.dto';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
+import { CreateAccessGrantDto } from './dto/create-access-grant.dto';
 import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
 import { ScheduleInspectionDto } from './dto/schedule-inspection.dto';
 import { UpdateInspectionDto } from './dto/update-inspection.dto';
@@ -173,6 +174,47 @@ export class PropertiesService {
         timelineEvents: { orderBy: { occurredAt: 'asc' } },
       },
     });
+  }
+
+  // Module 21 Phase 1 — "Family representative access." Upsert on the
+  // schema's own [propertyId, accountMemberId] unique constraint: granting
+  // twice just updates the existing grant rather than erroring or
+  // duplicating. accountMemberId is validated against this same account —
+  // granting access to a member of a *different* account would defeat the
+  // entire point of a tenant-isolated access-control feature.
+  async createOrUpdateAccessGrant(propertyId: string, accountId: string, dto: CreateAccessGrantDto) {
+    const member = await this.prisma.accountMember.findUnique({ where: { id: dto.accountMemberId } });
+    if (!member || member.accountId !== accountId) {
+      throw new NotFoundException('Account member not found');
+    }
+    return this.prisma.propertyAccessGrant.upsert({
+      where: { propertyId_accountMemberId: { propertyId, accountMemberId: dto.accountMemberId } },
+      update: { canView: dto.canView, canEdit: dto.canEdit, canApprovePayments: dto.canApprovePayments },
+      create: {
+        propertyId,
+        accountMemberId: dto.accountMemberId,
+        canView: dto.canView ?? true,
+        canEdit: dto.canEdit ?? false,
+        canApprovePayments: dto.canApprovePayments ?? false,
+      },
+    });
+  }
+
+  findAccessGrants(propertyId: string) {
+    return this.prisma.propertyAccessGrant.findMany({
+      where: { propertyId },
+      include: { accountMember: { include: { user: { select: { name: true, email: true } }, role: { select: { key: true } } } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async revokeAccessGrant(propertyId: string, grantId: string) {
+    const grant = await this.prisma.propertyAccessGrant.findUnique({ where: { id: grantId } });
+    if (!grant || grant.propertyId !== propertyId) {
+      throw new NotFoundException('Access grant not found');
+    }
+    await this.prisma.propertyAccessGrant.delete({ where: { id: grantId } });
+    return { deleted: true };
   }
 
   // Module 3: Property Details — the base Property record had no update

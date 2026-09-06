@@ -56,15 +56,26 @@ export class InAppNotificationsService {
   // the document id) is already a unique-enough key. Mirrors
   // ReportsSchedulerService's own "manual trigger reuses the exact cron
   // method" shape — see NotificationsController.checkDocumentExpiry.
-  async checkDocumentExpiry(daysAhead = 30) {
+  //
+  // Module 21 Phase 1's own "Time-zone aware notifications" — targetLocalHour,
+  // when given, restricts this run to accounts where it's currently that
+  // hour in the account's *own* Account.timezone (captured at signup,
+  // never once read anywhere until now — same "dead field" shape
+  // Account.status was in before Module 16's own pass). Omitted (the
+  // manual/admin trigger's own default), this checks every account
+  // regardless of local time — the "verify without waiting for the right
+  // hour anywhere" path. NotificationsSchedulerService's own real cron is
+  // the one caller that always passes it.
+  async checkDocumentExpiry(daysAhead = 30, targetLocalHour?: number) {
     const cutoff = new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000);
     const expiring = await this.prisma.document.findMany({
       where: { expiryDate: { not: null, lte: cutoff, gte: new Date() } },
-      select: { id: true, accountId: true, documentType: true, expiryDate: true },
+      select: { id: true, accountId: true, documentType: true, expiryDate: true, account: { select: { timezone: true } } },
     });
 
     let created = 0;
     for (const doc of expiring) {
+      if (targetLocalHour != null && !isCurrentlyLocalHour(doc.account.timezone, targetLocalHour)) continue;
       const link = `/documents#${doc.id}`;
       const already = await this.prisma.notification.findFirst({
         where: { accountId: doc.accountId, type: 'document_expiring', link },
@@ -80,5 +91,20 @@ export class InAppNotificationsService {
       created += 1;
     }
     return { checked: expiring.length, created };
+  }
+}
+
+// Node's own Intl, no new dependency — reads the wall-clock hour a given
+// IANA timezone is currently at. An unrecognized/invalid timezone fails
+// closed (never matches, so that account is simply skipped this run)
+// rather than guessing UTC, since a wrong guess would fire a "9am" local
+// reminder at the wrong actual local time, the exact bug this feature
+// exists to avoid.
+function isCurrentlyLocalHour(timezone: string, hour: number): boolean {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric', hour12: false });
+    return Number(formatter.format(new Date())) % 24 === hour;
+  } catch {
+    return false;
   }
 }

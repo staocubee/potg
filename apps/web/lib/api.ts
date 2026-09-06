@@ -287,6 +287,20 @@ export type Property = {
   timelineEvents?: PropertyTimelineEvent[];
 };
 
+// Module 21 Phase 1 — "Family representative access." Wires up
+// PropertyAccessGrant, a model that has existed since Module 1 and was
+// never read or written anywhere until now.
+export type AccessGrant = {
+  id: string;
+  propertyId: string;
+  accountMemberId: string;
+  canView: boolean;
+  canEdit: boolean;
+  canApprovePayments: boolean;
+  createdAt: string;
+  accountMember?: { user: { name: string; email: string }; role: { key: string } };
+};
+
 export type Announcement = {
   id: string;
   accountId: string;
@@ -554,6 +568,14 @@ export type AiActionResult = {
   draftLabel: string;
   items: string[];
   warn: boolean;
+};
+
+export type AiUsageSummary = {
+  total: number;
+  last30Days: number;
+  undecided: number;
+  byActionType: { actionType: string; count: number }[];
+  byDecision: { decision: string; count: number }[];
 };
 
 export type AiMessage = {
@@ -1331,6 +1353,25 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  // Module 21 Phase 1 — "Family representative access."
+  listAccessGrants(propertyId: string) {
+    return request<AccessGrant[]>(`/properties/${propertyId}/access-grants`, { token: this.token, accountId: this.accountId });
+  }
+  createAccessGrant(propertyId: string, input: { accountMemberId: string; canView?: boolean; canEdit?: boolean; canApprovePayments?: boolean }) {
+    return request<AccessGrant>(`/properties/${propertyId}/access-grants`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  revokeAccessGrant(propertyId: string, grantId: string) {
+    return request<{ deleted: boolean }>(`/properties/${propertyId}/access-grants/${grantId}`, {
+      method: "DELETE",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   // "Community management" — account-wide (no propertyId means every
   // tenant across the portfolio, see PropertyAnnouncement's own schema
   // comment), not nested under one property's own routes.
@@ -1617,6 +1658,11 @@ export class ApiClient {
   // --- AI Copilot Layer (account-scoped) ---
   listAiSkills() {
     return request<AiSkill[]>("/ai/skills", { token: this.token, accountId: this.accountId });
+  }
+  // Module 20 Phase 1 — "ai_usage_logs," a real surface on data that
+  // already existed (every AiRequest ever written).
+  getAiUsageSummary() {
+    return request<AiUsageSummary>("/ai/usage", { token: this.token, accountId: this.accountId });
   }
   runAiAction(moduleContext: string, actionType: string, input?: Record<string, unknown>) {
     return request<AiActionResult>("/ai/actions", {

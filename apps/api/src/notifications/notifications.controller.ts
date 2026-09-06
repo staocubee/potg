@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -41,10 +41,14 @@ export class NotificationsController {
   // this sweeps every account's documents platform-wide, so it's gated
   // on account:read_all (platform_admin only) rather than left open —
   // reusing that existing permission rather than inventing a new one for
-  // a single operational endpoint.
+  // a single operational endpoint. targetLocalHour is optional and
+  // defaults to unset (every account, any local time) — passing it lets
+  // Module 21 Phase 1's own timezone logic be verified directly over
+  // HTTP against real account timezones, not just by reading the cron's
+  // own code.
   @RequirePermissions('account:read_all')
   @Post('check-document-expiry')
-  checkDocumentExpiry() {
-    return this.notifications.checkDocumentExpiry();
+  checkDocumentExpiry(@Query('targetLocalHour') targetLocalHour?: string) {
+    return this.notifications.checkDocumentExpiry(30, targetLocalHour !== undefined ? Number(targetLocalHour) : undefined);
   }
 }
