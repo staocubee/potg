@@ -10,6 +10,8 @@ import { CreateValuationDto } from './dto/create-valuation.dto';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { CreateAccessGrantDto } from './dto/create-access-grant.dto';
+import { CreateDeviceDto } from './dto/create-device.dto';
+import { CreateTourAssetDto } from './dto/create-tour-asset.dto';
 import { ScheduleInspectionDto } from './dto/schedule-inspection.dto';
 import { UpdateInspectionDto } from './dto/update-inspection.dto';
 import { CompleteInspectionDto } from './dto/complete-inspection.dto';
@@ -96,6 +98,47 @@ export class PropertiesController {
   @Delete(':propertyId/access-grants/:grantId')
   revokeAccessGrant(@Param('propertyId') propertyId: string, @Param('grantId') grantId: string) {
     return this.properties.revokeAccessGrant(propertyId, grantId);
+  }
+
+  // Module 22 Phase 1 — the device registry ("architecture that allows
+  // device integrations later through API connectors"). property:write
+  // to register/remove, property:read to list, same tier as everything
+  // else nested under a single property.
+  @RequirePermissions('property:write')
+  @Post(':propertyId/devices')
+  createDevice(@Param('propertyId') propertyId: string, @Body() dto: CreateDeviceDto) {
+    return this.properties.createDevice(propertyId, dto);
+  }
+
+  @RequirePermissions('property:read')
+  @Get(':propertyId/devices')
+  findDevices(@Param('propertyId') propertyId: string) {
+    return this.properties.findDevices(propertyId);
+  }
+
+  @RequirePermissions('property:write')
+  @Delete(':propertyId/devices/:deviceId')
+  removeDevice(@Param('propertyId') propertyId: string, @Param('deviceId') deviceId: string) {
+    return this.properties.removeDevice(propertyId, deviceId);
+  }
+
+  // Module 23 Phase 1 — 360°/tour media metadata.
+  @RequirePermissions('property:read')
+  @Get(':propertyId/tour-assets')
+  findTourAssets(@Param('propertyId') propertyId: string) {
+    return this.properties.findTourAssets(propertyId);
+  }
+
+  @RequirePermissions('property:write')
+  @Post(':propertyId/tour-assets')
+  createTourAsset(@Param('propertyId') propertyId: string, @Body() dto: CreateTourAssetDto) {
+    return this.properties.createTourAsset(propertyId, dto);
+  }
+
+  @RequirePermissions('property:write')
+  @Delete(':propertyId/tour-assets/:assetId')
+  removeTourAsset(@Param('propertyId') propertyId: string, @Param('assetId') assetId: string) {
+    return this.properties.removeTourAsset(propertyId, assetId);
   }
 
   // "Community management" — account-wide, like search/reindex-embeddings

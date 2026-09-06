@@ -301,6 +301,29 @@ export type AccessGrant = {
   accountMember?: { user: { name: string; email: string }; role: { key: string } };
 };
 
+// Module 22 Phase 1 — the device registry. `status` is always
+// "not_connected" this pass — see PropertyDevice's own schema comment.
+export type PropertyDevice = {
+  id: string;
+  propertyId: string;
+  deviceType: string;
+  name: string;
+  provider?: string | null;
+  status: string;
+  createdAt: string;
+};
+
+// Module 23 Phase 1 — 360°/tour media metadata.
+export type PropertyTourAsset = {
+  id: string;
+  propertyId: string;
+  mediaUrl: string;
+  mediaType: string;
+  label?: string | null;
+  sortOrder: number;
+  createdAt: string;
+};
+
 export type Announcement = {
   id: string;
   accountId: string;
@@ -413,13 +436,15 @@ export type PropertyValuation = {
 };
 
 // The 2D "AI-generated renovation visualization" slice — see the schema
-// comment on RenovationVisualization for why real AR/VR (Module 22)
-// isn't what this is.
+// comment on RenovationVisualization for why real AR/VR (Module 23)
+// isn't what this is. `kind` also covers Module 23's "Virtual staging" —
+// same pipeline, a different prompt.
 export type RenovationVisualization = {
   id: string;
   propertyId: string;
   projectId?: string | null;
   requestedByUserId: string;
+  kind: "renovation" | "staging" | string;
   prompt: string;
   beforeImageUrl: string;
   afterImageUrl?: string | null;
@@ -1372,6 +1397,44 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  // Module 22 Phase 1 — the device registry.
+  listDevices(propertyId: string) {
+    return request<PropertyDevice[]>(`/properties/${propertyId}/devices`, { token: this.token, accountId: this.accountId });
+  }
+  createDevice(propertyId: string, input: { deviceType: string; name: string; provider?: string }) {
+    return request<PropertyDevice>(`/properties/${propertyId}/devices`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  removeDevice(propertyId: string, deviceId: string) {
+    return request<{ deleted: boolean }>(`/properties/${propertyId}/devices/${deviceId}`, {
+      method: "DELETE",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  // Module 23 Phase 1 — 360°/tour media metadata.
+  listTourAssets(propertyId: string) {
+    return request<PropertyTourAsset[]>(`/properties/${propertyId}/tour-assets`, { token: this.token, accountId: this.accountId });
+  }
+  createTourAsset(propertyId: string, input: { mediaUrl: string; mediaType?: string; label?: string; sortOrder?: number }) {
+    return request<PropertyTourAsset>(`/properties/${propertyId}/tour-assets`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  removeTourAsset(propertyId: string, assetId: string) {
+    return request<{ deleted: boolean }>(`/properties/${propertyId}/tour-assets/${assetId}`, {
+      method: "DELETE",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   // "Community management" — account-wide (no propertyId means every
   // tenant across the portfolio, see PropertyAnnouncement's own schema
   // comment), not nested under one property's own routes.
@@ -1427,7 +1490,7 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
-  createVisualization(propertyId: string, input: { beforeImageUrl: string; prompt: string; projectId?: string }) {
+  createVisualization(propertyId: string, input: { beforeImageUrl: string; prompt: string; projectId?: string; kind?: "renovation" | "staging" }) {
     return request<RenovationVisualization>(`/visualizations/property/${propertyId}`, {
       method: "POST",
       body: input,

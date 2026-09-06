@@ -7,6 +7,8 @@ import { CreateValuationDto } from './dto/create-valuation.dto';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
 import { CreateAccessGrantDto } from './dto/create-access-grant.dto';
+import { CreateDeviceDto } from './dto/create-device.dto';
+import { CreateTourAssetDto } from './dto/create-tour-asset.dto';
 import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
 import { ScheduleInspectionDto } from './dto/schedule-inspection.dto';
 import { UpdateInspectionDto } from './dto/update-inspection.dto';
@@ -214,6 +216,59 @@ export class PropertiesService {
       throw new NotFoundException('Access grant not found');
     }
     await this.prisma.propertyAccessGrant.delete({ where: { id: grantId } });
+    return { deleted: true };
+  }
+
+  // Module 22's device registry — see PropertyDevice's own schema
+  // comment: a real record of intent to connect a device, always created
+  // at "not_connected" since no adapter exists yet to ever report
+  // otherwise.
+  createDevice(propertyId: string, dto: CreateDeviceDto) {
+    return this.prisma.propertyDevice.create({
+      data: { propertyId, deviceType: dto.deviceType, name: dto.name, provider: dto.provider },
+    });
+  }
+
+  findDevices(propertyId: string) {
+    return this.prisma.propertyDevice.findMany({ where: { propertyId }, orderBy: { createdAt: 'desc' } });
+  }
+
+  async removeDevice(propertyId: string, deviceId: string) {
+    const device = await this.prisma.propertyDevice.findUnique({ where: { id: deviceId } });
+    if (!device || device.propertyId !== propertyId) {
+      throw new NotFoundException('Device not found');
+    }
+    await this.prisma.propertyDevice.delete({ where: { id: deviceId } });
+    return { deleted: true };
+  }
+
+  // Module 23's "store media metadata in a way that supports 360 content
+  // and virtual tour assets."
+  findTourAssets(propertyId: string) {
+    return this.prisma.propertyTourAsset.findMany({
+      where: { propertyId },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  createTourAsset(propertyId: string, dto: CreateTourAssetDto) {
+    return this.prisma.propertyTourAsset.create({
+      data: {
+        propertyId,
+        mediaUrl: dto.mediaUrl,
+        mediaType: dto.mediaType,
+        label: dto.label,
+        sortOrder: dto.sortOrder ?? 0,
+      },
+    });
+  }
+
+  async removeTourAsset(propertyId: string, assetId: string) {
+    const asset = await this.prisma.propertyTourAsset.findUnique({ where: { id: assetId } });
+    if (!asset || asset.propertyId !== propertyId) {
+      throw new NotFoundException('Tour asset not found');
+    }
+    await this.prisma.propertyTourAsset.delete({ where: { id: assetId } });
     return { deleted: true };
   }
 

@@ -1,8 +1,8 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { AccessGrant, AccountMemberSummary, ApiError, ComparableValuation, Lease, MaintenanceRequest, Project, Property, PropertyInspection, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
+import { AccessGrant, AccountMemberSummary, ApiError, ComparableValuation, Lease, MaintenanceRequest, Project, Property, PropertyDevice, PropertyInspection, PropertyTourAsset, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -133,6 +133,8 @@ export default function PropertyDetailPage() {
 
           <AccessGrantsCard propertyId={property.id} />
 
+          <DeviceRegistryCard propertyId={property.id} />
+
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <div className="potg-card" style={{ padding: 18 }}>
               <h3 style={{ fontSize: 14, marginBottom: 10 }}>Timeline</h3>
@@ -257,6 +259,8 @@ export default function PropertyDetailPage() {
               ))}
             </div>
           </div>
+
+          {id && <TourAssetsCard propertyId={id} />}
 
           {id && (
             <RenovationVisualizerCard
@@ -841,6 +845,145 @@ function AccessGrantsCard({ propertyId }: { propertyId: string }) {
   );
 }
 
+const DEVICE_TYPES = [
+  { value: "smart_meter", label: "Smart meter" },
+  { value: "water_meter", label: "Water meter" },
+  { value: "security_camera", label: "Security camera" },
+  { value: "smart_lock", label: "Smart lock" },
+  { value: "solar_inverter", label: "Solar inverter" },
+];
+
+// Module 22 Phase 1 — the device registry. See PropertyDevice's own
+// schema comment: this records intent to connect a device, it doesn't
+// read live data from one — status can only ever be "not_connected"
+// this pass, shown plainly rather than implied to be something more.
+function DeviceRegistryCard({ propertyId }: { propertyId: string }) {
+  const auth = useAuth();
+  const [devices, setDevices] = useState<PropertyDevice[] | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [deviceType, setDeviceType] = useState(DEVICE_TYPES[0].value);
+  const [name, setName] = useState("");
+  const [provider, setProvider] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function load() {
+    setError(null);
+    auth.api
+      .listDevices(propertyId)
+      .then(setDevices)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load devices."));
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId]);
+
+  async function onAdd(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.createDevice(propertyId, { deviceType, name, provider: provider || undefined });
+      setName("");
+      setProvider("");
+      setShowForm(false);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't register that device.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRemove(deviceId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.removeDevice(propertyId, deviceId);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't remove that device.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <h3 style={{ fontSize: 14, margin: 0 }}>Smart home &amp; IoT devices</h3>
+        <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
+          {showForm ? "Cancel" : "+ Register a device"}
+        </button>
+      </div>
+      <p className="potg-muted" style={{ fontSize: 11, marginTop: 0, marginBottom: showForm ? 10 : 12 }}>
+        A registry of devices you plan to connect — no live readings yet, since no device integration is wired up.
+      </p>
+      {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+
+      {showForm && (
+        <form onSubmit={onAdd} style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+          <select className="potg-input" value={deviceType} onChange={(e) => setDeviceType(e.target.value)}>
+            {DEVICE_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+          <input
+            className="potg-input"
+            required
+            autoFocus
+            placeholder="Name — e.g. 'Kitchen smart meter'"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <input
+            className="potg-input"
+            placeholder="Provider (optional) — e.g. 'Shelly', 'SolarEdge'"
+            value={provider}
+            onChange={(e) => setProvider(e.target.value)}
+          />
+          <div>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+              {busy ? "Saving…" : "Register device"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {devices && devices.length === 0 && !showForm && (
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+          No devices registered yet.
+        </p>
+      )}
+      {devices && devices.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {devices.map((d) => (
+            <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, borderTop: "1px solid var(--potg-border)", paddingTop: 8 }}>
+              <div>
+                <span style={{ fontWeight: 600 }}>{d.name}</span>{" "}
+                <span className="potg-muted" style={{ fontSize: 11 }}>
+                  {DEVICE_TYPES.find((t) => t.value === d.deviceType)?.label ?? d.deviceType}
+                  {d.provider ? ` · ${d.provider}` : ""}
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span className="potg-badge">{d.status.replace(/_/g, " ")}</span>
+                <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy} onClick={() => onRemove(d.id)}>
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddValuationForm({ propertyId, onCreated }: { propertyId: string; onCreated: (v: PropertyValuation) => void }) {
   const auth = useAuth();
   const [estimatedValue, setEstimatedValue] = useState("");
@@ -887,13 +1030,211 @@ function AddValuationForm({ propertyId, onCreated }: { propertyId: string; onCre
   );
 }
 
+// Module 23's "360 property tours" and "Remote walkthroughs" — a genuine
+// pannable viewer for an equirectangular photo, built with plain pointer
+// events and CSS (no three.js/pannellum — this app has no UI/3D
+// dependency at all, see package.json), not a true spherical projection.
+// The image is rendered at 3x the viewport width and dragged
+// horizontally with wraparound, which reads as "look left/right around
+// a room" without a WebGL canvas — a bounded stand-in for real 360°
+// rendering, not a claim of parity with it.
+function Panorama360Viewer({ mediaUrl }: { mediaUrl: string }) {
+  const [offsetPct, setOffsetPct] = useState(0);
+  const [drag, setDrag] = useState<{ startX: number; startOffset: number } | null>(null);
+
+  function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    setDrag({ startX: e.clientX, startOffset: offsetPct });
+  }
+  function onPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (!drag) return;
+    const deltaPx = e.clientX - drag.startX;
+    const containerWidth = e.currentTarget.clientWidth || 1;
+    const deltaPct = (deltaPx / containerWidth) * 100;
+    let next = (drag.startOffset + deltaPct) % 100;
+    if (next < 0) next += 100;
+    setOffsetPct(next);
+  }
+  function onPointerUp() {
+    setDrag(null);
+  }
+
+  return (
+    <div
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerLeave={onPointerUp}
+      style={{
+        position: "relative",
+        width: "100%",
+        height: 220,
+        overflow: "hidden",
+        borderRadius: 6,
+        background: "#111",
+        cursor: drag ? "grabbing" : "grab",
+        touchAction: "none",
+      }}
+    >
+      {[0, 1].map((copy) => (
+        <img
+          key={copy}
+          src={mediaUrl}
+          alt="360° view"
+          draggable={false}
+          style={{
+            position: "absolute",
+            top: 0,
+            left: `${copy * 100 - offsetPct}%`,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            userSelect: "none",
+            pointerEvents: "none",
+          }}
+        />
+      ))}
+      <span
+        className="potg-muted"
+        style={{ position: "absolute", bottom: 6, right: 8, fontSize: 10, background: "rgba(0,0,0,0.5)", color: "#fff", padding: "2px 6px", borderRadius: 4 }}
+      >
+        Drag to look around
+      </span>
+    </div>
+  );
+}
+
+// Module 23 Phase 1 — "store media metadata in a way that supports 360
+// content and virtual tour assets." A property's own ordered list of
+// 360° photos/videos, each rendered with Panorama360Viewer above; viewing
+// them in order is this pass's "remote walkthrough."
+function TourAssetsCard({ propertyId }: { propertyId: string }) {
+  const auth = useAuth();
+  const [assets, setAssets] = useState<PropertyTourAsset[] | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [mediaUrl, setMediaUrl] = useState("");
+  const [label, setLabel] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function load() {
+    setError(null);
+    auth.api
+      .listTourAssets(propertyId)
+      .then(setAssets)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load tour assets."));
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId]);
+
+  async function onAdd(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.createTourAsset(propertyId, { mediaUrl, label: label || undefined, sortOrder: (assets?.length ?? 0) });
+      setMediaUrl("");
+      setLabel("");
+      setShowForm(false);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't add that 360° photo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRemove(assetId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.removeTourAsset(propertyId, assetId);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't remove that photo.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <h3 style={{ fontSize: 14, margin: 0 }}>360° tour</h3>
+        <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
+          {showForm ? "Cancel" : "+ Add a 360° photo"}
+        </button>
+      </div>
+      <p className="potg-muted" style={{ fontSize: 11, marginTop: 0, marginBottom: showForm ? 10 : 12 }}>
+        Add an equirectangular (360°) photo per room to build a remote walkthrough — drag any photo below to look
+        around it.
+      </p>
+      {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+
+      {showForm && (
+        <form onSubmit={onAdd} style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+          <input
+            className="potg-input"
+            type="url"
+            required
+            autoFocus
+            placeholder="360° photo URL"
+            value={mediaUrl}
+            onChange={(e) => setMediaUrl(e.target.value)}
+          />
+          <input
+            className="potg-input"
+            placeholder="Room label (optional) — e.g. 'Living room'"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+          />
+          <div>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+              {busy ? "Adding…" : "Add to tour"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {assets && assets.length === 0 && !showForm && (
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+          No 360° photos added yet.
+        </p>
+      )}
+      {assets && assets.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {assets.map((a) => (
+            <div key={a.id}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{a.label ?? "Untitled room"}</span>
+                <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy} onClick={() => onRemove(a.id)}>
+                  Remove
+                </button>
+              </div>
+              <Panorama360Viewer mediaUrl={a.mediaUrl} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const STAGING_DEFAULT_PROMPT =
+  "Virtually stage this empty room with tasteful, neutral furniture and decor suitable for a real estate listing, keeping all structural elements unchanged.";
+
 // The 2D "AI-generated renovation visualization" slice — see the schema
 // comment on RenovationVisualization for why this doesn't attempt real
 // AR/VR. Synchronous from the caller's point of view: the request stays
 // open until OpenAI's edit call and the R2 upload both finish (tens of
 // seconds), no polling. A failed generation is still shown, not hidden —
 // same "record what actually happened" reasoning every other status
-// field in this scaffold follows.
+// field in this scaffold follows. `kind` also carries Module 23's own
+// "Virtual staging" feature — identical pipeline, a staging-oriented
+// default prompt instead of a freeform renovation one.
 function RenovationVisualizerCard({
   propertyId,
   projects,
@@ -907,11 +1248,18 @@ function RenovationVisualizerCard({
 }) {
   const auth = useAuth();
   const [showForm, setShowForm] = useState(false);
+  const [kind, setKind] = useState<"renovation" | "staging">("renovation");
   const [beforeImageUrl, setBeforeImageUrl] = useState("");
   const [prompt, setPrompt] = useState("");
   const [projectId, setProjectId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  function onKindChange(next: "renovation" | "staging") {
+    setKind(next);
+    if (next === "staging" && !prompt) setPrompt(STAGING_DEFAULT_PROMPT);
+    if (next === "renovation" && prompt === STAGING_DEFAULT_PROMPT) setPrompt("");
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -922,6 +1270,7 @@ function RenovationVisualizerCard({
         beforeImageUrl,
         prompt,
         projectId: projectId || undefined,
+        kind,
       });
       onCreated(v);
       setBeforeImageUrl("");
@@ -937,9 +1286,9 @@ function RenovationVisualizerCard({
   return (
     <div className="potg-card" style={{ padding: 18 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <h3 style={{ fontSize: 14 }}>Renovation visualizer</h3>
+        <h3 style={{ fontSize: 14 }}>Renovation &amp; staging visualizer</h3>
         <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? "Cancel" : "+ Visualize a renovation"}
+          {showForm ? "Cancel" : "+ Visualize"}
         </button>
       </div>
       <p className="potg-muted" style={{ fontSize: 11, marginTop: 0, marginBottom: showForm ? 10 : 0 }}>
@@ -950,6 +1299,24 @@ function RenovationVisualizerCard({
       {showForm && (
         <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
           {error && <div className="potg-error">{error}</div>}
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              type="button"
+              className={kind === "renovation" ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
+              style={{ fontSize: 12, padding: "5px 10px" }}
+              onClick={() => onKindChange("renovation")}
+            >
+              Renovate
+            </button>
+            <button
+              type="button"
+              className={kind === "staging" ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
+              style={{ fontSize: 12, padding: "5px 10px" }}
+              onClick={() => onKindChange("staging")}
+            >
+              Stage this room
+            </button>
+          </div>
           <input
             className="potg-input"
             type="url"
@@ -963,7 +1330,11 @@ function RenovationVisualizerCard({
             className="potg-input"
             rows={2}
             required
-            placeholder="Describe the renovation — e.g. 'modern kitchen with granite countertops and white cabinets'"
+            placeholder={
+              kind === "staging"
+                ? "Describe the staging — or use the suggested default below"
+                : "Describe the renovation — e.g. 'modern kitchen with granite countertops and white cabinets'"
+            }
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
           />
@@ -994,7 +1365,12 @@ function RenovationVisualizerCard({
         {visualizations.map((v) => (
           <div key={v.id} style={{ borderTop: "1px solid var(--potg-border)", paddingTop: 10 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-              <span style={{ fontSize: 13 }}>{v.prompt}</span>
+              <span style={{ fontSize: 13 }}>
+                <span className="potg-badge" style={{ marginRight: 6 }}>
+                  {v.kind === "staging" ? "staging" : "renovation"}
+                </span>
+                {v.prompt}
+              </span>
               <span
                 className="potg-badge"
                 style={{ color: v.status === "failed" ? "var(--potg-danger)" : undefined }}

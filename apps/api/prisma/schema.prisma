@@ -391,6 +391,8 @@ model Property {
   visualizations RenovationVisualization[]
   embedding      PropertyEmbedding?
   announcements  PropertyAnnouncement[]
+  devices        PropertyDevice[]
+  tourAssets     PropertyTourAsset[]
 
   @@map("properties")
 }
@@ -1546,9 +1548,9 @@ model PropertyAnnouncement {
 }
 
 // The 2D half of "AI-generated renovation visualizations" (Priority 6's
-// Deeper AI list) — real AR/VR (Module 22: 3D reconstruction, WebXR/
-// native-app delivery) stays out of scope, see the README's own note on
-// why. This is a bounded, achievable slice: an input photo the caller
+// Deeper AI list) — real AR/VR (Module 23: AR/VR Property Viewing — see
+// its own section below) stays out of scope, see the README's own note
+// on why. This is a bounded, achievable slice: an input photo the caller
 // already hosts (beforeImageUrl, same "URL you provide yourself"
 // convention Document.fileUrl already uses — no upload pipeline exists
 // in this scaffold), a text prompt describing the renovation, and an
@@ -1557,11 +1559,18 @@ model PropertyAnnouncement {
 // accept/discard" here the way a generated description or status update
 // has; the image itself is the delivered result, closer in shape to
 // PropertyValuation than to an AI skill's draft text.
+//
+// `kind` was added for Module 23's own "Virtual staging" and "Before/
+// after visualization" features — both are the exact same before/photo
+// + prompt + after/photo pipeline as a renovation preview, just with a
+// staging-oriented prompt instead of a renovation one, so this reuses
+// the model and service wholesale rather than duplicating either.
 model RenovationVisualization {
   id                String    @id @default(uuid())
   propertyId        String
   projectId         String?
   requestedByUserId String
+  kind              String    @default("renovation") // renovation | staging
   prompt            String
   beforeImageUrl    String
   // Set once ImageGenerationProvider returns and StorageService has
@@ -1578,6 +1587,65 @@ model RenovationVisualization {
   project  Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   @@map("renovation_visualizations")
+}
+
+// --- Module 22: Smart Home, IoT, and Sustainability ---------------------
+//
+// Real, user-supplied scope, but its own engineering notes call it out as
+// "a later-stage module" whose job now is architecture, not live device
+// data: "design architecture should allow device integrations later
+// through API connectors." Of its 9 named features, 7 need a real,
+// currently-unwired third-party device/utility API to mean anything
+// (smart meter, energy, water, camera, lock, and solar readings, plus
+// device-triggered maintenance alerts) — faking readings for hardware
+// nothing is connected to would be inventing data, not building a
+// feature, the same reasoning that kept SMS/WhatsApp/push notifications
+// unattempted in Module 19. This model is the literal "architecture for
+// later" the notes ask for: a real registry a property owner can use to
+// record *intent* to connect a device, honestly stuck at
+// "not_connected" until a real adapter exists to flip it — not a fake
+// live reading.
+model PropertyDevice {
+  id         String   @id @default(uuid())
+  propertyId String
+  deviceType String // smart_meter | water_meter | security_camera | smart_lock | solar_inverter
+  name       String
+  provider   String? // freeform — e.g. "Shelly", "SolarEdge" — no adapter wired up for any of them yet
+  status     String   @default("not_connected") // not_connected is the only value this pass can ever honestly set
+  createdAt  DateTime @default(now())
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("property_devices")
+}
+
+// --- Module 23: AR/VR Property Viewing -----------------------------------
+//
+// Real, user-supplied scope. Real AR (a live camera overlay) and real VR
+// (a 3D walkable space) both need infrastructure this scaffold doesn't
+// have and this pass doesn't add — see the README's note on why (native
+// ARKit/ARCore or WebXR, a 3D content pipeline, photogrammetry/NeRF
+// reconstruction from photos). What the module's own engineering notes
+// ask for regardless of that gap is concrete and buildable without any
+// of it: "store media metadata in a way that supports 360 content and
+// virtual tour assets." This is that table — an ordered list of 360°
+// photos (or videos) per property, each just a URL the caller already
+// hosts (same "URL you provide yourself" convention this whole schema
+// uses) plus a room label and position, real enough to back a genuine
+// pannable 360° viewer and a "walk through this sequence of rooms" tour
+// on the web, with no 3D engine or native app required.
+model PropertyTourAsset {
+  id         String   @id @default(uuid())
+  propertyId String
+  mediaUrl   String
+  mediaType  String   @default("photo_360") // photo_360 | video_360
+  label      String? // e.g. "Living room", "Kitchen"
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("property_tour_assets")
 }
 
 // --- Module 17: Estate and Community Management -------------------------

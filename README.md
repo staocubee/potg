@@ -581,8 +581,11 @@ Three new skills round out the blueprint's Priority 6 list:
 - **`generate_portfolio_report`** (account) — the first skill scoped to a
   whole account rather than one record (`moduleContext` is
   `"account:<id>"`); aggregates properties, projects, listings, and open
-  disputes into one plain-language report, Module 23's "natural-language
-  report generation on top of every report type."
+  disputes into one plain-language report — an early stand-in for what
+  turned out to be Module 24's own "natural-language report generation
+  on top of every report type" (Module 24: Reports and Analytics wasn't
+  named yet when this was built; the numbering below has since been
+  corrected).
 
 `PropertyValuation` (`POST`/`GET /properties/:propertyId/valuations`, on
 the existing `PropertiesController` — no new permission keys, gated by the
@@ -3378,8 +3381,12 @@ same dashboard.
 ## AI-generated renovation visualizations — the 2D half only (this pass)
 
 "AI-generated renovation visualizations" was Priority 6's own last
-open item, explicitly gated on Module 22 (AR/VR) existing at all. It
-doesn't, and this pass doesn't build it — real AR needs either a native
+open item, explicitly gated on real AR/VR existing at all — since named
+and scoped as Module 23: AR/VR Property Viewing (this README originally
+mislabeled it "Module 22" before Module 22's own real scope, Smart Home/
+IoT/Sustainability, was supplied — see "Module 23: AR/VR Property
+Viewing — Phase 1" below for the correction and what *is* now built from
+it). It doesn't, and this pass doesn't build it — real AR needs either a native
 mobile app (ARKit/ARCore; this scaffold has no mobile app) or WebXR
 (which doesn't work in iOS Safari, ruling out a large share of real
 users), real VR needs a full 3D content pipeline (three.js or
@@ -4306,8 +4313,10 @@ to act on.
 
 ## AI narration for the report builder (this pass)
 
-Closes the rest of Module 23's "natural-language report generation on
-top of every report type" — `generate_portfolio_report` already
+Closes the rest of what turned out to be Module 24's own "natural-
+language report generation on top of every report type" (see the note
+on `generate_portfolio_report`'s own README entry on the numbering
+correction) — `generate_portfolio_report` already
 narrated the one fixed portfolio-overview report; the report *builder*'s
 own custom, saved reports had no narration option at all.
 
@@ -5024,6 +5033,132 @@ it's a provable historical gap rather than an invented one.
   list (no approval hierarchy or delegation chains between
   representatives).
 
+## Module 22: Smart Home, IoT, and Sustainability — Phase 1 (this pass)
+
+Real, user-supplied scope, but the module's own engineering notes are
+explicit that this is "a later-stage module" whose job right now is
+architecture, not live device data: "design architecture should allow
+device integrations later through API connectors." Of its 9 named
+features, 7 need a real, currently-unwired third-party device or utility
+API to mean anything at all (smart meter, energy, water, camera, lock,
+and solar readings, plus device-triggered maintenance alerts) — faking
+readings for hardware nothing is actually connected to would be
+inventing data, not building a feature, the same reasoning that kept
+SMS/WhatsApp/push notifications unattempted in Module 19.
+
+- **`PropertyDevice`** (new model) — the literal "architecture for
+  later" the notes ask for: `POST/GET /properties/:propertyId/devices`
+  and `DELETE .../devices/:deviceId` let an owner register a device by
+  type (smart meter, water meter, security camera, smart lock, solar
+  inverter), name, and an optional freeform provider name (e.g.
+  "Shelly", "SolarEdge"). `status` defaults to, and can currently only
+  ever honestly be, `"not_connected"` — this is a registry of intent to
+  connect a device, not a live telemetry feed; no adapter exists for any
+  of these device types yet, and the UI says so plainly rather than
+  implying otherwise.
+- **`estimate_carbon_footprint`** (AI skill) — the one version of
+  "Carbon estimate" buildable without a real smart-meter integration: a
+  published average kg-CO2e-per-square-metre-per-year figure for
+  residential electricity use, scaled by the property's own
+  `squareFootage` (Module 3). A genuine, clearly-labeled-as-approximate
+  computation from real data already on the record, not a fabricated
+  device reading — and it says so in its own output. Guards on missing
+  `squareFootage` (returns a warning asking the owner to fill in
+  Property Details first, rather than silently computing from nothing).
+- **`suggest_green_checklist`** (AI skill) — "Green building checklist,"
+  same shape as Module 6's `suggest_document_checklist`: a fixed, generic
+  default list, phrased and lightly tailored to the property's own type
+  and `yearBuilt` by the LLM. No jurisdiction-specific green-building
+  code is wired up (there isn't one anywhere in this scaffold, the same
+  gap Module 6's own document checklist already flags), and no new
+  stateful "checked/unchecked" tracking model — read-only guidance, same
+  as every other `*_checklist` skill in this registry.
+- **Verified live**: registered a real "Kitchen smart meter" device
+  (provider "Shelly") on the demo property via the new UI and confirmed
+  the real `201 Created` response and the "Not Connected" badge it
+  renders with; ran `estimate_carbon_footprint` against a property with
+  no `squareFootage` on record and got the correct guard-rail warning;
+  ran it against "Module 3 Test House" (2,200 sq ft) and got
+  `6,132 kg CO2e/year` — matching the published-average math exactly
+  (2,200 sq ft × 0.092903 m²/sq ft × 30 kg CO2e/m²/year); ran
+  `suggest_green_checklist` against the same property and confirmed its
+  `yearBuilt` (2015) was correctly woven into the intro sentence.
+- **Not done, by explicit scope, not oversight**: any actual device
+  telemetry (smart meter/energy/water/camera/lock/solar readings) —
+  needs a real, currently-unpicked provider integration for each device
+  type, the module's own notes defer this to "later"; device-triggered
+  maintenance alerts (depends on the above); any adapter/webhook
+  endpoint for a real device to actually report into `PropertyDevice`
+  (the model exists, nothing calls it yet).
+
+## Module 23: AR/VR Property Viewing — Phase 1 (this pass)
+
+Real, user-supplied scope — and the module this scaffold's own prior
+"AI-generated renovation visualizations — the 2D half only" section had
+already been built against, under the wrong number (it called this
+"Module 22" before Module 22's own real scope, Smart Home/IoT/
+Sustainability, existed — see that section's own corrected note). Real
+AR (a live camera overlay) and real VR (a 3D walkable space) both need
+infrastructure this scaffold doesn't have and this pass doesn't add
+either — native ARKit/ARCore or WebXR (which doesn't work in iOS
+Safari), a full 3D content pipeline, and photogrammetry/NeRF
+reconstruction from photos, the same multi-week-research-problem
+reasoning as before. What the module's own engineering notes ask for
+regardless of that gap is concrete and buildable without any of it:
+"store media metadata in a way that supports 360 content and virtual
+tour assets."
+
+- **`PropertyTourAsset`** (new model) — exactly that: an ordered list of
+  360° photos (or videos) per property, each a URL the caller already
+  hosts (same "URL you provide yourself" convention this whole schema
+  uses) plus an optional room label and sort position.
+  `POST/GET /properties/:propertyId/tour-assets` and
+  `DELETE .../tour-assets/:assetId` manage it.
+- **`Panorama360Viewer`** (web) — a genuine pannable viewer for an
+  equirectangular photo, covering "360 property tours" and "Remote
+  walkthroughs" (viewing a property's tour assets in sequence). Built
+  with plain pointer events and CSS — this app has no UI or 3D
+  dependency at all (`apps/web/package.json` has exactly three runtime
+  packages: next/react/react-dom), and adding one (three.js, pannellum)
+  for a single feature felt like the wrong tradeoff for a scaffold. The
+  image renders at double width and drags horizontally with wraparound —
+  a bounded, honest stand-in for "look around a room" on the web, not a
+  claim of parity with a real spherical/WebGL renderer.
+- **Virtual staging** — reuses `RenovationVisualization`'s entire
+  pipeline (schema, `VisualizationsService`, `OpenAiImageService`)
+  wholesale rather than duplicating any of it: a new `kind` field
+  (`renovation` | `staging`) on the same model, a "Stage this room"
+  toggle next to "Renovate" on the existing visualizer card that swaps
+  in a sensible default staging prompt, and a `kind` badge on each
+  rendered result. This is also literally Module 23's own "Before/after
+  visualization" feature — the 2D renovation-preview work already
+  covered it before this pass gave it a name.
+- **AR renovation preview** and **Virtual inspections** — not attempted.
+  The AR half needs the same native/WebXR infrastructure gap as above;
+  virtual inspections would need real video-conferencing infrastructure
+  (Daily.co, Twilio Video, or similar) that isn't wired up anywhere in
+  this scaffold, the same "no provider, not faked" reasoning that kept
+  SMS/WhatsApp/push notifications unattempted in Module 19.
+- **Verified live**: added a real 360° photo to the demo property via
+  the new UI, confirmed the `201 Created` response, and confirmed
+  dragging across the rendered viewer actually pans the image with
+  visible wraparound at the seam (checked both visually and via the
+  underlying `<img>` elements' computed `left` offsets); toggled "Stage
+  this room" on the visualizer, confirmed the staging-specific default
+  prompt appeared, and submitted it with a deliberately-unreachable
+  photo URL (to avoid spending real money on OpenAI's paid image-edit
+  call just for a plumbing check — see the README's own note on that
+  call's real cost) — confirmed via direct query that the resulting
+  record persisted with `kind: "staging"` and the correct default
+  prompt, failing at the "fetch the before image" step, before ever
+  reaching OpenAI.
+- **Not done, by explicit scope, not oversight**: real AR/VR of any
+  kind; multi-room hotspot navigation between tour assets (today's
+  "walkthrough" is just viewing the ordered list, not a linked
+  point-to-point navigation graph); video-based virtual inspections; any
+  upload pipeline for 360° media (same "URL you provide yourself"
+  convention, no new gap here).
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -5077,10 +5212,25 @@ blueprint, or explicitly cut from it:
   payment-approval flow (verified live to actually authorize a real
   milestone release for an account with no role-level permission to do
   so) and a timezone-aware notification cron for Module 21, both closing
-  fields that had sat unused in the schema since Module 1. What's left
-  genuinely unscoped is narrower now: Module 24 — no blueprint text
-  anywhere names what it contains, so nothing further here is buildable
-  without real input. Module 6's risk-flag coverage is
+  fields that had sat unused in the schema since Module 1. Module 22
+  (Smart Home, IoT, and Sustainability) and Module 23 (AR/VR Property
+  Viewing) now have real, user-supplied scope too — see "Module 22:
+  Smart Home, IoT, and Sustainability — Phase 1" and "Module 23: AR/VR
+  Property Viewing — Phase 1" above: a device-connector registry and two
+  new AI skills (carbon estimate, green building checklist) for Module
+  22; 360°-tour media metadata with a real pannable web viewer, and
+  virtual staging reusing the existing renovation-visualization pipeline,
+  for Module 23 — both modules' own engineering notes flagged them as
+  needing real device/AR infrastructure this pass deliberately doesn't
+  add, so each ships the concrete, buildable architecture piece its own
+  notes actually asked for instead. Module 24 (Reports and Analytics)
+  now has real, user-supplied scope too, but hasn't been scoped into a
+  buildable slice yet — its three report categories (Owner, Company,
+  Marketplace reports) overlap substantially with what the existing
+  Reports dashboard and report builder already compute, so closing it
+  needs a pass dedicated to auditing which of its ~17 named reports are
+  already covered versus genuinely new, the same audit this file did for
+  Module 20 against its 14 AI features. Module 6's risk-flag coverage is
   complete now across every entity type that has one — see "Risk flags
   for projects and leases" and
   "Risk flags for vendors and suppliers" above: `assess_listing_risk` used
@@ -5105,7 +5255,7 @@ blueprint, or explicitly cut from it:
   below — though it's a fixed metric registry projected from the same
   portfolio computation, not a custom-query designer; it also now has an
   AI-narration option of its own — see "AI narration for the report
-  builder" above — closing the piece of Module 23's "natural-language
+  builder" above — closing the piece of Module 24's "natural-language
   report generation on top of every report type" that
   `generate_portfolio_report` alone didn't reach (the report builder's
   own custom, saved reports). Modules 8 and 12
@@ -5264,9 +5414,12 @@ blueprint, or explicitly cut from it:
   as before — the account that raised a dispute still can't resolve it
   itself, and an open dispute still holds its milestone/payment.
 - **Deeper AI (Priority 6)** — real AR/VR renovation visualization
-  (needs Module 22 first, deliberately not attempted — see above) is the
-  one item left on this list; a bounded 2D "AI-edited before/after
-  photo" version of it is no longer on it either. Natural-language
+  (needs real AR/VR infrastructure Module 23 itself doesn't add either —
+  see "Module 23: AR/VR Property Viewing — Phase 1" above — deliberately
+  not attempted) is the one item left on this list; a bounded 2D
+  "AI-edited before/after photo" version of it is no longer on it
+  either, and neither is a bounded 360°-tour/virtual-staging version —
+  see the same section. Natural-language
   project summaries, valuation/ROI dashboards, and listing summaries
   beyond `assess_listing_risk` are no longer on it — see "A project
   summary skill, and a real Reports dashboard", "An ROI & valuation

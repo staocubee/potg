@@ -31,6 +31,7 @@ export class VisualizationsService {
         propertyId,
         projectId: dto.projectId,
         requestedByUserId: userId,
+        kind: dto.kind ?? 'renovation',
         prompt: dto.prompt,
         beforeImageUrl: dto.beforeImageUrl,
       },
