@@ -45,6 +45,8 @@ const KEYWORD_ROUTES: Record<string, string[]> = {
   explain_vendor_trust_score: ['vendor trust score', 'why does this vendor', 'is this vendor trustworthy'],
   explain_supplier_trust_score: ['supplier trust score', 'why does this supplier', 'is this supplier trustworthy'],
   summarize_rental_bookings: ['rental bookings', 'rental backlog', 'anything overdue for return', 'bookings awaiting confirmation'],
+  assess_vendor_risk: ['vendor risk', 'is this vendor risky', 'risky vendor', 'vendor red flag', 'safe to hire'],
+  assess_supplier_risk: ['supplier risk', 'is this supplier risky', 'risky supplier', 'supplier red flag'],
 };
 
 // Heuristic argument extraction for the stub provider — deliberately not

@@ -34,6 +34,8 @@ import { estimateComparableValueSkill } from './skills/estimate-comparable-value
 import { assessProjectRiskSkill } from './skills/assess-project-risk.skill';
 import { assessLeaseRiskSkill } from './skills/assess-lease-risk.skill';
 import { narrateReportSkill } from './skills/narrate-report.skill';
+import { assessVendorRiskSkill } from './skills/assess-vendor-risk.skill';
+import { assessSupplierRiskSkill } from './skills/assess-supplier-risk.skill';
 
 @Module({
   imports: [ProjectsModule, ListingsModule, ReportsModule],
@@ -83,6 +85,8 @@ import { narrateReportSkill } from './skills/narrate-report.skill';
         assessProjectRiskSkill,
         assessLeaseRiskSkill,
         narrateReportSkill,
+        assessVendorRiskSkill,
+        assessSupplierRiskSkill,
       ],
     },
   ],

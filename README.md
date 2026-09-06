@@ -4365,6 +4365,57 @@ own custom, saved reports had no narration option at all.
   "needs attention," so `warn` is always `false` here, deliberately, not
   an oversight.
 
+## Risk flags for vendors and suppliers (this pass)
+
+Closes the last named sub-piece of "the rest of risk flags/trust scores
+beyond listings" — `Vendor` and `Supplier` had a trust-*score* (`explain_
+vendor_trust_score`, `explain_supplier_trust_score`) but no flat,
+explicit risk-*flag* list the way `assess_listing_risk`/
+`assess_project_risk`/`assess_lease_risk` already have.
+
+- **`assess_vendor_risk`** — public/buyer-facing like `assess_listing_
+  risk` and `explain_vendor_trust_score`, not filtered by
+  `ctx.accountId`: anyone browsing the vendor marketplace can ask
+  whether a vendor carries flagged risk factors before hiring them.
+  Flags: verification status not `verified`, any open/`under_review`
+  dispute on a project this vendor is currently assigned to, an expired
+  self-reported professional license, and a `major_concerns`/
+  `minor_concerns` rating from the vendor's own most recent
+  `VendorTrustAudit`.
+- **`assess_supplier_risk`** — the materials-marketplace counterpart,
+  same shape. Flags: verification status not `verified`, any cancelled
+  order on record (suppliers have no `Dispute`-equivalent model — a
+  cancelled order is the closest analogue, same substitution
+  `computeSupplierTrustScore` itself already makes), and the same
+  audit-rating flag.
+- **Deliberately separate skills from `explain_*_trust_score`, not
+  replacements** — same split every other `assess_*`/`summarize_*` pair
+  in this registry already draws: the `explain_*` skill narrates the
+  whole score in prose; these produce a flat, explicit flag list plus a
+  `warn` boolean, reusing the same underlying signals (verification,
+  disputes/cancellations, the platform's own audit, license expiry)
+  rather than recomputing a different set from scratch. Both reach the
+  vendor/supplier's existing Ask AI panel automatically (`AskAiPanel`
+  renders every registered skill generically) — no new REST endpoint, no
+  new dashboard card.
+- **Verified live against real data**: ran `assess_vendor_risk` against
+  the demo "Lekki Renovations Co." (verified, but carrying a real
+  `under_review` test dispute on its "Kitchen Renovation" assignment, an
+  expired license, and a real `minor_concerns` `VendorTrustAudit` from
+  earlier seed data) and got back all three flags with `warn: true`, and
+  correctly *no* "not verified" flag since this vendor is verified;
+  ran it again against a clean vendor ("Precision Plumbing Co" —
+  verified, no license on file, no disputes, no audit) and got back "No
+  risk factors flagged..." with `warn: false`. Ran `assess_supplier_risk`
+  against "Lagos BuildMart" (carrying a real `major_concerns`
+  `SupplierTrustAudit`) and got back that one flag with `warn: true`.
+- **Not done**: no persisted/historical risk score (recomputed fresh
+  every call, same as every other `assess_*` skill); no cross-portfolio
+  "show every at-risk vendor/supplier" view — this is the last of the
+  three risk-flag sub-pieces, and that aggregate view still doesn't
+  exist for any of the four entity types now covered
+  (listing/project/lease/vendor/supplier).
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -4374,14 +4425,16 @@ blueprint, or explicitly cut from it:
   workflow; compliance, community management, AR/VR, admin
   operations, ...) — this scaffold now proves the pattern for Modules 1,
   2, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12, 13, 14, 15, and 23, not
-  the full 24. Module 6's risk-flag coverage is wider now too — see
-  "Risk flags for projects and leases" above: `assess_listing_risk` used
-  to be the only entity with a flat, explicit flag list; `Project` and
-  `Lease` now have the same treatment (`assess_project_risk`,
-  `assess_lease_risk`). Still not extended to `Vendor`/`Supplier` beyond
-  their existing trust-score computation, and no cross-portfolio "show
-  every at-risk record" view exists — each skill answers for one record
-  at a time. Module 15 is a bigger slice now too — see "A comparable-
+  the full 24. Module 6's risk-flag coverage is complete now across every
+  entity type that has one — see "Risk flags for projects and leases" and
+  "Risk flags for vendors and suppliers" above: `assess_listing_risk` used
+  to be the only entity with a flat, explicit flag list; `Project`,
+  `Lease`, `Vendor`, and `Supplier` now all have the same treatment
+  (`assess_project_risk`, `assess_lease_risk`, `assess_vendor_risk`,
+  `assess_supplier_risk`). Still no cross-portfolio "show every at-risk
+  record" view — each skill still answers for one record at a time, not
+  an aggregate dashboard across an account's whole portfolio. Module 15
+  is a bigger slice now too — see "A comparable-
   sales valuation estimate" above: a real automated estimate from other
   active sale listings nearby, alongside the manual/AI-narrated history
   and rent/hold-sell modeling that already existed. Still not a real
