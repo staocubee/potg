@@ -5,6 +5,10 @@ import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentAccountMember, CurrentUser } from '../common/decorators/current-user.decorator';
 import { MaterialsService } from './materials.service';
+import { PaymentsService } from '../payments/payments.service';
+import { RaiseOrderDisputeDto } from '../payments/dto/raise-order-dispute.dto';
+import { ResolveDisputeDto } from '../payments/dto/resolve-dispute.dto';
+import { SubmitDisputeEvidenceDto } from '../payments/dto/submit-dispute-evidence.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -33,7 +37,10 @@ type UserCtx = { id: string };
 @UseGuards(JwtAuthGuard, AccountContextGuard, PermissionsGuard)
 @Controller()
 export class MaterialsController {
-  constructor(private readonly materials: MaterialsService) {}
+  constructor(
+    private readonly materials: MaterialsService,
+    private readonly payments: PaymentsService,
+  ) {}
 
   @RequirePermissions('supplier:write')
   @Post('suppliers')
@@ -252,6 +259,58 @@ export class MaterialsController {
     @Body() dto: UpdateDeliveryDto,
   ) {
     return this.materials.upsertDelivery(orderId, member.accountId, dto);
+  }
+
+  // Module 18 Phase 1 — the buyer/supplier dispute routes for an order.
+  // One unified path for both sides (see PaymentsService.
+  // requireOrderParty's own comment for why, unlike the project-dispute
+  // pair of owner-side/vendor-side routes) — this controller injects
+  // PaymentsService directly, same pattern VendorsController already
+  // established for its own vendor-side project-dispute routes.
+  @RequirePermissions('dispute:write')
+  @Post('orders/:orderId/disputes')
+  raiseOrderDispute(
+    @Param('orderId') orderId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Body() dto: RaiseOrderDisputeDto,
+  ) {
+    return this.payments.raiseOrderDispute(member.accountId, orderId, dto);
+  }
+
+  @RequirePermissions('dispute:read')
+  @Get('orders/:orderId/disputes')
+  findOrderDisputes(@Param('orderId') orderId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.payments.findOrderDisputes(member.accountId, orderId);
+  }
+
+  @RequirePermissions('dispute:write')
+  @Post('orders/:orderId/disputes/:disputeId/resolve')
+  resolveOrderDispute(
+    @Param('disputeId') disputeId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Body() dto: ResolveDisputeDto,
+  ) {
+    return this.payments.resolveOrderDispute(member.accountId, disputeId, dto);
+  }
+
+  // Same evidence methods a project dispute's own routes call —
+  // requireDisputeParty (PaymentsService) branches on projectId/orderId
+  // internally, so nothing dispute-type-specific is needed here.
+  @RequirePermissions('dispute:write')
+  @Post('orders/:orderId/disputes/:disputeId/evidence')
+  submitOrderDisputeEvidence(
+    @Param('disputeId') disputeId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @CurrentUser() user: UserCtx,
+    @Body() dto: SubmitDisputeEvidenceDto,
+  ) {
+    return this.payments.submitDisputeEvidence(disputeId, member.accountId, user.id, dto);
+  }
+
+  @RequirePermissions('dispute:read')
+  @Get('orders/:orderId/disputes/:disputeId/evidence')
+  findOrderDisputeEvidence(@Param('disputeId') disputeId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.payments.findDisputeEvidence(disputeId, member.accountId);
   }
 
   // Buyer-only, once their own order is delivered — see the gate in

@@ -4740,6 +4740,85 @@ attempted partially.
   `Lease.tenantAccountId` does) — the same phasing gap Module 13 itself
   had before its own Tenant identity pass.
 
+## Module 18: Dispute Resolution and Mediation — Phase 1 (this pass)
+
+Real, user-supplied scope, on top of a dispute system that already went
+further than most of Module 18's own feature list before this pass:
+raise, evidence upload, resolution status, payment/milestone hold, and
+platform-wide arbitration all already existed for *project* disputes
+(Modules 6/11). What genuinely didn't exist: every other relationship
+Module 18's own Purpose names — "owners, vendors, contractors, tenants,
+suppliers, buyers, sellers" — since `Dispute.projectId` was required, a
+project was the *only* thing a dispute could ever be about. The
+engineering notes are explicit about where to start: "Dispute cases
+should be tightly linked to payments, orders, projects, and contracts"
+— payments and projects were already covered; orders were not linked at
+all.
+
+- **`Dispute.projectId` is now optional, `orderId` joins it** — exactly
+  one of the two is set per dispute (enforced in `PaymentsService`, not
+  a DB constraint, same "the service enforces the rule" shape this
+  schema already uses elsewhere). Leases ("contracts"/tenant complaints)
+  and listings (property-listing disputes) are deliberately deferred —
+  the engineering notes name payments/orders/projects explicitly; adding
+  all three new linkages at once risked missing something in each of
+  Payments/Materials/Properties/Listings for one pass.
+- **`disputeType`** — the blueprint's own "Dispute Types" list (poor
+  workmanship, delayed project, material delivery issue, payment
+  disagreement, property listing dispute, tenant complaint, vendor
+  misconduct, refund request, other), required on every new dispute,
+  defaulted to `"other"` for every dispute raised before this pass so
+  existing rows stay valid without a backfill.
+- **`POST/GET /orders/:orderId/disputes`, `.../disputes/:disputeId/
+  {resolve,evidence}`** — one unified route both the buyer and the
+  supplier call, unlike the existing project-dispute pair split across
+  an owner-side (`/projects/:projectId/disputes`, `PermissionsGuard`'s
+  own ABAC) and vendor-side (`/vendors/me/disputes`, manually checked)
+  route: Order has no natural "owner-side ABAC route" the way Project
+  already had when the vendor-side routes were added, so there was no
+  reason to split this into two mirrored flavors. `requireOrderParty`
+  (the dual buyer-or-supplier check) mirrors `MaterialsService.
+  findOrder`'s own identical check.
+- **A real gap closed in passing**: the `supplier` role had *no* dispute
+  permissions at all before this — a materials order gone wrong had no
+  path for the supplier's own side to even participate, unlike a vendor,
+  which already had `dispute:read`/`write` for its own project disputes.
+- **Evidence submission/reading is dispute-type-agnostic by
+  construction**: `requireDisputeParty` (shared by every evidence route,
+  project or order) branches internally on which of `projectId`/
+  `orderId` a given dispute actually has — the order-side evidence
+  routes call the exact same `submitDisputeEvidence`/`findDisputeEvidence`
+  methods the project-side routes always have, no new evidence logic
+  needed. Arbitration (`findOpenDisputesForArbitration`/
+  `arbitrateDispute`) was already fully generic — no dispute-type check
+  anywhere in it — so it needed only one change: including the order's
+  own identifying info (supplier name) for the arbitrator's queue to
+  render when a dispute has no project to show instead.
+- **Web**: every dispute-raising form (project owner-side, vendor-side,
+  and the new order-side) now collects a dispute type from the same
+  shared list; the arbitration queue shows an order's supplier name in
+  place of a project title when a dispute has no project; a new
+  "Disputes" card on the order detail page (buyer and supplier both see
+  it) mirrors the project page's own raise/resolve/evidence-thread UI.
+- **Verified live end-to-end**: raised an order dispute as the buyer
+  (Demo Owner, "material delivery issue"), confirmed the supplier
+  (Lagos BuildMart) could see and resolve it with notes; raised a second
+  one as the supplier ("payment disagreement") and left it open;
+  switched to the neutral `platform_reviewer` account and confirmed it
+  appeared in the arbitration queue as "Order — Lagos BuildMart"
+  alongside a real pre-existing *project* dispute (which correctly still
+  shows `disputeType: "other"`, its pre-migration default) — then
+  arbitrated it successfully through the exact same, unmodified
+  `PATCH /payments/disputes/:disputeId/arbitrate` endpoint.
+- **Not done, by explicit scope, not oversight**: lease/tenant disputes
+  and property-listing disputes (2 of the blueprint's 8 dispute types
+  have no entity to attach to yet); chat history (evidence is
+  one-directional notes, not a real back-and-forth thread); mediator
+  *assignment* (any `platform_reviewer` can pick up any open dispute —
+  there's no concept of assigning one to a specific reviewer); vendor/
+  supplier penalty history; and a dedicated dispute timeline view beyond
+  `createdAt`/`resolvedAt` plus the evidence thread.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -4748,29 +4827,39 @@ blueprint, or explicitly cut from it:
 - **Modules 6, 14, 16-24** (the full property-verification/trust
   workflow; compliance, community management, AR/VR, admin
   operations, ...) — this scaffold now proves the pattern for Modules 1,
-  2, 3, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12, 13, 14, 15, 17, 23,
-  and now two real slices of the 16-24 bucket itself — see "Admin operations
-  — a platform accounts directory and account suspension" and "Community
-  management — landlord-to-tenant announcements" above: a `platform_admin`
-  role with a cross-tenant accounts directory, account suspension/
-  reinstatement (wiring up `Account.status`, unused since Module 1), and
-  an audit log; and a landlord-to-tenant announcement board, scoped
-  either to one property or the whole portfolio. Module 3 is closed too
-  now — see "Module 3: Property Details — specs, amenities, and a photo
-  gallery" above: unlike 16-24, it was never an unscoped bucket, just a
-  numbering gap between Module 2 (property CRUD) and Module 4
-  (documents) with one self-evidently missing piece the code's own
-  comments already pointed at (bedrooms/bathrooms/square footage/year
-  built/amenities/a photo gallery, plus the first update endpoint the
-  base property record has ever had). Module 17 (Estate and Community
-  Management) now has real, user-supplied scope too — see "Module 17:
-  Estate and Community Management — Phase 1" above: Communities,
-  Residents, and Community Announcements are built; service charges,
-  visitor access, facility booking, complaints, security notices, polls,
-  and estate reports are explicitly deferred, not attempted. What's left
-  genuinely unscoped is narrower now: Modules 18-21 and 24 — no
-  blueprint text anywhere names what they contain, so nothing further
-  here is buildable without real input. Module 6's risk-flag coverage is
+  2, 3, 4, 5, 7, 9, 10, 11, 18, and a slice of 6, 8, 12, 13, 14, 15, 17,
+  23, and now two real slices of the 16-24 bucket itself — see "Admin
+  operations — a platform accounts directory and account suspension" and
+  "Community management — landlord-to-tenant announcements" above: a
+  `platform_admin` role with a cross-tenant accounts directory, account
+  suspension/reinstatement (wiring up `Account.status`, unused since
+  Module 1), and an audit log; and a landlord-to-tenant announcement
+  board, scoped either to one property or the whole portfolio. Module 3
+  is closed too — see "Module 3: Property Details — specs, amenities,
+  and a photo gallery" above: unlike 16-24, it was never an unscoped
+  bucket, just a numbering gap between Module 2 (property CRUD) and
+  Module 4 (documents) with one self-evidently missing piece the code's
+  own comments already pointed at (bedrooms/bathrooms/square footage/
+  year built/amenities/a photo gallery, plus the first update endpoint
+  the base property record has ever had). Module 17 (Estate and
+  Community Management) now has real, user-supplied scope too — see
+  "Module 17: Estate and Community Management — Phase 1" above:
+  Communities, Residents, and Community Announcements are built; service
+  charges, visitor access, facility booking, complaints, security
+  notices, polls, and estate reports are explicitly deferred, not
+  attempted. Module 18 (Dispute Resolution and Mediation) is the same
+  shape — see "Module 18: Dispute Resolution and Mediation — Phase 1"
+  above: the dispute system already went further than most of its own
+  feature list for *project* disputes; this pass generalized it to
+  *order* disputes too (the engineering notes' own explicit "payments,
+  orders, projects, contracts" linkage list), added the blueprint's own
+  dispute-type categorization, and closed a real permission gap (the
+  `supplier` role had no dispute access at all before this). Lease/
+  tenant and listing disputes, chat history, mediator assignment, and
+  penalty history are explicitly deferred. What's left genuinely
+  unscoped is narrower now: Modules 19-21 and 24 — no blueprint text
+  anywhere names what they contain, so nothing further here is buildable
+  without real input. Module 6's risk-flag coverage is
   complete now across every entity type that has one — see "Risk flags
   for projects and leases" and
   "Risk flags for vendors and suppliers" above: `assess_listing_risk` used

@@ -4,6 +4,7 @@ import {
   ApiError,
   Dispute,
   DisputeEvidence,
+  DISPUTE_TYPES,
   Payout,
   PaystackBank,
   Vendor,
@@ -463,6 +464,7 @@ function RaiseVendorDisputeForm({
 }) {
   const auth = useAuth();
   const [projectId, setProjectId] = useState(knownProjects[0]?.id ?? "");
+  const [disputeType, setDisputeType] = useState(DISPUTE_TYPES[0].value);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -472,7 +474,7 @@ function RaiseVendorDisputeForm({
     setError(null);
     setBusy(true);
     try {
-      await auth.api.raiseDisputeAsVendor({ projectId, reason });
+      await auth.api.raiseDisputeAsVendor({ projectId, disputeType, reason });
       setReason("");
       onCreated();
     } catch (err) {
@@ -493,6 +495,13 @@ function RaiseVendorDisputeForm({
         {knownProjects.map((p) => (
           <option key={p.id} value={p.id}>
             {p.title}
+          </option>
+        ))}
+      </select>
+      <select className="potg-input" value={disputeType} onChange={(e) => setDisputeType(e.target.value)}>
+        {DISPUTE_TYPES.map((t) => (
+          <option key={t.value} value={t.value}>
+            {t.label}
           </option>
         ))}
       </select>

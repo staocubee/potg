@@ -950,20 +950,38 @@ model Receipt {
   @@map("receipts")
 }
 
+// Module 18 (Dispute Resolution and Mediation), Phase 1 — real,
+// user-supplied scope. The engineering notes' own words: "Dispute cases
+// should be tightly linked to payments, orders, projects, and
+// contracts" — payments and projects were already covered by every
+// mechanism below (raise, evidence, two-party resolution, arbitration,
+// payment/milestone hold); orders were not linked at all. projectId is
+// now optional and orderId joins it — exactly one of the two is set per
+// dispute, enforced in PaymentsService (raiseDispute/raiseOrderDispute),
+// not a DB constraint, same "the service enforces the business rule"
+// shape this schema already uses elsewhere (e.g. Vendor's bank-detail
+// trio). "Contracts" (Leases) and property-listing disputes are
+// deliberately deferred to a later phase — see PaymentsService's own
+// comment on raiseOrderDispute for the reasoning. disputeType is the
+// blueprint's own "Dispute Types" list, defaulted to "other" so
+// existing rows created before this pass still have a valid value.
 model Dispute {
   id                String    @id @default(uuid())
-  projectId         String
+  projectId         String?
+  orderId           String?
   raisedByAccountId String
   milestoneId       String?
   paymentId         String?
   payoutId          String?
+  disputeType       String    @default("other") // poor_workmanship | delayed_project | material_delivery_issue | payment_disagreement | property_listing_dispute | tenant_complaint | vendor_misconduct | refund_request | other
   reason            String
   status            String    @default("open") // open | under_review | resolved | rejected
   resolutionNotes   String?
   createdAt         DateTime  @default(now())
   resolvedAt        DateTime?
 
-  project  Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project  Project?          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  order    Order?            @relation(fields: [orderId], references: [id], onDelete: Cascade)
   payment  Payment?          @relation(fields: [paymentId], references: [id], onDelete: SetNull)
   payout   Payout?           @relation(fields: [payoutId], references: [id], onDelete: SetNull)
   evidence DisputeEvidence[]
@@ -1221,6 +1239,7 @@ model Order {
   items    OrderItem[]
   delivery Delivery?
   review   SupplierReview?
+  disputes Dispute[]
 
   @@map("orders")
 }

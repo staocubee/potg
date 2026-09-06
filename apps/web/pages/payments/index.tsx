@@ -210,9 +210,11 @@ function ArbitrationRow({ dispute, onChanged }: { dispute: Dispute; onChanged: (
     <div className="potg-card" style={{ padding: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
-          <div style={{ fontWeight: 700, fontSize: 14 }}>{dispute.project?.title ?? "Project"}</div>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>
+            {dispute.project?.title ?? (dispute.order ? `Order — ${dispute.order.supplier.businessName}` : "Dispute")}
+          </div>
           <p className="potg-muted" style={{ fontSize: 12, margin: "2px 0 0" }}>
-            Raised {new Date(dispute.createdAt).toLocaleDateString()}
+            {dispute.disputeType.replace(/_/g, " ")} · Raised {new Date(dispute.createdAt).toLocaleDateString()}
           </p>
           <p style={{ fontSize: 13, marginTop: 8 }}>{dispute.reason}</p>
           {dispute.status === "under_review" && dispute.resolutionNotes && (

@@ -276,6 +276,13 @@ const ROLES: Record<string, string[]> = {
     'rental:write',
     'review:respond',
     'review:flag',
+    // Module 18 Phase 1 — a supplier had no dispute permissions at all
+    // before this: an order gone wrong (a real dispute type this pass
+    // adds — "material delivery issue," "refund request") had no path
+    // for the supplier's own side, unlike a vendor's identical project-
+    // dispute permissions, which already existed.
+    'dispute:read',
+    'dispute:write',
   ],
   // A renter's own account — the other half of the "no separate Tenant
   // identity" gap Lease.tenantName's own schema comment used to flag.

@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { DepositDto } from './dto/deposit.dto';
 import { RaiseDisputeDto } from './dto/raise-dispute.dto';
+import { RaiseOrderDisputeDto } from './dto/raise-order-dispute.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { ArbitrateDisputeDto } from './dto/arbitrate-dispute.dto';
 import { SubmitDisputeEvidenceDto } from './dto/submit-dispute-evidence.dto';
@@ -722,9 +723,62 @@ export class PaymentsService {
         milestoneId: dto.milestoneId,
         paymentId: dto.paymentId,
         payoutId: dto.payoutId,
+        disputeType: dto.disputeType,
         reason: dto.reason,
       },
     });
+  }
+
+  // Module 18 Phase 1's own new linkage — "Dispute cases should be
+  // tightly linked to payments, orders, projects, and contracts" per the
+  // engineering notes; orders had no dispute path at all before this.
+  // Deliberately the one unified route both the buyer and the supplier
+  // call (requireOrderParty allows either) — Order has no natural
+  // "owner-side ABAC route" the way Project already did when the vendor-
+  // side dispute routes were added, so there's no reason to split this
+  // into two mirrored flavors the way raiseDispute/raiseDisputeAsVendor
+  // are. Leases ("contracts"/tenant complaints) and listings (property-
+  // listing disputes) are deliberately deferred — the engineering notes
+  // name payments/orders/projects explicitly; leases and listings don't
+  // have an equally explicit mandate, and generalizing to all four at
+  // once risked missing something in each of Payments/Materials/
+  // Properties/Listings for one pass.
+  async raiseOrderDispute(accountId: string, orderId: string, dto: RaiseOrderDisputeDto) {
+    await this.requireOrderParty(orderId, accountId);
+    return this.prisma.dispute.create({
+      data: { orderId, raisedByAccountId: accountId, disputeType: dto.disputeType, reason: dto.reason },
+    });
+  }
+
+  findOrderDisputes(accountId: string, orderId: string) {
+    return this.requireOrderParty(orderId, accountId).then(() =>
+      this.prisma.dispute.findMany({ where: { orderId }, orderBy: { createdAt: 'desc' } }),
+    );
+  }
+
+  async resolveOrderDispute(accountId: string, disputeId: string, dto: ResolveDisputeDto) {
+    const dispute = await this.prisma.dispute.findUnique({ where: { id: disputeId } });
+    if (!dispute || !dispute.orderId) throw new NotFoundException('Dispute not found');
+    await this.requireOrderParty(dispute.orderId, accountId);
+    return this.applyDisputeResolution(dispute, accountId, dto);
+  }
+
+  // Same dual-party shape MaterialsService.findOrder already established
+  // (isBuyer/isSupplier) — duplicated rather than imported since
+  // PaymentsService has no existing dependency on MaterialsService and
+  // this is a three-line check, not worth a new cross-module wire for.
+  // 404, not 403, matching requireDisputeParty's own "don't confirm a
+  // dispute-adjacent resource exists" convention below, rather than
+  // MaterialsService.findOrder's own 403 — this lives in the dispute
+  // surface, not the orders one.
+  private async requireOrderParty(orderId: string, accountId: string) {
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found');
+    const supplier = await this.prisma.supplier.findUnique({ where: { id: order.supplierId } });
+    if (order.accountId !== accountId && supplier?.accountId !== accountId) {
+      throw new NotFoundException('Order not found');
+    }
+    return order;
   }
 
   findDisputes(projectId: string) {
@@ -892,17 +946,26 @@ export class PaymentsService {
   // isn't a decision either side could tilt in its own favor the way
   // resolving one could, so there's no reason to stop whichever side
   // raised it from also adding to the record.
+  // Module 18 Phase 1 — branches on which of projectId/orderId this
+  // dispute actually has, so submitDisputeEvidence/findDisputeEvidence
+  // below work unchanged for either kind: an order dispute's evidence
+  // route (MaterialsController) calls the exact same two methods a
+  // project dispute's does (PaymentsController/VendorsController).
   private async requireDisputeParty(disputeId: string, accountId: string) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { id: disputeId },
       include: { project: { select: { id: true, accountId: true } } },
     });
     if (!dispute) throw new NotFoundException('Dispute not found');
-    if (dispute.project.accountId === accountId) return dispute;
+    if (dispute.orderId) {
+      await this.requireOrderParty(dispute.orderId, accountId);
+      return dispute;
+    }
+    if (dispute.project?.accountId === accountId) return dispute;
     const vendor = await this.prisma.vendor.findUnique({ where: { accountId } });
     if (vendor) {
       const assignment = await this.prisma.projectVendorAssignment.findFirst({
-        where: { projectId: dispute.projectId, vendorId: vendor.id },
+        where: { projectId: dispute.projectId ?? undefined, vendorId: vendor.id },
       });
       // 404, not 403 — same "don't confirm this dispute exists" shape
       // resolveDisputeAsVendor already uses for an unrelated vendor.
@@ -944,6 +1007,11 @@ export class PaymentsService {
       where: { status: { in: ['open', 'under_review'] } },
       include: {
         project: { select: { id: true, title: true, accountId: true } },
+        // Module 18 Phase 1 — an order dispute has no project at all, so
+        // the arbitrator needs the order's own identifying info instead;
+        // both are optionally included and the web UI renders whichever
+        // is actually present on a given dispute.
+        order: { select: { id: true, accountId: true, supplier: { select: { businessName: true } } } },
         evidence: { orderBy: { createdAt: 'asc' } },
       },
       orderBy: { createdAt: 'asc' },
@@ -991,7 +1059,7 @@ export class PaymentsService {
     const vendor = await this.prisma.vendor.findUnique({ where: { accountId: vendorAccountId } });
     if (!vendor) throw new NotFoundException('Dispute not found');
     const dispute = await this.prisma.dispute.findUnique({ where: { id: disputeId } });
-    if (!dispute) throw new NotFoundException('Dispute not found');
+    if (!dispute || !dispute.projectId) throw new NotFoundException('Dispute not found');
     const assignment = await this.prisma.projectVendorAssignment.findFirst({
       where: { projectId: dispute.projectId, vendorId: vendor.id },
     });
@@ -1020,6 +1088,7 @@ export class PaymentsService {
         milestoneId: dto.milestoneId,
         paymentId: dto.paymentId,
         payoutId: dto.payoutId,
+        disputeType: dto.disputeType,
         reason: dto.reason,
       },
     });

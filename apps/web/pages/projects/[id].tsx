@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Dispute, DisputeEvidence, EscrowAccount, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, Receipt, Vendor, VendorReview } from "../../lib/api";
+import { ApiError, Dispute, DisputeEvidence, DISPUTE_TYPES, EscrowAccount, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, Receipt, Vendor, VendorReview } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -810,6 +810,7 @@ function DisputesCard({
 
 function RaiseDisputeForm({ projectId, milestones, onCreated }: { projectId: string; milestones: ProjectMilestone[]; onCreated: () => void }) {
   const auth = useAuth();
+  const [disputeType, setDisputeType] = useState(DISPUTE_TYPES[0].value);
   const [reason, setReason] = useState("");
   const [milestoneId, setMilestoneId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -820,7 +821,7 @@ function RaiseDisputeForm({ projectId, milestones, onCreated }: { projectId: str
     setError(null);
     setBusy(true);
     try {
-      await auth.api.raiseDispute(projectId, { reason, milestoneId: milestoneId || undefined });
+      await auth.api.raiseDispute(projectId, { disputeType, reason, milestoneId: milestoneId || undefined });
       onCreated();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't raise that dispute.");
@@ -832,6 +833,13 @@ function RaiseDisputeForm({ projectId, milestones, onCreated }: { projectId: str
   return (
     <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
       {error && <div className="potg-error">{error}</div>}
+      <select className="potg-input" value={disputeType} onChange={(e) => setDisputeType(e.target.value)}>
+        {DISPUTE_TYPES.map((t) => (
+          <option key={t.value} value={t.value}>
+            {t.label}
+          </option>
+        ))}
+      </select>
       <textarea className="potg-input" rows={2} required autoFocus placeholder="What's the issue?" value={reason} onChange={(e) => setReason(e.target.value)} />
       {milestones.length > 0 && (
         <select className="potg-input" value={milestoneId} onChange={(e) => setMilestoneId(e.target.value)}>

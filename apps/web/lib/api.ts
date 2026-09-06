@@ -790,13 +790,36 @@ export type Receipt = {
   issuedAt: string;
 };
 
+// Module 18's own "Dispute Types" list — shared across every
+// dispute-raising form (project owner-side, vendor-side, order-side)
+// rather than duplicated per form, since it's the exact same fixed
+// vocabulary everywhere on the frontend (unlike the backend's own DTOs,
+// which do duplicate small enums like this — see CreatePropertyDto/
+// UpdatePropertyDto's own PROPERTY_TYPES for that convention).
+export const DISPUTE_TYPES = [
+  { value: "poor_workmanship", label: "Poor workmanship" },
+  { value: "delayed_project", label: "Delayed project" },
+  { value: "material_delivery_issue", label: "Material delivery issue" },
+  { value: "payment_disagreement", label: "Payment disagreement" },
+  { value: "property_listing_dispute", label: "Property listing dispute" },
+  { value: "tenant_complaint", label: "Tenant complaint" },
+  { value: "vendor_misconduct", label: "Vendor misconduct" },
+  { value: "refund_request", label: "Refund request" },
+  { value: "other", label: "Other" },
+];
+
 export type Dispute = {
   id: string;
-  projectId: string;
+  // Module 18 Phase 1 — projectId is now optional: exactly one of
+  // projectId/orderId is ever set on a real dispute (see the schema's
+  // own comment), never both, never neither.
+  projectId?: string | null;
+  orderId?: string | null;
   raisedByAccountId: string;
   milestoneId?: string | null;
   paymentId?: string | null;
   payoutId?: string | null;
+  disputeType: string;
   reason: string;
   status: "open" | "under_review" | "resolved" | "rejected" | string;
   resolutionNotes?: string | null;
@@ -806,6 +829,9 @@ export type Dispute = {
   // open — the owner-side /projects/:projectId/disputes routes already
   // know the project.
   project?: { id: string; title: string; accountId?: string };
+  // Only present on GET /payments/disputes/open — an order dispute has
+  // no project at all, so the arbitrator's queue includes this instead.
+  order?: { id: string; accountId: string; supplier: { businessName: string } };
   // Only present on GET /payments/disputes/open — the neutral reviewer's
   // queue includes it directly so arbitrating isn't done blind; the
   // owner/vendor-side dispute lists fetch it separately via
@@ -1728,7 +1754,7 @@ export class ApiClient {
   myDisputes() {
     return request<Dispute[]>("/vendors/me/disputes", { token: this.token, accountId: this.accountId });
   }
-  raiseDisputeAsVendor(input: { projectId: string; reason: string; milestoneId?: string; paymentId?: string; payoutId?: string }) {
+  raiseDisputeAsVendor(input: { projectId: string; disputeType: string; reason: string; milestoneId?: string; paymentId?: string; payoutId?: string }) {
     return request<Dispute>("/vendors/me/disputes", {
       method: "POST",
       body: input,
@@ -1818,7 +1844,7 @@ export class ApiClient {
   findReceipts(projectId: string) {
     return request<Receipt[]>(`/projects/${projectId}/receipts`, { token: this.token, accountId: this.accountId });
   }
-  raiseDispute(projectId: string, input: { reason: string; milestoneId?: string; paymentId?: string; payoutId?: string }) {
+  raiseDispute(projectId: string, input: { disputeType: string; reason: string; milestoneId?: string; paymentId?: string; payoutId?: string }) {
     return request<Dispute>(`/projects/${projectId}/disputes`, {
       method: "POST",
       body: input,
@@ -1847,6 +1873,42 @@ export class ApiClient {
   }
   findDisputeEvidence(projectId: string, disputeId: string) {
     return request<DisputeEvidence[]>(`/projects/${projectId}/disputes/${disputeId}/evidence`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  // Module 18 Phase 1 — order disputes. One unified route both the buyer
+  // and the supplier call (see PaymentsService.requireOrderParty's own
+  // comment for why), unlike the owner/vendor pair above.
+  raiseOrderDispute(orderId: string, input: { disputeType: string; reason: string }) {
+    return request<Dispute>(`/orders/${orderId}/disputes`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  findOrderDisputes(orderId: string) {
+    return request<Dispute[]>(`/orders/${orderId}/disputes`, { token: this.token, accountId: this.accountId });
+  }
+  resolveOrderDispute(orderId: string, disputeId: string, input: { status: "resolved" | "rejected"; resolutionNotes?: string }) {
+    return request<Dispute>(`/orders/${orderId}/disputes/${disputeId}/resolve`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  submitOrderDisputeEvidence(orderId: string, disputeId: string, input: { note: string; fileUrl?: string }) {
+    return request<DisputeEvidence>(`/orders/${orderId}/disputes/${disputeId}/evidence`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  findOrderDisputeEvidence(orderId: string, disputeId: string) {
+    return request<DisputeEvidence[]>(`/orders/${orderId}/disputes/${disputeId}/evidence`, {
       token: this.token,
       accountId: this.accountId,
     });
