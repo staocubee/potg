@@ -4819,6 +4819,85 @@ all.
   supplier penalty history; and a dedicated dispute timeline view beyond
   `createdAt`/`resolvedAt` plus the evidence thread.
 
+## Module 19: Communication and Notifications — Phase 1 (this pass)
+
+Real, user-supplied scope. Of the blueprint's own channel list (Email,
+SMS, WhatsApp, Push, In-app, Voice), Email already had a real provider
+(`EmailService`/Resend, used for password reset, invites, and report
+digests) before this pass — the actual gap was every other channel. Of
+those, only one is achievable with no new paid infrastructure: **In-app
+notifications**. SMS/WhatsApp/push/voice would each need a real provider
+account and API key, the same kind of external dependency Paystack
+payouts and OpenAI embeddings are already blocked on elsewhere in this
+file — not attempted, not faked with a stub that pretends to send
+something it can't.
+
+- **`Notification { accountId, type, title, body, link?, readAt? }`** —
+  `type` is a plain string (not an enum), matching every other "kind"
+  field already in this schema (`Document.documentType`,
+  `Dispute.disputeType`, ...); `link` is a relative app path the web
+  client navigates to directly on click, the same "URL you provide
+  yourself" shape as this schema's external `*Url` fields, just internal.
+- **`InAppNotificationsService`**, in the pre-existing `notifications`
+  module alongside `EmailService` — the two real channels this pass
+  covers. `GET /notifications`, `PATCH /notifications/:id/read`,
+  `POST /notifications/read-all` carry **no permission gate** — every
+  role of every account type reads and clears its own inbox, the same
+  way nothing gates which account a member is acting as; `PermissionsGuard`
+  already returns true for a route that declares no required permission.
+- **Five real, event-driven triggers** (per the engineering notes' own
+  "use event-driven notification triggers"), covering 4 of the
+  blueprint's 9 named features — chosen for being genuinely simple to
+  wire into an *already-real* action rather than inventing one:
+  - **Project updates** — `ProjectsService.addUpdate` notifies every
+    vendor assigned to the project. Always owner→vendor, never the
+    reverse: `project:write` (the permission every route reaching this
+    method requires) is never granted to the vendor role, so there's no
+    "which side posted it" ambiguity the way disputes have.
+  - **Maintenance updates** — `resolveMaintenanceRequest` notifies the
+    request's linked tenant account, only when one actually exists
+    (`Lease.tenantAccountId`) — the same "optional, no forced workflow"
+    gate every tenant-identity-dependent feature in this codebase
+    already respects.
+  - **Marketplace inquiry messages** — `ListingsService.createInquiry`
+    notifies the listing's owning account — previously surfaced only if
+    the owner happened to check the listing's own inquiries list.
+  - **Payment alerts** (dispute half) — all three of Module 18's own
+    raise-dispute entry points (`raiseDispute`, `raiseDisputeAsVendor`,
+    `raiseOrderDispute`) now notify whichever party didn't raise it.
+  - **Document expiry reminders** — the one *scheduled* trigger, a real
+    `@nestjs/schedule` daily cron (`NotificationsSchedulerService`,
+    mirroring `ReportsSchedulerService`'s own shape) that checks for
+    documents expiring within 30 days, deduplicated per document (a
+    document is only ever notified about once, not re-nagged daily) —
+    gated behind `account:read_all` (platform_admin) for an on-demand
+    manual trigger, the same "verify without waiting a real day"
+    reasoning `ReportsController.sendDigestNow` already established.
+- **Web**: a real bell icon in the app header (`NotificationBell`) —
+  self-fetching per account, polled every 60s, an unread-count badge,
+  a dropdown listing every notification, click-to-mark-read-and-navigate,
+  and "mark all read."
+- **Verified live end-to-end**: posted a project update as the owner,
+  confirmed the assigned vendor's own bell showed an unread badge and
+  the correct notification, and confirmed clicking it marked it read
+  and navigated to the vendor's own dashboard; raised a project dispute
+  and confirmed the same vendor's bell picked up a second, distinct
+  notification; submitted a marketplace inquiry on a listing this
+  account doesn't own and confirmed (via direct query, since the demo
+  login has no membership on that account to check its own bell) the
+  notification was created correctly for the listing's real owner.
+- **Not done, by explicit scope, not oversight**: SMS, WhatsApp, push,
+  and voice channels (no provider); `notification_preferences` (no
+  per-type/per-channel opt-in/out yet — everything eligible always
+  notifies); `message_templates` (every title/body here is composed
+  inline, not rendered from a stored template); `delivery_logs` (no
+  retry/delivery-tracking table — in-app notifications either exist in
+  the database or don't, there's no separate "delivery" step to log);
+  and four of the nine named features (inspection reminders, rent
+  reminders, vendor messages as a real two-way thread, approval
+  reminders) that would each need either a new scheduled check or a new
+  "messages" entity this phase didn't build.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -4828,7 +4907,7 @@ blueprint, or explicitly cut from it:
   workflow; compliance, community management, AR/VR, admin
   operations, ...) — this scaffold now proves the pattern for Modules 1,
   2, 3, 4, 5, 7, 9, 10, 11, 18, and a slice of 6, 8, 12, 13, 14, 15, 17,
-  23, and now two real slices of the 16-24 bucket itself — see "Admin
+  19, 23, and now two real slices of the 16-24 bucket itself — see "Admin
   operations — a platform accounts directory and account suspension" and
   "Community management — landlord-to-tenant announcements" above: a
   `platform_admin` role with a cross-tenant accounts directory, account
@@ -4856,10 +4935,17 @@ blueprint, or explicitly cut from it:
   dispute-type categorization, and closed a real permission gap (the
   `supplier` role had no dispute access at all before this). Lease/
   tenant and listing disputes, chat history, mediator assignment, and
-  penalty history are explicitly deferred. What's left genuinely
-  unscoped is narrower now: Modules 19-21 and 24 — no blueprint text
-  anywhere names what they contain, so nothing further here is buildable
-  without real input. Module 6's risk-flag coverage is
+  penalty history are explicitly deferred. Module 19 (Communication and
+  Notifications) is the same shape again — see "Module 19: Communication
+  and Notifications — Phase 1" above: Email already had a real provider;
+  this pass added the one other channel achievable with no new paid
+  infrastructure (in-app notifications), wired to five real, event-driven
+  triggers across four different modules. SMS/WhatsApp/push/voice,
+  notification preferences, message templates, delivery logs, and four
+  of the nine named features are explicitly deferred. What's left
+  genuinely unscoped is narrower now: Modules 20, 21, and 24 — no
+  blueprint text anywhere names what they contain, so nothing further
+  here is buildable without real input. Module 6's risk-flag coverage is
   complete now across every entity type that has one — see "Risk flags
   for projects and leases" and
   "Risk flags for vendors and suppliers" above: `assess_listing_risk` used

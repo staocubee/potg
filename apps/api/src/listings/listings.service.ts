@@ -6,10 +6,14 @@ import { CreateOfferDto } from './dto/create-offer.dto';
 import { RespondOfferDto } from './dto/respond-offer.dto';
 import { SearchListingsQuery } from './dto/search-listings.dto';
 import { rankingBoost } from '../common/search-ranking.util';
+import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
 
 @Injectable()
 export class ListingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: InAppNotificationsService,
+  ) {}
 
   private async requireOwnListing(listingId: string, accountId: string) {
     const listing = await this.prisma.propertyListing.findUnique({ where: { id: listingId } });
@@ -172,11 +176,25 @@ export class ListingsService {
   }
 
   // Buyer-initiated — deliberately not ownership-gated, unlike most of this
-  // service's other methods.
-  createInquiry(listingId: string, accountId: string, dto: CreateInquiryDto) {
-    return this.prisma.listingInquiry.create({
+  // service's other methods. Module 19 Phase 1's "Marketplace inquiry
+  // messages" trigger — notifies the listing's own owning account, a
+  // real gap since a new inquiry previously surfaced only if the owner
+  // happened to check the listing's own inquiries list.
+  async createInquiry(listingId: string, accountId: string, dto: CreateInquiryDto) {
+    const inquiry = await this.prisma.listingInquiry.create({
       data: { listingId, accountId, ...dto },
     });
+    const listing = await this.prisma.propertyListing.findUnique({ where: { id: listingId }, select: { accountId: true, title: true } });
+    if (listing) {
+      this.notifications.notify(
+        listing.accountId,
+        'listing_inquiry',
+        `New inquiry on ${listing.title}`,
+        dto.message,
+        `/marketplace/${listingId}`,
+      );
+    }
+    return inquiry;
   }
 
   async findInquiries(listingId: string, accountId: string) {

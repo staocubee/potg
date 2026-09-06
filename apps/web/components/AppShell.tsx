@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import { useState } from "react";
 import { useRequireAuth } from "../lib/auth";
 import AccountSwitcher from "./AccountSwitcher";
+import NotificationBell from "./NotificationBell";
 
 type NavItem = { href: string; label: string; icon: string; enabled: boolean };
 
@@ -171,6 +172,7 @@ export default function AppShell({
                   ✦ {aiOpen ? "Hide Ask AI" : "Ask AI"}
                 </button>
               )}
+              <NotificationBell />
               <AccountSwitcher />
             </div>
           </header>

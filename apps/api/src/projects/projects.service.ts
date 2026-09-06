@@ -4,6 +4,7 @@ import { CreateProjectDto } from './dto/create-project.dto';
 import { AddMilestoneDto } from './dto/add-milestone.dto';
 import { AddProjectUpdateDto } from './dto/add-project-update.dto';
 import { RequestQuoteDto } from './dto/request-quote.dto';
+import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
 
 // Matches the wireframe's RenovationProject artboard exactly — a project
 // always starts at this sequence, with Scope the only stage already under
@@ -12,7 +13,10 @@ const DEFAULT_STAGES = ['Scope', 'Quote', 'Materials', 'Work', 'Handover'];
 
 @Injectable()
 export class ProjectsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: InAppNotificationsService,
+  ) {}
 
   async create(accountId: string, dto: CreateProjectDto) {
     const property = await this.prisma.property.findFirst({
@@ -89,6 +93,13 @@ export class ProjectsService {
     });
   }
 
+  // Module 19 Phase 1's "Project updates" trigger — every route that
+  // reaches this (the owner-side POST, and the AI accept-chain for
+  // draft_project_status_update) is owner-authored: project:write is
+  // never granted to the vendor role, so there's no "which side posted
+  // it" ambiguity here the way a two-sided feature like disputes has —
+  // an update always notifies every vendor assigned to the project, never
+  // the owner's own account.
   async addUpdate(projectId: string, submittedByUserId: string, dto: AddProjectUpdateDto) {
     if (dto.milestoneId) {
       const milestone = await this.prisma.projectMilestone.findFirst({
@@ -96,7 +107,7 @@ export class ProjectsService {
       });
       if (!milestone) throw new NotFoundException('Milestone not found on this project');
     }
-    return this.prisma.projectUpdate.create({
+    const update = await this.prisma.projectUpdate.create({
       data: {
         projectId,
         submittedByUserId,
@@ -105,6 +116,20 @@ export class ProjectsService {
         mediaUrls: dto.mediaUrls ?? [],
       },
     });
+    const [project, assignments] = await Promise.all([
+      this.prisma.project.findUnique({ where: { id: projectId }, select: { title: true } }),
+      this.prisma.projectVendorAssignment.findMany({ where: { projectId }, select: { vendor: { select: { accountId: true } } } }),
+    ]);
+    for (const assignment of assignments) {
+      this.notifications.notify(
+        assignment.vendor.accountId,
+        'project_update',
+        `New update on ${project?.title ?? 'a project'}`,
+        dto.description,
+        `/vendors/me`,
+      );
+    }
+    return update;
   }
 
   // Owner-initiated: invite a specific vendor to quote. Vendors respond (or

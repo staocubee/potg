@@ -298,6 +298,21 @@ export type Announcement = {
   property?: { id: string; name: string } | null;
 };
 
+// Module 19 Phase 1's own in-app channel — see the schema's own
+// "Module 19" comment for the fixed set of types Phase 1 actually
+// creates (project_update, maintenance_resolved, dispute_raised,
+// listing_inquiry, document_expiring).
+export type Notification = {
+  id: string;
+  accountId: string;
+  type: string;
+  title: string;
+  body: string;
+  link?: string | null;
+  readAt?: string | null;
+  createdAt: string;
+};
+
 export type PropertyDocument = {
   id: string;
   documentType: string;
@@ -1333,6 +1348,26 @@ export class ApiClient {
   deleteAnnouncement(announcementId: string) {
     return request<{ deleted: boolean }>(`/properties/announcements/${announcementId}`, {
       method: "DELETE",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  // --- Module 19 Phase 1: in-app notifications (no permission gate — see
+  // NotificationsController's own comment for why every role reads its
+  // own inbox) ---
+  listNotifications() {
+    return request<Notification[]>("/notifications", { token: this.token, accountId: this.accountId });
+  }
+  markNotificationRead(notificationId: string) {
+    return request<Notification>(`/notifications/${notificationId}/read`, {
+      method: "PATCH",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  markAllNotificationsRead() {
+    return request<{ updated: boolean }>("/notifications/read-all", {
+      method: "POST",
       token: this.token,
       accountId: this.accountId,
     });

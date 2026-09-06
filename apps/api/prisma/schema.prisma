@@ -82,6 +82,7 @@ model Account {
   adminActions    PlatformAdminAction[]
   announcements   PropertyAnnouncement[]
   communities     Community[]
+  notifications   Notification[]
 
   @@map("accounts")
 }
@@ -1657,4 +1658,37 @@ model CommunityAnnouncement {
   community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
 
   @@map("community_announcements")
+}
+
+// --- Module 19: Communication and Notifications, Phase 1 ----------------
+//
+// Real, user-supplied scope. Of the blueprint's own channel list (Email,
+// SMS, WhatsApp, Push, In-app, Voice), Email already had a real provider
+// (EmailService/Resend, used for password reset/invites/report digests)
+// — this pass builds the other channel achievable with no new paid
+// infrastructure: In-app notifications. SMS/WhatsApp/push/voice would
+// each need a real provider account/API key, the same kind of external
+// dependency Paystack payouts and OpenAI embeddings are already blocked
+// on elsewhere in this file — not attempted, not faked. `type` is a
+// plain string, not an enum, matching every other "kind" field in this
+// schema (Document.documentType, Dispute.disputeType, ...) — see
+// NotificationsService for the fixed set Phase 1 actually creates. `link`
+// is a relative app path the web client can navigate to directly, same
+// "URL you provide yourself" shape as the rest of this schema's own
+// *Url fields, just internal instead of external. readAt (not a boolean)
+// records *when* a notification was read, not just whether — free
+// information neither this pass nor a later one has to throw away.
+model Notification {
+  id        String    @id @default(uuid())
+  accountId String
+  type      String
+  title     String
+  body      String
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
 }

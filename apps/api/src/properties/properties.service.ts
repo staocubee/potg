@@ -6,6 +6,7 @@ import { CreatePropertyDto } from './dto/create-property.dto';
 import { CreateValuationDto } from './dto/create-valuation.dto';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { UpdatePropertyDto } from './dto/update-property.dto';
+import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
 import { ScheduleInspectionDto } from './dto/schedule-inspection.dto';
 import { UpdateInspectionDto } from './dto/update-inspection.dto';
 import { CompleteInspectionDto } from './dto/complete-inspection.dto';
@@ -35,6 +36,7 @@ export class PropertiesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly embeddings: OpenAiEmbeddingService,
+    private readonly notifications: InAppNotificationsService,
   ) {}
 
   // Shared by every inspectorVendor/assignedVendor include below, so a
@@ -750,6 +752,15 @@ export class PropertiesService {
     });
   }
 
+  // Module 19 Phase 1's "Maintenance updates" trigger — only on
+  // resolution, not start/cancel, the one status change the reporting
+  // side actually needs to hear about. Only notifies when the request's
+  // own lease has a real linked tenant account (Lease.tenantAccountId) —
+  // the same "optional, no forced workflow" gate every other tenant-
+  // identity-dependent feature in this codebase already respects; a
+  // freeform-only tenant (no lease, or a lease never linked) has nowhere
+  // to receive an in-app notification and this silently does nothing for
+  // it, not an error.
   async resolveMaintenanceRequest(propertyId: string, requestId: string, dto: ResolveMaintenanceRequestDto) {
     const request = await this.prisma.maintenanceRequest.findFirst({ where: { id: requestId, propertyId } });
     if (!request) throw new NotFoundException('Maintenance request not found on this property');
@@ -767,6 +778,18 @@ export class PropertiesService {
         label: `Maintenance resolved: ${request.title}`,
       },
     });
+    if (request.leaseId) {
+      const lease = await this.prisma.lease.findUnique({ where: { id: request.leaseId }, select: { tenantAccountId: true } });
+      if (lease?.tenantAccountId) {
+        this.notifications.notify(
+          lease.tenantAccountId,
+          'maintenance_resolved',
+          'Maintenance request resolved',
+          `"${request.title}" has been marked resolved.`,
+          '/tenant',
+        );
+      }
+    }
     return updated;
   }
 

@@ -13,6 +13,7 @@ import { PaystackService } from './paystack.service';
 import { FlutterwaveService } from './flutterwave.service';
 import { PaypalService } from './paypal.service';
 import { StripeService } from './stripe.service';
+import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
 
 // The shape every real deposit gateway besides Paystack shares closely
 // enough to dispatch on generically (Paystack keeps its own, unchanged
@@ -77,6 +78,7 @@ export class PaymentsService {
     private readonly paypal: PaypalService,
     private readonly stripe: StripeService,
     private readonly config: ConfigService,
+    private readonly notifications: InAppNotificationsService,
   ) {
     this.depositGateways = {
       flutterwave: this.flutterwave,
@@ -715,8 +717,12 @@ export class PaymentsService {
     });
   }
 
-  raiseDispute(accountId: string, projectId: string, dto: RaiseDisputeDto) {
-    return this.prisma.dispute.create({
+  // Module 19 Phase 1's "Payment alerts"-adjacent trigger — owner raised
+  // this, so the other party is every vendor assigned to the project
+  // (same "who's the other side" reasoning ProjectsService.addUpdate's
+  // own comment gives for its identical assignment lookup).
+  async raiseDispute(accountId: string, projectId: string, dto: RaiseDisputeDto) {
+    const dispute = await this.prisma.dispute.create({
       data: {
         projectId,
         raisedByAccountId: accountId,
@@ -727,6 +733,14 @@ export class PaymentsService {
         reason: dto.reason,
       },
     });
+    const assignments = await this.prisma.projectVendorAssignment.findMany({
+      where: { projectId },
+      select: { vendor: { select: { accountId: true } } },
+    });
+    for (const assignment of assignments) {
+      this.notifications.notify(assignment.vendor.accountId, 'dispute_raised', 'A dispute was raised', dto.reason, '/vendors/me');
+    }
+    return dispute;
   }
 
   // Module 18 Phase 1's own new linkage — "Dispute cases should be
@@ -744,10 +758,24 @@ export class PaymentsService {
   // once risked missing something in each of Payments/Materials/
   // Properties/Listings for one pass.
   async raiseOrderDispute(accountId: string, orderId: string, dto: RaiseOrderDisputeDto) {
-    await this.requireOrderParty(orderId, accountId);
-    return this.prisma.dispute.create({
+    const order = await this.requireOrderParty(orderId, accountId);
+    const dispute = await this.prisma.dispute.create({
       data: { orderId, raisedByAccountId: accountId, disputeType: dto.disputeType, reason: dto.reason },
     });
+    // Module 19 Phase 1's trigger — notify whichever side didn't raise
+    // it, buyer or supplier.
+    const supplier = await this.prisma.supplier.findUnique({ where: { id: order.supplierId }, select: { accountId: true } });
+    const otherPartyAccountId = accountId === order.accountId ? supplier?.accountId : order.accountId;
+    if (otherPartyAccountId) {
+      this.notifications.notify(
+        otherPartyAccountId,
+        'dispute_raised',
+        'A dispute was raised on your order',
+        dto.reason,
+        `/marketplace/materials/orders/${orderId}`,
+      );
+    }
+    return dispute;
   }
 
   findOrderDisputes(accountId: string, orderId: string) {
@@ -1081,7 +1109,7 @@ export class PaymentsService {
     if (!assignment) {
       throw new BadRequestException('This vendor is not assigned to this project');
     }
-    return this.prisma.dispute.create({
+    const dispute = await this.prisma.dispute.create({
       data: {
         projectId: dto.projectId,
         raisedByAccountId: vendorAccountId,
@@ -1092,6 +1120,13 @@ export class PaymentsService {
         reason: dto.reason,
       },
     });
+    // Module 19 Phase 1's trigger — vendor raised it, notify the
+    // project's owning account.
+    const project = await this.prisma.project.findUnique({ where: { id: dto.projectId }, select: { accountId: true } });
+    if (project) {
+      this.notifications.notify(project.accountId, 'dispute_raised', 'A dispute was raised', dto.reason, `/projects/${dto.projectId}`);
+    }
+    return dispute;
   }
 
   async findDisputesForVendor(vendorAccountId: string) {
