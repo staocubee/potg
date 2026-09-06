@@ -15,15 +15,23 @@ const PROPERTY_TYPES = [
   'mixed_use',
 ] as const;
 
-export class CreatePropertyDto {
+// The base Property record had no update endpoint at all before Module
+// 3 — only nested resources (valuations, inspections, leases,
+// maintenance) could be edited after creation. Every field here is
+// optional, same shape UpdateLeaseDto already uses; a caller sends only
+// what actually changed.
+export class UpdatePropertyDto {
+  @IsOptional()
   @IsIn(PROPERTY_TYPES)
-  propertyType!: string;
+  propertyType?: string;
 
+  @IsOptional()
   @IsString()
-  name!: string;
+  name?: string;
 
+  @IsOptional()
   @IsString()
-  addressLine!: string;
+  addressLine?: string;
 
   @IsOptional()
   @IsString()
@@ -33,8 +41,9 @@ export class CreatePropertyDto {
   @IsString()
   state?: string;
 
+  @IsOptional()
   @IsString()
-  country!: string;
+  country?: string;
 
   @IsOptional()
   @IsLatitude()
@@ -52,8 +61,6 @@ export class CreatePropertyDto {
   @IsNumber()
   estimatedValue?: number;
 
-  // Module 3: Property Details — see the schema's own comment on these
-  // fields for why they exist and why every one is optional.
   @IsOptional()
   @IsInt()
   @Min(0)

@@ -234,6 +234,13 @@ export type Property = {
   status: string;
   currentUse?: string | null;
   estimatedValue?: string | null;
+  // Module 3: Property Details
+  bedrooms?: number | null;
+  bathrooms?: number | null;
+  squareFootage?: number | null;
+  yearBuilt?: number | null;
+  amenities: string[];
+  photoUrls: string[];
   createdAt: string;
   updatedAt: string;
   owners?: unknown[];
@@ -1207,8 +1214,42 @@ export class ApiClient {
     country: string;
     currentUse?: string;
     estimatedValue?: number;
+    bedrooms?: number;
+    bathrooms?: number;
+    squareFootage?: number;
+    yearBuilt?: number;
+    amenities?: string[];
+    photoUrls?: string[];
   }) {
     return request<Property>("/properties", { method: "POST", body: input, token: this.token, accountId: this.accountId });
+  }
+  // Module 3: Property Details — the first update endpoint the base
+  // property record has ever had.
+  updateProperty(
+    propertyId: string,
+    input: Partial<{
+      propertyType: string;
+      name: string;
+      addressLine: string;
+      city: string;
+      state: string;
+      country: string;
+      currentUse: string;
+      estimatedValue: number;
+      bedrooms: number;
+      bathrooms: number;
+      squareFootage: number;
+      yearBuilt: number;
+      amenities: string[];
+      photoUrls: string[];
+    }>,
+  ) {
+    return request<Property>(`/properties/${propertyId}`, {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
   }
   // "Community management" — account-wide (no propertyId means every
   // tenant across the portfolio, see PropertyAnnouncement's own schema

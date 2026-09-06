@@ -122,8 +122,14 @@ export default function PropertyDetailPage() {
               <Field label="Type" value={property.propertyType.replace(/_/g, " ")} />
               {property.currentUse && <Field label="Current use" value={property.currentUse} />}
               {property.estimatedValue && <Field label="Owner estimated value" value={formatMoney(property.estimatedValue) ?? ""} />}
+              {property.bedrooms != null && <Field label="Bedrooms" value={String(property.bedrooms)} />}
+              {property.bathrooms != null && <Field label="Bathrooms" value={String(property.bathrooms)} />}
+              {property.squareFootage != null && <Field label="Size" value={`${property.squareFootage} sq ft`} />}
+              {property.yearBuilt != null && <Field label="Year built" value={String(property.yearBuilt)} />}
             </div>
           </div>
+
+          <PropertyDetailsCard property={property} onUpdated={setProperty} />
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <div className="potg-card" style={{ padding: 18 }}>
@@ -564,6 +570,155 @@ function Field({ label, value }: { label: string; value: string }) {
         {label}
       </div>
       <div style={{ fontSize: 13, textTransform: "capitalize" }}>{value}</div>
+    </div>
+  );
+}
+
+// Module 3: Property Details — specs, amenities, and a photo gallery.
+// The header card above shows these read-only; this card is the one
+// place to actually set them, since the base property record had no
+// update endpoint at all before this pass. Amenities/photo URLs are
+// edited as comma-separated text rather than a tag-input widget — same
+// "plain text over a bespoke control" tradeoff this app already accepts
+// elsewhere (e.g. a lease's freeform tenantName) for a field with no
+// fixed vocabulary.
+function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUpdated: (p: Property) => void }) {
+  const auth = useAuth();
+  const [editing, setEditing] = useState(false);
+  const [bedrooms, setBedrooms] = useState(property.bedrooms?.toString() ?? "");
+  const [bathrooms, setBathrooms] = useState(property.bathrooms?.toString() ?? "");
+  const [squareFootage, setSquareFootage] = useState(property.squareFootage?.toString() ?? "");
+  const [yearBuilt, setYearBuilt] = useState(property.yearBuilt?.toString() ?? "");
+  const [amenities, setAmenities] = useState(property.amenities.join(", "));
+  const [photoUrls, setPhotoUrls] = useState(property.photoUrls.join(", "));
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function startEditing() {
+    setBedrooms(property.bedrooms?.toString() ?? "");
+    setBathrooms(property.bathrooms?.toString() ?? "");
+    setSquareFootage(property.squareFootage?.toString() ?? "");
+    setYearBuilt(property.yearBuilt?.toString() ?? "");
+    setAmenities(property.amenities.join(", "));
+    setPhotoUrls(property.photoUrls.join(", "));
+    setError(null);
+    setEditing(true);
+  }
+
+  async function onSave() {
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await auth.api.updateProperty(property.id, {
+        bedrooms: bedrooms ? Number(bedrooms) : undefined,
+        bathrooms: bathrooms ? Number(bathrooms) : undefined,
+        squareFootage: squareFootage ? Number(squareFootage) : undefined,
+        yearBuilt: yearBuilt ? Number(yearBuilt) : undefined,
+        amenities: amenities
+          .split(",")
+          .map((a) => a.trim())
+          .filter(Boolean),
+        photoUrls: photoUrls
+          .split(",")
+          .map((u) => u.trim())
+          .filter(Boolean),
+      });
+      onUpdated(updated);
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't save those details.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <h3 style={{ fontSize: 14, margin: 0 }}>Property details</h3>
+        {!editing && (
+          <button className="potg-btn potg-btn-secondary" onClick={startEditing}>
+            Edit details
+          </button>
+        )}
+      </div>
+      {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+
+      {editing ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
+            <div>
+              <label className="potg-label">Bedrooms</label>
+              <input className="potg-input" type="number" min={0} value={bedrooms} onChange={(e) => setBedrooms(e.target.value)} />
+            </div>
+            <div>
+              <label className="potg-label">Bathrooms</label>
+              <input className="potg-input" type="number" min={0} value={bathrooms} onChange={(e) => setBathrooms(e.target.value)} />
+            </div>
+            <div>
+              <label className="potg-label">Sq ft</label>
+              <input className="potg-input" type="number" min={0} value={squareFootage} onChange={(e) => setSquareFootage(e.target.value)} />
+            </div>
+            <div>
+              <label className="potg-label">Year built</label>
+              <input className="potg-input" type="number" min={1800} value={yearBuilt} onChange={(e) => setYearBuilt(e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <label className="potg-label">Amenities (comma-separated)</label>
+            <input
+              className="potg-input"
+              placeholder="e.g. pool, generator, parking"
+              value={amenities}
+              onChange={(e) => setAmenities(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="potg-label">Photo URLs (comma-separated)</label>
+            <input
+              className="potg-input"
+              placeholder="https://…, https://…"
+              value={photoUrls}
+              onChange={(e) => setPhotoUrls(e.target.value)}
+            />
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="potg-btn potg-btn-primary" disabled={busy} onClick={onSave}>
+              {busy ? "Saving…" : "Save"}
+            </button>
+            <button className="potg-btn potg-btn-secondary" disabled={busy} onClick={() => setEditing(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          {property.amenities.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: property.photoUrls.length > 0 ? 12 : 0 }}>
+              {property.amenities.map((a) => (
+                <span key={a} className="potg-badge">
+                  {a}
+                </span>
+              ))}
+            </div>
+          )}
+          {property.photoUrls.length > 0 ? (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
+              {property.photoUrls.map((url) => (
+                <a key={url} href={url} target="_blank" rel="noreferrer">
+                  <img src={url} alt="" style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 6 }} />
+                </a>
+              ))}
+            </div>
+          ) : (
+            property.amenities.length === 0 && (
+              <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+                No amenities or photos added yet.
+              </p>
+            )
+          )}
+        </>
+      )}
     </div>
   );
 }

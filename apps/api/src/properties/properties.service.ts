@@ -5,6 +5,7 @@ import { Property } from '@prisma/client';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { CreateValuationDto } from './dto/create-valuation.dto';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
+import { UpdatePropertyDto } from './dto/update-property.dto';
 import { ScheduleInspectionDto } from './dto/schedule-inspection.dto';
 import { UpdateInspectionDto } from './dto/update-inspection.dto';
 import { CompleteInspectionDto } from './dto/complete-inspection.dto';
@@ -68,7 +69,10 @@ export class PropertiesService {
   // The text representation embedded for semantic search — every field a
   // free-text query like "3 bedroom flat in Lekki under renovation" could
   // plausibly be asking about. Deliberately excludes ids/dates/computed
-  // fields that add noise, not signal, to a semantic match.
+  // fields that add noise, not signal, to a semantic match. Module 3's
+  // own fields close the gap this comment's own example query used to
+  // point at with nothing behind it — there was no `bedrooms` field
+  // anywhere in this schema until now.
   private embeddingText(property: Property): string {
     return [
       property.name,
@@ -79,6 +83,11 @@ export class PropertiesService {
       property.country,
       property.currentUse ? `currently used as ${property.currentUse}` : null,
       property.estimatedValue ? `estimated value ${property.estimatedValue.toString()}` : null,
+      property.bedrooms != null ? `${property.bedrooms} bedroom(s)` : null,
+      property.bathrooms != null ? `${property.bathrooms} bathroom(s)` : null,
+      property.squareFootage != null ? `${property.squareFootage} sq ft` : null,
+      property.yearBuilt != null ? `built in ${property.yearBuilt}` : null,
+      property.amenities.length > 0 ? `amenities: ${property.amenities.join(', ')}` : null,
     ]
       .filter(Boolean)
       .join('. ');
@@ -162,6 +171,20 @@ export class PropertiesService {
         timelineEvents: { orderBy: { occurredAt: 'asc' } },
       },
     });
+  }
+
+  // Module 3: Property Details — the base Property record had no update
+  // endpoint at all before this: only nested resources (valuations,
+  // inspections, leases, maintenance) could be edited after creation.
+  // Re-indexes the embedding fire-and-forget on any change, same
+  // swallow-and-log reasoning `create` already uses — a stale embedding
+  // is a search-quality issue, not something that should fail an edit.
+  async updateProperty(propertyId: string, dto: UpdatePropertyDto) {
+    const property = await this.prisma.property.update({ where: { id: propertyId }, data: dto });
+    this.indexEmbedding(property).catch((err) => {
+      this.logger.warn(`Skipping re-index for property ${property.id}: ${err instanceof Error ? err.message : err}`);
+    });
+    return property;
   }
 
   // "Community management" — see PropertyAnnouncement's own schema

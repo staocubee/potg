@@ -352,6 +352,26 @@ model Property {
   status         String    @default("active")
   currentUse     String?
   estimatedValue Decimal?  @db.Decimal(14, 2)
+  // Module 3: Property Details — physical specifications, amenities, and
+  // a photo gallery for the property itself, distinct from Module 2's own
+  // identity/location/value fields above and Module 4's paperwork
+  // (Document). Filled a real, self-evident gap: the semantic-search
+  // embedding text below (embeddingText, properties.service.ts) already
+  // gave "3 bedroom flat in Lekki under renovation" as its own example
+  // query, with no `bedrooms` field anywhere to ever back that up. All
+  // optional — a property is real and useful in this scaffold long before
+  // its owner has gotten around to filling in square footage. photoUrls
+  // is the property's own general gallery, distinct from
+  // PropertyListing.photoUrls (a listing's own marketing photos, possibly
+  // a curated subset) and RenovationVisualization's before/after pair —
+  // same "URL you provide yourself" convention every other *Url field in
+  // this schema already uses, since no upload pipeline changed for this.
+  bedrooms      Int?
+  bathrooms     Int?
+  squareFootage Float?
+  yearBuilt     Int?
+  amenities     String[] @default([])
+  photoUrls     String[] @default([])
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

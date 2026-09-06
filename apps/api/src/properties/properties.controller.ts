@@ -8,6 +8,7 @@ import { PropertiesService } from './properties.service';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { CreateValuationDto } from './dto/create-valuation.dto';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
+import { UpdatePropertyDto } from './dto/update-property.dto';
 import { ScheduleInspectionDto } from './dto/schedule-inspection.dto';
 import { UpdateInspectionDto } from './dto/update-inspection.dto';
 import { CompleteInspectionDto } from './dto/complete-inspection.dto';
@@ -58,6 +59,17 @@ export class PropertiesController {
   @Post('reindex-embeddings')
   reindexEmbeddings(@CurrentAccountMember() member: AccountMemberCtx) {
     return this.properties.reindexEmbeddings(member.accountId);
+  }
+
+  // Module 3: Property Details — the first update endpoint the base
+  // property record has ever had (see UpdatePropertyDto's own comment).
+  // Same property:write gate as create; PermissionsGuard's own
+  // :propertyId ABAC (not this controller) is what stops one account
+  // from editing another's property here.
+  @RequirePermissions('property:write')
+  @Patch(':propertyId')
+  update(@Param('propertyId') propertyId: string, @Body() dto: UpdatePropertyDto) {
+    return this.properties.updateProperty(propertyId, dto);
   }
 
   // "Community management" — account-wide, like search/reindex-embeddings

@@ -167,6 +167,17 @@ export default function PortfolioPage() {
               <p className="potg-muted" style={{ fontSize: 12, margin: "4px 0 10px" }}>
                 {[p.addressLine, p.city, p.state, p.country].filter(Boolean).join(", ")}
               </p>
+              {(p.bedrooms != null || p.bathrooms != null || p.squareFootage != null) && (
+                <p className="potg-muted" style={{ fontSize: 11, margin: "0 0 10px" }}>
+                  {[
+                    p.bedrooms != null ? `${p.bedrooms} bed` : null,
+                    p.bathrooms != null ? `${p.bathrooms} bath` : null,
+                    p.squareFootage != null ? `${p.squareFootage} sq ft` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span className="potg-badge">{p.propertyType.replace(/_/g, " ")}</span>
                 {p.estimatedValue && <span style={{ fontWeight: 700, fontSize: 13 }}>{formatMoney(p.estimatedValue)}</span>}
@@ -188,6 +199,10 @@ function AddPropertyForm({ onCreated }: { onCreated: (p: Property) => void }) {
   const [state, setState] = useState("");
   const [country, setCountry] = useState(auth.currentAccount?.accountType ? "Nigeria" : "");
   const [estimatedValue, setEstimatedValue] = useState("");
+  const [bedrooms, setBedrooms] = useState("");
+  const [bathrooms, setBathrooms] = useState("");
+  const [squareFootage, setSquareFootage] = useState("");
+  const [yearBuilt, setYearBuilt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -204,6 +219,10 @@ function AddPropertyForm({ onCreated }: { onCreated: (p: Property) => void }) {
         state: state || undefined,
         country,
         estimatedValue: estimatedValue ? Number(estimatedValue) : undefined,
+        bedrooms: bedrooms ? Number(bedrooms) : undefined,
+        bathrooms: bathrooms ? Number(bathrooms) : undefined,
+        squareFootage: squareFootage ? Number(squareFootage) : undefined,
+        yearBuilt: yearBuilt ? Number(yearBuilt) : undefined,
       });
       onCreated(property);
     } catch (err) {
@@ -253,6 +272,24 @@ function AddPropertyForm({ onCreated }: { onCreated: (p: Property) => void }) {
       <div>
         <label className="potg-label">Estimated value (optional)</label>
         <input className="potg-input" type="number" min={0} value={estimatedValue} onChange={(e) => setEstimatedValue(e.target.value)} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
+        <div>
+          <label className="potg-label">Bedrooms</label>
+          <input className="potg-input" type="number" min={0} value={bedrooms} onChange={(e) => setBedrooms(e.target.value)} />
+        </div>
+        <div>
+          <label className="potg-label">Bathrooms</label>
+          <input className="potg-input" type="number" min={0} value={bathrooms} onChange={(e) => setBathrooms(e.target.value)} />
+        </div>
+        <div>
+          <label className="potg-label">Sq ft</label>
+          <input className="potg-input" type="number" min={0} value={squareFootage} onChange={(e) => setSquareFootage(e.target.value)} />
+        </div>
+        <div>
+          <label className="potg-label">Year built</label>
+          <input className="potg-input" type="number" min={1800} value={yearBuilt} onChange={(e) => setYearBuilt(e.target.value)} />
+        </div>
       </div>
       <div>
         <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>

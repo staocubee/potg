@@ -4600,6 +4600,72 @@ social feature.
   is posted — a tenant only sees it by opening their own portal; no edit
   after posting, only delete-and-repost.
 
+## Module 3: Property Details — specs, amenities, and a photo gallery (this pass)
+
+Unlike Modules 16-24, Module 3 was never a bare label with no real
+scope — it's a genuinely missing sequential module number, sitting
+between Module 2 (`src/properties` — property portfolio CRUD) and
+Module 4 (`src/documents` — the document vault), both already named
+and built earlier in this scaffold's history. Positional inference, not
+a blueprint quote: no text anywhere names what Module 3 itself contains
+either, but the numbering gap between "manage your properties" and
+"manage your paperwork" pointed at one obvious, self-evidently-missing
+piece already hinted at elsewhere in this codebase — see below.
+
+- **A real gap the code already flagged on its own**: `PropertiesService
+  .embeddingText`'s own comment gives `"3 bedroom flat in Lekki under
+  renovation"` as an example semantic-search query — and until this
+  pass, `Property` had no `bedrooms` field, or any physical
+  characteristic at all beyond `propertyType`/`estimatedValue`, for that
+  query to ever actually match against.
+- **`bedrooms`, `bathrooms`, `squareFootage`, `yearBuilt`, `amenities`
+  (`String[]`), `photoUrls`(`String[]`)** — all optional, same "a
+  property is real and useful before its owner fills in every field"
+  reasoning every other optional column on `Property` already follows.
+  `photoUrls` is the property's own general gallery — distinct from
+  `PropertyListing.photoUrls` (a listing's own marketing photos) and
+  `RenovationVisualization`'s before/after pair — same "URL you provide
+  yourself" convention every other `*Url` field in this schema uses; no
+  upload pipeline changed.
+- **The first update endpoint the base `Property` record has ever had**
+  (`PATCH /properties/:propertyId`, `property:write`) — every other
+  field on `Property` (name, address, status, `currentUse`,
+  `estimatedValue`, ...) was create-only until now; only nested
+  resources (valuations, inspections, leases, maintenance) could be
+  edited after creation. Reuses `PermissionsGuard`'s own `:propertyId`
+  ABAC check for tenant isolation, the same as every other route already
+  keyed on that param — no new isolation logic needed.
+- **`embeddingText` now actually includes what its own example query
+  needs** — bedrooms/bathrooms/square footage/year built/amenities all
+  feed the same semantic-search embedding text now, and `create`/
+  `updateProperty` both re-index fire-and-forget on every change,
+  closing the gap the comment's own words used to point at with nothing
+  behind them.
+- **Web**: the "+ Add property" form now collects bedrooms/bathrooms/
+  square footage/year built up front; a new "Property details" card on
+  the property page shows amenities as badges and photos as a real
+  gallery grid, with an "Edit details" toggle backing the new PATCH
+  endpoint (amenities/photo URLs as comma-separated text, not a bespoke
+  tag-input widget — same tradeoff this app already accepts for fields
+  with no fixed vocabulary). The portfolio grid's own cards show
+  bed/bath/sq-ft inline when set.
+- **Verified live**: created a property with bedrooms/bathrooms/sq-ft/
+  year built set, confirmed all four persisted and rendered on both the
+  portfolio card and the detail page; used "Edit details" to add
+  amenities and a photo URL, confirmed the `PATCH` response and the
+  rendered badges/gallery matched; ran "Reindex for search" against the
+  updated property and confirmed it still fails the same documented way
+  (`"You have no credits remaining"`) rather than a new, different
+  error — the embedding-text change didn't introduce a regression, it's
+  still blocked on the same pre-existing OpenAI billing issue as
+  everywhere else semantic search is discussed in this file.
+- **Not done**: no way to reorder or caption individual photos, no
+  amenities autocomplete/fixed vocabulary (freeform, matching the
+  "record what's true" tradeoff `Lease.tenantName` already accepts), and
+  semantic search still can't be verified end-to-end against these new
+  fields until OpenAI billing is restored — a pre-existing block, not a
+  new one this pass introduced.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -4608,17 +4674,24 @@ blueprint, or explicitly cut from it:
 - **Modules 6, 14, 16-24** (the full property-verification/trust
   workflow; compliance, community management, AR/VR, admin
   operations, ...) — this scaffold now proves the pattern for Modules 1,
-  2, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12, 13, 14, 15, 23, and now
-  two real slices of the 16-24 bucket itself — see "Admin operations — a
-  platform accounts directory and account suspension" and "Community
+  2, 3, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12, 13, 14, 15, 23, and
+  now two real slices of the 16-24 bucket itself — see "Admin operations
+  — a platform accounts directory and account suspension" and "Community
   management — landlord-to-tenant announcements" above: a `platform_admin`
   role with a cross-tenant accounts directory, account suspension/
   reinstatement (wiring up `Account.status`, unused since Module 1), and
   an audit log; and a landlord-to-tenant announcement board, scoped
-  either to one property or the whole portfolio. Both are the only real
-  scope this bucket has ever had — no blueprint text anywhere names what
-  the rest of Modules 3, 17-21, 24 actually contain, so nothing further
-  here is buildable without real input. Module 6's risk-flag coverage is
+  either to one property or the whole portfolio. Module 3 is closed too
+  now — see "Module 3: Property Details — specs, amenities, and a photo
+  gallery" above: unlike 16-24, it was never an unscoped bucket, just a
+  numbering gap between Module 2 (property CRUD) and Module 4
+  (documents) with one self-evidently missing piece the code's own
+  comments already pointed at (bedrooms/bathrooms/square footage/year
+  built/amenities/a photo gallery, plus the first update endpoint the
+  base property record has ever had). What's left genuinely unscoped is
+  narrower now: Modules 17-21 and 24 — no blueprint text anywhere names
+  what they contain, so nothing further here is buildable without real
+  input. Module 6's risk-flag coverage is
   complete now across every entity type that has one — see "Risk flags
   for projects and leases" and
   "Risk flags for vendors and suppliers" above: `assess_listing_risk` used
