@@ -4666,6 +4666,80 @@ piece already hinted at elsewhere in this codebase — see below.
   fields until OpenAI billing is restored — a pre-existing block, not a
   new one this pass introduced.
 
+## Module 17: Estate and Community Management — Phase 1 (this pass)
+
+Unlike Module 3 and unlike the rest of the 16-24 bucket, this one has
+real, user-supplied scope: "apartment buildings, estates, gated
+communities, and managed communities" — resident records, service
+charge collection, community announcements, visitor access requests,
+facility booking, estate dues, complaint management, security notices,
+community polls/voting, and estate reports, with `communities`,
+`residents`, `community_announcements`, `visitor_access_requests`,
+`facility_bookings`, `community_dues`, and `community_polls` as the
+suggested entities. Ten features and seven entities is too much for one
+pass — Phase 1 builds the three that everything else would need to
+exist first anyway: **Communities**, **Residents**, and **Community
+Announcements**. The other seven features are explicitly deferred, not
+attempted partially.
+
+- **A genuinely different shape from Property/Lease, on purpose.** An
+  estate has many residents managed by one account at once — a
+  meaningfully different relationship than a single owner's single
+  tenant. `Community` is a new top-level owned resource (`accountId`,
+  same as `Property`/`Project`), deliberately not linked to `Property`
+  or `Lease` at all: a `Resident` is a simpler record (name, unit
+  number, contact) than a full `Property`, matching how `Lease.
+  tenantName` itself started as freeform text long before a real Tenant
+  identity existed — resident self-service (a resident logging in to
+  see its own community) is the same kind of later phase this
+  codebase's own Module 13 history already went through, not attempted
+  here.
+- **`Community { accountId, name, address, communityType }`,
+  `Resident { communityId, name, unitNumber, email?, phone?,
+  residentType }`, `CommunityAnnouncement { communityId, title, body,
+  createdByUserId }`** — every `Resident` field but name/unit is
+  optional, same "record what's true, no forced workflow" reasoning
+  `Lease.tenantName`/`MaintenanceRequest.assignedTo` already document.
+  `CommunityAnnouncement` is the estate-level counterpart to
+  `PropertyAnnouncement` (see "Community management" above) — same
+  "landlord communicating with the people it houses" shape one level
+  up, but always scoped to exactly one community (no nullable
+  portfolio-wide broadcast the way `PropertyAnnouncement.propertyId`
+  has) — an account managing several communities at once broadcasting
+  across all of them isn't a need this phase's scope covers.
+- **Two new permissions, `community:read`/`community:write`**, granted
+  to the same three owner-tier roles `property:read`/`write` already
+  sit on (`property_owner`, `family_admin`, `company_admin`) — not a
+  new role, since managing an estate is a natural extension of what an
+  account that already manages properties can do, not a distinct job
+  the way `platform_reviewer`/`platform_admin` are.
+- **`PermissionsGuard` gained a fourth ABAC check, for `:communityId`**
+  — structurally identical to its existing `:propertyId`/`:projectId`
+  checks (see its own comment): every route nested under a community
+  (residents, announcements) gets tenant isolation for free, the same
+  way `Property`'s own nested resources (valuations, inspections, ...)
+  already do, rather than each `CommunitiesService` method re-validating
+  ownership by hand.
+- **`GET/POST /communities`, `GET/POST/DELETE .../residents`,
+  `GET/POST/DELETE .../announcements`** — a new `CommunitiesModule`,
+  and a new "Communities" nav item shown at the same reach as Portfolio
+  itself (same three roles carry both permission pairs).
+- **Verified live**: created "Palm Court Estate" as the demo owner,
+  added a resident ("Jane Doe," unit "Block B, Flat 3"), posted a
+  community announcement ("Gate maintenance"), and confirmed all three
+  persisted and rendered correctly on the community's own detail page.
+  Confirmed the vendor account (no `community:*` permission at all) gets
+  a real 403 attempting the same route.
+- **Not done, by explicit scope, not oversight**: service charge/estate
+  dues collection, visitor access requests, facility booking, complaint
+  management, security notices, community polls/voting, and estate
+  reports — all seven remaining named features, and their four
+  remaining suggested entities (`visitor_access_requests`,
+  `facility_bookings`, `community_dues`, `community_polls`). No resident
+  self-service portal yet (a `Resident` has no linked account the way
+  `Lease.tenantAccountId` does) — the same phasing gap Module 13 itself
+  had before its own Tenant identity pass.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -4674,8 +4748,8 @@ blueprint, or explicitly cut from it:
 - **Modules 6, 14, 16-24** (the full property-verification/trust
   workflow; compliance, community management, AR/VR, admin
   operations, ...) — this scaffold now proves the pattern for Modules 1,
-  2, 3, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12, 13, 14, 15, 23, and
-  now two real slices of the 16-24 bucket itself — see "Admin operations
+  2, 3, 4, 5, 7, 9, 10, 11, and a slice of 6, 8, 12, 13, 14, 15, 17, 23,
+  and now two real slices of the 16-24 bucket itself — see "Admin operations
   — a platform accounts directory and account suspension" and "Community
   management — landlord-to-tenant announcements" above: a `platform_admin`
   role with a cross-tenant accounts directory, account suspension/
@@ -4688,10 +4762,15 @@ blueprint, or explicitly cut from it:
   (documents) with one self-evidently missing piece the code's own
   comments already pointed at (bedrooms/bathrooms/square footage/year
   built/amenities/a photo gallery, plus the first update endpoint the
-  base property record has ever had). What's left genuinely unscoped is
-  narrower now: Modules 17-21 and 24 — no blueprint text anywhere names
-  what they contain, so nothing further here is buildable without real
-  input. Module 6's risk-flag coverage is
+  base property record has ever had). Module 17 (Estate and Community
+  Management) now has real, user-supplied scope too — see "Module 17:
+  Estate and Community Management — Phase 1" above: Communities,
+  Residents, and Community Announcements are built; service charges,
+  visitor access, facility booking, complaints, security notices, polls,
+  and estate reports are explicitly deferred, not attempted. What's left
+  genuinely unscoped is narrower now: Modules 18-21 and 24 — no
+  blueprint text anywhere names what they contain, so nothing further
+  here is buildable without real input. Module 6's risk-flag coverage is
   complete now across every entity type that has one — see "Risk flags
   for projects and leases" and
   "Risk flags for vendors and suppliers" above: `assess_listing_risk` used

@@ -13,6 +13,11 @@ type NavItem = { href: string; label: string; icon: string; enabled: boolean };
 // it a real account-wide rollup to back a standalone screen with.
 const NAV_ITEMS: NavItem[] = [
   { href: "/properties", label: "Portfolio", icon: "🏠", enabled: true },
+  // Module 17, Phase 1 (Estate and Community Management) — same
+  // owner-tier reach as Portfolio itself (community:read/write sit on
+  // the same three roles property:read/write do), so it lives alongside
+  // it unconditionally rather than behind a role check.
+  { href: "/communities", label: "Communities", icon: "🏘️", enabled: true },
   { href: "/projects", label: "Projects", icon: "🛠️", enabled: true },
   { href: "/vendors", label: "Vendors", icon: "🧰", enabled: true },
   { href: "/marketplace", label: "Marketplace", icon: "🏷️", enabled: true },

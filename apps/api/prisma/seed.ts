@@ -76,6 +76,15 @@ const PERMISSIONS = [
   // tenant-facing role in this file ever carries either key.
   { key: 'compliance:read', label: 'View the platform compliance tracker (neutral reviewer only)' },
   { key: 'compliance:write', label: 'Edit the platform compliance tracker (neutral reviewer only)' },
+  // Module 17 — Estate and Community Management (real scope supplied
+  // this pass — see communities.module.ts's own comment). One
+  // account-owned resource (Community) with its own residents and
+  // announcements, same read/write pair every other owned resource in
+  // this file already uses — not split further since, unlike documents/
+  // disputes/reviews, nothing about this Phase 1 slice needs a neutral-
+  // reviewer-only verb.
+  { key: 'community:read', label: 'View communities, their residents, and announcements' },
+  { key: 'community:write', label: 'Create a community, manage its residents, and post announcements' },
 ];
 
 // No new permission keys needed for the inspector role below — it's built
@@ -98,6 +107,8 @@ const ROLES: Record<string, string[]> = {
     'document:verify',
     'account:manage_members',
     'ai:act',
+    'community:read',
+    'community:write',
     'vendor:read',
     'project:read',
     'project:write',
@@ -136,6 +147,8 @@ const ROLES: Record<string, string[]> = {
     'document:verify',
     'account:manage_members',
     'ai:act',
+    'community:read',
+    'community:write',
     'vendor:read',
     'project:read',
     'project:write',
@@ -174,6 +187,8 @@ const ROLES: Record<string, string[]> = {
     'document:verify',
     'account:manage_members',
     'ai:act',
+    'community:read',
+    'community:write',
     'vendor:read',
     'project:read',
     'project:write',

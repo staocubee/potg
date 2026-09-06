@@ -68,6 +68,18 @@ export class PermissionsGuard implements CanActivate {
       }
     }
 
+    // Same pattern for :communityId (Module 17) — a Community is an
+    // account-owned top-level resource exactly like Property/Project
+    // above, so it gets the identical isolation check rather than each
+    // CommunitiesService method re-validating ownership by hand.
+    const communityId = req.params?.communityId;
+    if (communityId) {
+      const community = await this.prisma.community.findUnique({ where: { id: communityId } });
+      if (!community || community.accountId !== accountMember.accountId) {
+        throw new NotFoundException('Community not found');
+      }
+    }
+
     // Same pattern for :accountId (Module 1) — no extra query needed since
     // AccountContextGuard already resolved which account the caller is
     // acting as. Without this, POST /accounts/:accountId/members had a real

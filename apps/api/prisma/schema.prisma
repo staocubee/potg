@@ -81,6 +81,7 @@ model Account {
   reportDefinitions ReportDefinition[]
   adminActions    PlatformAdminAction[]
   announcements   PropertyAnnouncement[]
+  communities     Community[]
 
   @@map("accounts")
 }
@@ -1557,4 +1558,84 @@ model RenovationVisualization {
   project  Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   @@map("renovation_visualizations")
+}
+
+// --- Module 17: Estate and Community Management -------------------------
+//
+// Real scope supplied for this pass (unlike the rest of the 16-24
+// bucket, which had none): apartment buildings, estates, and gated
+// communities — a genuinely different shape from a single owner's
+// single-tenant Property/Lease above. An estate has many residents at
+// once, run by whoever manages the estate (an account, same as every
+// other top-level owned resource — could be the same account that also
+// owns Property rows, or a dedicated estate-management company that
+// owns none). Phase 1 of 10 named features: Communities, Residents, and
+// Community Announcements — the three that everything else (dues,
+// visitor access, facility booking, complaints, polls, reports) would
+// need to exist first anyway. Deliberately not linked to Property/Lease:
+// a Resident here is a simpler record (name, unit, contact) than a full
+// Property, matching how Lease.tenantName started as freeform text
+// before a real Tenant identity existed — resident self-service (a
+// Resident logging in to see its own community) is the same kind of
+// later phase Module 13's own history already went through.
+
+model Community {
+  id             String   @id @default(uuid())
+  accountId      String
+  name           String
+  addressLine    String
+  city           String?
+  state          String?
+  country        String
+  communityType  String // estate | apartment_building | gated_community
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  account       Account                 @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  residents     Resident[]
+  announcements CommunityAnnouncement[]
+
+  @@map("communities")
+}
+
+// Freeform, same "record what's true, no forced workflow" reasoning
+// Lease.tenantName/MaintenanceRequest.assignedTo already document — not
+// every resident of an estate wants or needs their own platform login.
+// No email/phone required for the same reason: some residents are only
+// ever mentioned by the estate admin at all (e.g., a unit currently
+// vacant but still tracked).
+model Resident {
+  id           String   @id @default(uuid())
+  communityId  String
+  name         String
+  unitNumber   String
+  email        String?
+  phone        String?
+  residentType String   @default("tenant") // owner | tenant
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@map("residents")
+}
+
+// The estate-level counterpart to PropertyAnnouncement — same "landlord
+// communicating with the people it houses" shape, one level up: an
+// estate manager broadcasting to every resident of one community, not a
+// single lease's own tenant. Always scoped to exactly one community
+// (unlike PropertyAnnouncement's nullable propertyId) — an account
+// managing several communities at once posting to residents across all
+// of them isn't a need this phase's own scope covers.
+model CommunityAnnouncement {
+  id              String   @id @default(uuid())
+  communityId     String
+  title           String
+  body            String
+  createdByUserId String
+  createdAt       DateTime @default(now())
+
+  community Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+
+  @@map("community_announcements")
 }

@@ -222,6 +222,45 @@ export type InvitePreview = {
   hasAccount: boolean;
 };
 
+// Module 17, Phase 1 — Communities, Residents, and Community
+// Announcements. See apps/api/src/communities and schema.prisma's own
+// "Module 17" comment for the full scoping reasoning.
+export type Resident = {
+  id: string;
+  communityId: string;
+  name: string;
+  unitNumber: string;
+  email?: string | null;
+  phone?: string | null;
+  residentType: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CommunityAnnouncement = {
+  id: string;
+  communityId: string;
+  title: string;
+  body: string;
+  createdByUserId: string;
+  createdAt: string;
+};
+
+export type Community = {
+  id: string;
+  accountId: string;
+  name: string;
+  addressLine: string;
+  city?: string | null;
+  state?: string | null;
+  country: string;
+  communityType: string;
+  createdAt: string;
+  updatedAt: string;
+  residents?: Resident[];
+  announcements?: CommunityAnnouncement[];
+};
+
 export type Property = {
   id: string;
   accountId: string;
@@ -1886,6 +1925,46 @@ export class ApiClient {
       throw new ApiError(res.status, data?.message ?? `Request failed (${res.status})`);
     }
     return res.text();
+  }
+  // --- Module 17, Phase 1: Communities, Residents, Announcements (community:read/write) ---
+  listCommunities() {
+    return request<Community[]>("/communities", { token: this.token, accountId: this.accountId });
+  }
+  createCommunity(input: { name: string; addressLine: string; city?: string; state?: string; country: string; communityType: string }) {
+    return request<Community>("/communities", { method: "POST", body: input, token: this.token, accountId: this.accountId });
+  }
+  getCommunity(communityId: string) {
+    return request<Community>(`/communities/${communityId}`, { token: this.token, accountId: this.accountId });
+  }
+  addResident(communityId: string, input: { name: string; unitNumber: string; email?: string; phone?: string; residentType?: string }) {
+    return request<Resident>(`/communities/${communityId}/residents`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  removeResident(communityId: string, residentId: string) {
+    return request<{ deleted: boolean }>(`/communities/${communityId}/residents/${residentId}`, {
+      method: "DELETE",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  createCommunityAnnouncement(communityId: string, input: { title: string; body: string }) {
+    return request<CommunityAnnouncement>(`/communities/${communityId}/announcements`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  deleteCommunityAnnouncement(communityId: string, announcementId: string) {
+    return request<{ deleted: boolean }>(`/communities/${communityId}/announcements/${announcementId}`, {
+      method: "DELETE",
+      token: this.token,
+      accountId: this.accountId,
+    });
   }
   // --- Platform compliance tracker (compliance:read/write — platform_reviewer only) ---
   listComplianceItems() {

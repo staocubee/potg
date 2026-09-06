@@ -22,6 +22,7 @@ import { VisualizationsModule } from './visualizations/visualizations.module';
 import { ComplianceModule } from './compliance/compliance.module';
 import { StorageModule } from './storage/storage.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
+import { CommunitiesModule } from './communities/communities.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { PlatformAdminModule } from './platform-admin/platform-admin.module';
     ComplianceModule,
     StorageModule,
     PlatformAdminModule,
+    CommunitiesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
