@@ -64,6 +64,14 @@ export class PropertiesController {
     return this.properties.reindexEmbeddings(member.accountId);
   }
 
+  // Manual backfill for the Live View feature's own enrichment step —
+  // see PropertiesService.regeocodeProperties's own comment.
+  @RequirePermissions('property:write')
+  @Post('regeocode')
+  regeocodeProperties(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.properties.regeocodeProperties(member.accountId);
+  }
+
   // Module 3: Property Details — the first update endpoint the base
   // property record has ever had (see UpdatePropertyDto's own comment).
   // Same property:write gate as create; PermissionsGuard's own

@@ -43,6 +43,7 @@ export default function PortfolioPage() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [reindexStatus, setReindexStatus] = useState<string | null>(null);
+  const [geocodeStatus, setGeocodeStatus] = useState<string | null>(null);
 
   function load() {
     if (!auth.currentAccountId) return;
@@ -83,6 +84,23 @@ export default function PortfolioPage() {
       );
     } catch (err) {
       setReindexStatus(err instanceof ApiError ? err.message : "Couldn't reindex.");
+    }
+  }
+
+  // Manual backfill for the Live View feature — see
+  // PropertiesService.regeocodeProperties's own comment.
+  async function runRegeocode() {
+    setGeocodeStatus("Locating…");
+    try {
+      const result = await auth.api.regeocodeProperties();
+      setGeocodeStatus(
+        result.failed > 0
+          ? `Located ${result.located}/${result.total}. ${result.failed} failed — ${result.failures[0]?.error ?? "see server logs"}.`
+          : `Located ${result.located}/${result.total} propert${result.total === 1 ? "y" : "ies"} still missing a location.`,
+      );
+      if (result.located > 0) load();
+    } catch (err) {
+      setGeocodeStatus(err instanceof ApiError ? err.message : "Couldn't locate properties.");
     }
   }
 
@@ -140,8 +158,16 @@ export default function PortfolioPage() {
         <button type="button" className="potg-btn potg-btn-secondary" onClick={runReindex}>
           Reindex for search
         </button>
+        <button type="button" className="potg-btn potg-btn-secondary" onClick={runRegeocode}>
+          Locate for Live View
+        </button>
       </form>
       {searchError && <div className="potg-error" style={{ marginBottom: 16 }}>{searchError}</div>}
+      {geocodeStatus && (
+        <p className="potg-muted" style={{ fontSize: 12, marginBottom: 16 }}>
+          {geocodeStatus}
+        </p>
+      )}
       {reindexStatus && (
         <p className="potg-muted" style={{ fontSize: 12, marginBottom: 16 }}>
           {reindexStatus}

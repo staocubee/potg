@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { OpenAiEmbeddingService } from './openai-embedding.service';
+import { GoogleGeocodingService } from './google-geocoding.service';
 import { Property } from '@prisma/client';
 import { CreatePropertyDto } from './dto/create-property.dto';
 import { CreateValuationDto } from './dto/create-valuation.dto';
@@ -40,6 +41,7 @@ export class PropertiesService {
     private readonly prisma: PrismaService,
     private readonly embeddings: OpenAiEmbeddingService,
     private readonly notifications: InAppNotificationsService,
+    private readonly geocoding: GoogleGeocodingService,
   ) {}
 
   // Shared by every inspectorVendor/assignedVendor include below, so a
@@ -68,7 +70,26 @@ export class PropertiesService {
     this.indexEmbedding(property).catch((err) => {
       this.logger.warn(`Skipping embedding for property ${property.id}: ${err instanceof Error ? err.message : err}`);
     });
+    // Same fire-and-forget reasoning as indexEmbedding just above — the
+    // "live view" map/Street View on the property page is an enrichment
+    // once geocoding lands, not something property creation should ever
+    // wait on or fail over. Only runs when the caller didn't already
+    // supply coordinates of their own (CreatePropertyDto still accepts
+    // manual latitude/longitude — this never overwrites a value someone
+    // deliberately provided).
+    if (dto.latitude == null || dto.longitude == null) {
+      this.geocodeProperty(property).catch((err) => {
+        this.logger.warn(`Skipping geocoding for property ${property.id}: ${err instanceof Error ? err.message : err}`);
+      });
+    }
     return property;
+  }
+
+  private async geocodeProperty(property: Property) {
+    const address = [property.addressLine, property.city, property.state, property.country].filter(Boolean).join(', ');
+    const coords = await this.geocoding.geocode(address);
+    if (!coords) return;
+    await this.prisma.property.update({ where: { id: property.id }, data: coords });
   }
 
   // The text representation embedded for semantic search — every field a
@@ -135,6 +156,35 @@ export class PropertiesService {
       }
     }
     return { total: properties.length, indexed, failed: failures.length, failures };
+  }
+
+  // Same manual-backfill reasoning as reindexEmbeddings just above, for
+  // the other enrichment this account's properties might be missing:
+  // every property created (or address-edited) before GOOGLE_MAPS_API_KEY
+  // was configured on this deployment never got geocoded, since that's a
+  // fire-and-forget step at write time, not something re-run on its own.
+  // Only ever geocodes properties still missing coordinates — never
+  // overwrites one a manual latitude/longitude (or an earlier successful
+  // geocode) already set.
+  async regeocodeProperties(accountId: string) {
+    const properties = await this.prisma.property.findMany({
+      where: { accountId, OR: [{ latitude: null }, { longitude: null }] },
+    });
+    let located = 0;
+    const failures: { propertyId: string; error: string }[] = [];
+    for (const property of properties) {
+      try {
+        const address = [property.addressLine, property.city, property.state, property.country].filter(Boolean).join(', ');
+        const coords = await this.geocoding.geocode(address);
+        if (coords) {
+          await this.prisma.property.update({ where: { id: property.id }, data: coords });
+          located += 1;
+        }
+      } catch (err) {
+        failures.push({ propertyId: property.id, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return { total: properties.length, located, failed: failures.length, failures };
   }
 
   // Semantic search (Module — "vector DB for AI context retrieval"): embed
@@ -283,6 +333,15 @@ export class PropertiesService {
     this.indexEmbedding(property).catch((err) => {
       this.logger.warn(`Skipping re-index for property ${property.id}: ${err instanceof Error ? err.message : err}`);
     });
+    // Re-geocode whenever the address itself changed and the caller
+    // didn't hand-supply new coordinates in the same edit — same
+    // "enrichment, not a blocking step" reasoning `create` uses above.
+    const addressChanged = dto.addressLine !== undefined || dto.city !== undefined || dto.state !== undefined || dto.country !== undefined;
+    if (addressChanged && dto.latitude == null && dto.longitude == null) {
+      this.geocodeProperty(property).catch((err) => {
+        this.logger.warn(`Skipping re-geocoding for property ${property.id}: ${err instanceof Error ? err.message : err}`);
+      });
+    }
     return property;
   }
 

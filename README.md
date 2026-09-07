@@ -5353,6 +5353,79 @@ for the ownership-stake half.
   "and therefore excluded from X," since nothing else in this schema
   reads `PropertyOwner` at all yet beyond this pass's own write).
 
+## Live view — a real Google Map and Street View per property (this pass)
+
+Another user-requested feature, not from the numbered blueprint: "each
+property to have a live view adopting google map live view." Worth
+naming plainly what this is and isn't, the same discipline Module 23's
+own AR/VR section applies: Google Maps' actual "Live View" is an AR
+walking-navigation feature that only exists inside the Google Maps
+*mobile app* (it overlays directions on the phone's live camera feed
+using ARCore/ARKit) — there is no web embed of it, and no public API
+exposes it to a website at all. What *is* real and embeddable is Google
+Maps' own Embed API: a genuinely live, interactive map, plus a Street
+View mode for an actual "look around from street level" view — both
+just an iframe, no SDK. That's what this pass builds, named "Live view"
+rather than "Live View" to be honest about the difference.
+
+- **`GoogleGeocodingService`** (new, `src/properties/`) — same "plain
+  fetch, isConfigured gate" shape `OpenAiImageService`/`PaystackService`
+  already use. Turns a property's own free-text address into real
+  coordinates via Google's Geocoding API. Never throws — a bad address,
+  no API key, or a Google-side error all just mean "not located this
+  time," logged and swallowed, the same "enrichment, not a blocking
+  step" reasoning `PropertiesService.indexEmbedding`'s own fire-and-
+  forget call already established for search.
+- **`Property.latitude`/`longitude` are finally populated** — both
+  fields, plus full `class-validator` coverage, have existed in
+  `CreatePropertyDto`/`UpdatePropertyDto` since Module 1, but no caller
+  anywhere, client or server, had ever actually set them; every existing
+  property's coordinates were `null`. Now geocoded automatically,
+  fire-and-forget, whenever a property is created, and re-geocoded
+  whenever its address is edited — in both cases only when the caller
+  didn't already hand-supply coordinates of their own, so manual
+  `latitude`/`longitude` (still accepted by both DTOs) is never
+  silently overwritten.
+- **`POST /properties/regeocode`** — manual backfill for properties that
+  existed (or whose address was set) before `GOOGLE_MAPS_API_KEY` was
+  ever configured, same "Reindex for search" precedent
+  `reindexEmbeddings` already established for the identical class of
+  problem. A "Locate for Live View" button next to "Reindex for search"
+  on the Portfolio page.
+- **`PropertyLiveViewCard`** (web) — Map/Street View toggle, right at
+  the top of the property page. Just an `<iframe>` against Google's Maps
+  Embed API (`.../maps/embed/v1/place` and `.../streetview`) — no new
+  UI/map dependency, same "no library for one feature" call the 360°
+  viewer already made. Reads `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` (a
+  second, browser-exposed key, separate from the API's own server-side
+  `GOOGLE_MAPS_API_KEY` — Google's own guidance for anything shipped to
+  the browser).
+- **Verified live, the parts verifiable without a real API key**: created
+  a new property with no `GOOGLE_MAPS_API_KEY` configured and confirmed
+  it still saved successfully with `latitude`/`longitude` both `null` —
+  geocoding failed silently, exactly as designed, no error surfaced to
+  the caller; confirmed the property page's Live View card correctly
+  shows "Live view isn't configured on this deployment" (no
+  `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`); ran the new "Locate for Live View"
+  backfill button against 4 real properties missing coordinates and
+  confirmed a correct, honest `"Located 0/4"` result with zero failures
+  (a graceful no-op, not an error, when unconfigured — the same
+  distinction `regeocodeProperties`'s own return shape makes). The
+  actual map/Street View iframe render itself — and a real geocode
+  actually resolving an address to coordinates — needs a real
+  `GOOGLE_MAPS_API_KEY`/`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` pair neither of
+  which exists in this environment; same "verify the not-configured path
+  now, the configured path once a real key exists" split this README
+  already used for `OPENAI_API_KEY`/Sumsub.
+- **Not done, by explicit scope, not oversight**: any actual AR — see
+  this section's own opening paragraph for why that's not a "not yet,"
+  it's a "doesn't exist to embed at all"; a manual "pin the exact
+  location on a map" editor (geocoding from the address is the only way
+  coordinates get set); multi-photo/panorama Street View stitching
+  beyond whatever single-point coverage Google's own Street View already
+  has at that address (which the embed simply shows "no imagery here"
+  for, gracefully, when it doesn't).
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

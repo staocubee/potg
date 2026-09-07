@@ -310,6 +310,12 @@ export type Property = {
   city?: string | null;
   state?: string | null;
   country: string;
+  // Geocoded automatically from the address above when
+  // GOOGLE_MAPS_API_KEY is configured on the API (see
+  // GoogleGeocodingService) — null until then, or if it's not
+  // configured at all. Powers the property page's Live View card.
+  latitude?: number | null;
+  longitude?: number | null;
   status: string;
   currentUse?: string | null;
   estimatedValue?: string | null;
@@ -1433,6 +1439,14 @@ export class ApiClient {
   reindexPropertyEmbeddings() {
     return request<{ total: number; indexed: number; failed: number; failures: { propertyId: string; error: string }[] }>(
       "/properties/reindex-embeddings",
+      { method: "POST", token: this.token, accountId: this.accountId },
+    );
+  }
+  // Manual backfill for the Live View feature — see
+  // PropertiesService.regeocodeProperties's own comment.
+  regeocodeProperties() {
+    return request<{ total: number; located: number; failed: number; failures: { propertyId: string; error: string }[] }>(
+      "/properties/regeocode",
       { method: "POST", token: this.token, accountId: this.accountId },
     );
   }

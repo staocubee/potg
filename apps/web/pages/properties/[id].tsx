@@ -129,6 +129,8 @@ export default function PropertyDetailPage() {
             </div>
           </div>
 
+          <PropertyLiveViewCard property={property} />
+
           <PropertyDetailsCard property={property} onUpdated={setProperty} />
 
           <AccessGrantsCard propertyId={property.id} />
@@ -578,6 +580,85 @@ function Field({ label, value }: { label: string; value: string }) {
         {label}
       </div>
       <div style={{ fontSize: 13, textTransform: "capitalize" }}>{value}</div>
+    </div>
+  );
+}
+
+const GOOGLE_MAPS_EMBED_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+
+// A user-requested feature (not from the numbered blueprint): a real,
+// interactive Google Map of the property's own location, with a Street
+// View toggle for an actual "look around from the street" live view.
+// Deliberately *not* Google Maps' own "Live View" — that's an AR walking-
+// navigation feature that only exists inside the Google Maps mobile app
+// (ARCore/ARKit), with no web embed of any kind; see the README for the
+// full reasoning, same "name what's real vs. what only sounds similar"
+// discipline Module 23's own AR/VR section already applies. Just an
+// iframe (Google's Maps Embed API) — no new UI/map dependency, same "no
+// library for a single feature" call the 360° viewer already made.
+// property.latitude/longitude are geocoded automatically from the
+// address server-side (GoogleGeocodingService) — this card only ever
+// reads them, never writes.
+function PropertyLiveViewCard({ property }: { property: Property }) {
+  const [mode, setMode] = useState<"map" | "streetview">("map");
+  const hasCoords = property.latitude != null && property.longitude != null;
+
+  return (
+    <div className="potg-card" style={{ padding: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <h3 style={{ fontSize: 14, margin: 0 }}>Live view</h3>
+        {hasCoords && GOOGLE_MAPS_EMBED_KEY && (
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              className={mode === "map" ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
+              style={{ fontSize: 12, padding: "5px 10px" }}
+              onClick={() => setMode("map")}
+            >
+              Map
+            </button>
+            <button
+              className={mode === "streetview" ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
+              style={{ fontSize: 12, padding: "5px 10px" }}
+              onClick={() => setMode("streetview")}
+            >
+              Street View
+            </button>
+          </div>
+        )}
+      </div>
+      <p className="potg-muted" style={{ fontSize: 11, marginTop: 0, marginBottom: 10 }}>
+        A live, interactive map of this property&rsquo;s real location — not Google Maps&rsquo; own AR &ldquo;Live
+        View&rdquo; walking feature, which only exists in the Google Maps mobile app with no web embed.
+      </p>
+
+      {!GOOGLE_MAPS_EMBED_KEY && (
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+          Live view isn&rsquo;t configured on this deployment — set NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to enable it.
+        </p>
+      )}
+      {GOOGLE_MAPS_EMBED_KEY && !hasCoords && (
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+          This property hasn&rsquo;t been located yet — it&rsquo;s geocoded automatically from its address once
+          GOOGLE_MAPS_API_KEY is configured on the API.
+        </p>
+      )}
+      {GOOGLE_MAPS_EMBED_KEY && hasCoords && (
+        <iframe
+          key={mode}
+          title={mode === "map" ? "Property map" : "Property street view"}
+          width="100%"
+          height={320}
+          style={{ border: 0, borderRadius: 6, display: "block" }}
+          loading="lazy"
+          allowFullScreen
+          referrerPolicy="no-referrer-when-downgrade"
+          src={
+            mode === "map"
+              ? `https://www.google.com/maps/embed/v1/place?key=${GOOGLE_MAPS_EMBED_KEY}&q=${property.latitude},${property.longitude}`
+              : `https://www.google.com/maps/embed/v1/streetview?key=${GOOGLE_MAPS_EMBED_KEY}&location=${property.latitude},${property.longitude}`
+          }
+        />
+      )}
     </div>
   );
 }
