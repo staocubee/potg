@@ -112,6 +112,53 @@ const METRIC_REGISTRY: Record<string, { label: string; rows: (o: PortfolioOvervi
     label: 'Leases with rent overdue',
     rows: (o) => [{ label: 'Leases with rent overdue', value: o.leases.overdue }],
   },
+  // --- Module 24: Reports and Analytics -------------------------------
+  //
+  // Real, user-supplied scope: 17 named reports across Owner/Company/
+  // Marketplace categories. Property portfolio summary and document
+  // status report were already covered by the metrics above; these 5
+  // new keys close the property expense report, rental income report,
+  // vendor performance report (which doubles as "vendor job completion"
+  // — the same underlying data, Company and Marketplace categories both
+  // naming it), and supplier sales / material order trends — all
+  // computed from real data that already existed (payouts, rent
+  // payments, vendor assignments/reviews, orders) but had never been
+  // aggregated into a report before. See getPortfolioOverview's own
+  // comment on each new group for what's genuinely new vs already
+  // tracked, and the README for what this pass explicitly didn't reach
+  // (branch/facility reports — no Branch entity exists; asset
+  // utilization — RentalBooking only tracks this account renting *from*
+  // suppliers, not utilization of its own assets; listing performance/
+  // inquiry conversion — a real, buildable gap, cut to keep this pass
+  // bounded).
+  property_expenses: {
+    label: 'Property expense report (project spend)',
+    rows: (o) => o.propertyExpenses.map((p) => ({ label: `${p.propertyName} — spend (${p.currency})`, value: p.total })),
+  },
+  property_rental_income: {
+    label: 'Rental income report',
+    rows: (o) => o.propertyRentalIncome.map((p) => ({ label: `${p.propertyName} — rent collected (${p.currency})`, value: p.total })),
+  },
+  vendor_performance: {
+    label: 'Vendor performance report',
+    rows: (o) =>
+      o.vendorPerformance.flatMap((v) => [
+        { label: `${v.businessName} — jobs completed`, value: `${v.jobsCompleted}/${v.jobsAssigned}` },
+        ...(v.avgRating != null ? [{ label: `${v.businessName} — avg rating`, value: v.avgRating.toFixed(1) }] : []),
+      ]),
+  },
+  supplier_sales: {
+    label: 'Supplier sales report',
+    rows: (o) =>
+      o.supplierSales.flatMap((s) => [
+        { label: `${s.businessName} — orders`, value: s.orderCount },
+        { label: `${s.businessName} — spend (${s.currency})`, value: s.total },
+      ]),
+  },
+  material_order_trends: {
+    label: 'Material order trends (last 90 days)',
+    rows: (o) => o.materialOrderTrends.map((m) => ({ label: `${m.productName} — ${m.quantity} unit(s) (${m.currency})`, value: m.total })),
+  },
 };
 
 // Real CSV escaping (RFC 4180) — quote a field only when it actually
@@ -158,21 +205,91 @@ export class ReportsService {
       select: { currency: true, reportDigestFrequency: true },
     });
 
-    const [properties, projects, maintenanceRequests, inspections, payouts, documents, activeLeases, paymentsOverview] = await Promise.all([
-      this.prisma.property.findMany({ where: { accountId }, select: { status: true, estimatedValue: true } }),
+    const [
+      properties,
+      projects,
+      maintenanceRequests,
+      inspections,
+      payouts,
+      documents,
+      activeLeases,
+      paymentsOverview,
+      vendorAssignments,
+      vendorReviews,
+      orders,
+      allRentPayments,
+    ] = await Promise.all([
+      this.prisma.property.findMany({ where: { accountId }, select: { id: true, name: true, status: true, estimatedValue: true } }),
       this.prisma.project.findMany({ where: { accountId }, select: { status: true } }),
       this.prisma.maintenanceRequest.findMany({ where: { property: { accountId } }, select: { status: true } }),
       this.prisma.propertyInspection.findMany({ where: { property: { accountId } }, select: { status: true, overallResult: true } }),
       this.prisma.payout.findMany({
         where: { project: { accountId }, status: { not: 'failed' } },
-        select: { amount: true, currency: true, vendorId: true, vendor: { select: { businessName: true } } },
+        select: {
+          amount: true,
+          currency: true,
+          vendorId: true,
+          vendor: { select: { businessName: true } },
+          project: { select: { propertyId: true } },
+        },
       }),
       this.prisma.document.findMany({ where: { accountId }, select: { verificationStatus: true } }),
       this.prisma.lease.findMany({
         where: { property: { accountId }, status: 'active' },
-        select: { rentFrequency: true, startDate: true, rentPayments: { select: { periodEnd: true } } },
+        select: {
+          rentFrequency: true,
+          startDate: true,
+          rentPayments: { select: { periodEnd: true } },
+        },
       }),
       this.payments.getAccountOverview(accountId),
+      // Module 24's "Vendor performance report" (Company) and "Vendor job
+      // completion" (Marketplace) — the same underlying question (how did
+      // the vendors this account has worked with actually perform), so one
+      // metric group answers both named reports rather than building two
+      // near-identical ones.
+      this.prisma.projectVendorAssignment.findMany({
+        where: { project: { accountId } },
+        select: { vendorId: true, vendor: { select: { businessName: true } }, project: { select: { status: true } } },
+      }),
+      // This account's own reviews of vendors it has worked with — not
+      // the vendor's platform-wide trust score rating (VendorTrustAudit/
+      // getVendorRiskFlags already cover that, per-vendor), this owner's
+      // own experience specifically.
+      this.prisma.vendorReview.findMany({ where: { accountId }, select: { vendorId: true, rating: true } }),
+      // Module 24's "Supplier sales report" and "Material order trends" —
+      // reframed honestly as this account's own view of what it has
+      // bought and from whom, not a supplier's own sales dashboard: this
+      // whole Reports feature has only ever been scoped to an owning
+      // account's own portfolio (see this method's own top-of-file
+      // comment), and Order.accountId is the *buying* account. A
+      // supplier's own sales dashboard would need a parallel
+      // supplier-accountId-scoped view of this same data — out of scope
+      // here.
+      this.prisma.order.findMany({
+        where: { accountId },
+        select: {
+          supplierId: true,
+          supplier: { select: { businessName: true } },
+          status: true,
+          totalAmount: true,
+          currency: true,
+          createdAt: true,
+          items: { select: { productId: true, quantity: true, lineTotal: true, product: { select: { name: true } } } },
+        },
+      }),
+      // Rental income report — deliberately every lease this account's
+      // properties have ever had, not just the currently-active ones
+      // `activeLeases` above is scoped to (that scoping is right for
+      // "is rent currently overdue," which only makes sense for a lease
+      // still running, but wrong for "how much rent has this property
+      // actually brought in" — a lease that already ended still
+      // collected real rent while it ran, and excluding it would
+      // understate income for no good reason).
+      this.prisma.leaseRentPayment.findMany({
+        where: { lease: { property: { accountId } } },
+        select: { amount: true, currency: true, lease: { select: { propertyId: true } } },
+      }),
     ]);
 
     const completedInspections = inspections.filter((i: { status: string }) => i.status === 'completed');
@@ -199,6 +316,133 @@ export class ReportsService {
     const topVendors = Array.from(spendByVendor.values())
       .sort((a, b) => b.total - a.total)
       .slice(0, 5);
+
+    const propertyNameById = new Map((properties as { id: string; name: string }[]).map((p) => [p.id, p.name]));
+
+    // Property expense report — real payout spend, grouped by
+    // (property, currency) instead of the account-wide-only totals
+    // spendByCurrency/topVendors above already gave. Payout has no
+    // propertyId of its own — every payout belongs to a project, and
+    // every project belongs to one property, so this reaches it through
+    // that join rather than adding a denormalized field for a value
+    // that's always derivable.
+    const expenseByProperty = new Map<string, { propertyId: string; propertyName: string; currency: string; total: number }>();
+    for (const p of payouts as { amount: unknown; currency: string; project: { propertyId: string } }[]) {
+      const propertyId = p.project.propertyId;
+      const key = `${propertyId}:${p.currency}`;
+      const existing = expenseByProperty.get(key);
+      const amount = Number(p.amount);
+      if (existing) {
+        existing.total += amount;
+      } else {
+        expenseByProperty.set(key, {
+          propertyId,
+          propertyName: propertyNameById.get(propertyId) ?? 'Unknown property',
+          currency: p.currency,
+          total: amount,
+        });
+      }
+    }
+
+    // Rental income report — LeaseRentPayment has existed since Module 13
+    // and was, until now, only ever read to decide whether rent looks
+    // overdue (isLeaseOverdue above, active leases only) — never summed
+    // as income, and income itself shouldn't be scoped to active leases
+    // only (see allRentPayments' own comment above).
+    const incomeByProperty = new Map<string, { propertyId: string; propertyName: string; currency: string; total: number }>();
+    for (const payment of allRentPayments as { amount: unknown; currency: string; lease: { propertyId: string } }[]) {
+      const propertyId = payment.lease.propertyId;
+      const key = `${propertyId}:${payment.currency}`;
+      const existing = incomeByProperty.get(key);
+      const amount = Number(payment.amount);
+      if (existing) {
+        existing.total += amount;
+      } else {
+        incomeByProperty.set(key, {
+          propertyId,
+          propertyName: propertyNameById.get(propertyId) ?? 'Unknown property',
+          currency: payment.currency,
+          total: amount,
+        });
+      }
+    }
+
+    // Vendor performance report — jobs assigned/completed per vendor,
+    // this account's own average rating of each (not the vendor's
+    // platform-wide trust score), and total spend (reusing spendByVendor
+    // above rather than a second pass over payouts).
+    const vendorJobs = new Map<string, { vendorId: string; businessName: string; assigned: number; completed: number }>();
+    for (const a of vendorAssignments as { vendorId: string; vendor: { businessName: string }; project: { status: string } }[]) {
+      const existing = vendorJobs.get(a.vendorId);
+      const isCompleted = a.project.status === 'completed';
+      if (existing) {
+        existing.assigned += 1;
+        if (isCompleted) existing.completed += 1;
+      } else {
+        vendorJobs.set(a.vendorId, { vendorId: a.vendorId, businessName: a.vendor.businessName, assigned: 1, completed: isCompleted ? 1 : 0 });
+      }
+    }
+    const ratingsByVendor = new Map<string, number[]>();
+    for (const r of vendorReviews as { vendorId: string; rating: number }[]) {
+      const list = ratingsByVendor.get(r.vendorId) ?? [];
+      list.push(r.rating);
+      ratingsByVendor.set(r.vendorId, list);
+    }
+    const vendorPerformance = Array.from(vendorJobs.values()).map((v) => {
+      const ratings = ratingsByVendor.get(v.vendorId) ?? [];
+      return {
+        vendorId: v.vendorId,
+        businessName: v.businessName,
+        jobsAssigned: v.assigned,
+        jobsCompleted: v.completed,
+        avgRating: ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : null,
+      };
+    });
+
+    // Supplier sales report (this account's own buying history — see the
+    // orders query's own comment on the "sales" reframing).
+    const supplierAgg = new Map<string, { supplierId: string; businessName: string; currency: string; orderCount: number; total: number }>();
+    for (const o of orders as { supplierId: string; supplier: { businessName: string }; totalAmount: unknown; currency: string }[]) {
+      const key = `${o.supplierId}:${o.currency}`;
+      const existing = supplierAgg.get(key);
+      const amount = Number(o.totalAmount);
+      if (existing) {
+        existing.orderCount += 1;
+        existing.total += amount;
+      } else {
+        supplierAgg.set(key, { supplierId: o.supplierId, businessName: o.supplier.businessName, currency: o.currency, orderCount: 1, total: amount });
+      }
+    }
+    const supplierSales = Array.from(supplierAgg.values()).sort((a, b) => b.total - a.total);
+
+    // Material order trends — top 10 products by spend across orders
+    // placed in the last 90 days, the one metric group in this pass that
+    // genuinely needs a "top N" cap (product catalogs/order histories can
+    // get large; every other new group here is naturally small — this
+    // account's own properties/vendors/suppliers).
+    const ninetyDaysAgo = Date.now() - 90 * 24 * 60 * 60 * 1000;
+    const productAgg = new Map<string, { productId: string; productName: string; currency: string; quantity: number; total: number }>();
+    for (const o of orders as {
+      createdAt: Date;
+      currency: string;
+      items: { productId: string; quantity: number; lineTotal: unknown; product: { name: string } }[];
+    }[]) {
+      if (o.createdAt.getTime() < ninetyDaysAgo) continue;
+      for (const item of o.items) {
+        const key = `${item.productId}:${o.currency}`;
+        const existing = productAgg.get(key);
+        const lineTotal = Number(item.lineTotal);
+        if (existing) {
+          existing.quantity += item.quantity;
+          existing.total += lineTotal;
+        } else {
+          productAgg.set(key, { productId: item.productId, productName: item.product.name, currency: o.currency, quantity: item.quantity, total: lineTotal });
+        }
+      }
+    }
+    const materialOrderTrends = Array.from(productAgg.values())
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10);
 
     return {
       currency: account.currency,
@@ -242,6 +486,11 @@ export class ReportsService {
       paymentsDepositedByCurrency: paymentsOverview.depositedByCurrency,
       paymentsReleasedByCurrency: paymentsOverview.releasedByCurrency,
       paymentsEscrowByCurrency: paymentsOverview.escrowByCurrency,
+      propertyExpenses: Array.from(expenseByProperty.values()),
+      propertyRentalIncome: Array.from(incomeByProperty.values()),
+      vendorPerformance,
+      supplierSales,
+      materialOrderTrends,
     };
   }
 

@@ -5159,6 +5159,102 @@ tour assets."
   upload pipeline for 360° media (same "URL you provide yourself"
   convention, no new gap here).
 
+## Module 24: Reports and Analytics — Phase 1 (this pass)
+
+Real, user-supplied scope: 17 named reports across Owner, Company, and
+Marketplace categories. Two were already fully covered before this pass
+(Owner's "Property portfolio summary" is the existing dashboard itself;
+Owner's "Document status report" is the existing `documents_total`/
+`documents_by_verification_status` metrics plus the Documents page). This
+pass audited the remaining 15 the same way Module 20 audited its own 14
+AI features — found the genuinely new, evidence-backed gaps, closed the
+5 most valuable and coherent of them, and left the rest explicitly
+documented rather than invented.
+
+- **Five new report-builder metric groups**, added to
+  `ReportsService.METRIC_REGISTRY` and computed inside the same
+  `getPortfolioOverview` call every other metric already comes from (this
+  file's own "compute once, project down, never a second independent
+  query path" rule) — which means **zero new frontend code**: "A real
+  report builder" (an earlier pass) already built a fully dynamic
+  metric-picker UI that lists whatever `GET /reports/metrics` returns,
+  so these 5 new keys just appear as selectable checkboxes, and running/
+  exporting/AI-narrating a saved report that includes them already
+  worked, unchanged.
+  - **`property_expenses`** (Owner's "Property expense report", and
+    Company's "Facility cost report" — this schema has no separate
+    Facility concept from Property, so the same report covers both) —
+    real `Payout` spend, grouped by property (joined through
+    `Payout.project.propertyId`) and currency. Previously only ever
+    summed account-wide (`vendorSpendByCurrency`/`topVendors`), never
+    broken down per property.
+  - **`property_rental_income`** (Owner's "Rental income report") —
+    real `LeaseRentPayment.amount`, grouped by property and currency.
+    That table has existed since Module 13 and was, until now, only
+    ever read to decide whether rent looks overdue — never summed as
+    income, and deliberately *not* scoped to active leases only (unlike
+    the overdue check): a lease that has since ended still collected
+    real rent while it ran, so income sums across every lease the
+    property has ever had, via a dedicated query decoupled from the
+    active-only one `leases.active`/`leases.overdue` already uses.
+  - **`vendor_performance`** (Company's "Vendor performance report" and
+    Marketplace's "Vendor job completion" — the same underlying
+    question, one metric group answers both rather than building two
+    near-identical ones) — per vendor this account has ever assigned to
+    a project: jobs assigned, jobs completed, and this account's own
+    average review rating of that vendor (`VendorReview.accountId`-
+    scoped — this owner's own experience, not the vendor's platform-wide
+    trust score `explain_vendor_trust_score` already covers elsewhere).
+  - **`supplier_sales`** (Marketplace's "Supplier sales report") —
+    reframed honestly as this account's own buying history, not a
+    supplier's own sales dashboard: this whole Reports feature has only
+    ever been scoped to an owning account's own portfolio, and
+    `Order.accountId` is the *buying* account. Per supplier: order
+    count and total spend by currency. A supplier's own sales dashboard
+    would need a parallel supplier-account-scoped view of this same
+    data — a real, different feature, out of scope here.
+  - **`material_order_trends`** (Marketplace's "Material order trends")
+    — top 10 products by spend across this account's own orders placed
+    in the last 90 days, from `OrderItem.lineTotal`/`quantity`. The one
+    new group here capped to a top-N (product catalogs/order histories
+    can genuinely get large; every other new group is naturally small —
+    this account's own properties/vendors/suppliers).
+- **Verified live**: built a real saved report selecting all 5 new
+  metrics, ran it, and confirmed correct real numbers for every one —
+  including catching and fixing a real bug during verification: the
+  first version of `property_rental_income` reused the existing
+  active-leases-only query and silently returned nothing for a property
+  whose only recorded rent payment was on a since-ended lease; fixed by
+  adding a dedicated all-leases rent-payment query, re-verified, and
+  confirmed the property's real historical rent (₦1,200,000 across
+  multiple ended leases) now appears. Also verified CSV export and AI
+  narration both correctly include the new metrics unchanged, then
+  deleted the test report definition to leave the demo account clean.
+- **Not done, by explicit scope, not oversight**: **Branch property
+  report** (Company) — this schema has no Branch entity or any
+  multi-location concept under a COMPANY-type account, the same
+  "needs infrastructure this pass doesn't add" reasoning as Module 22's
+  device integrations; **Asset utilization report** (Company) —
+  `RentalBooking.accountId` is the account *renting from* a supplier,
+  there's no tracking anywhere of an account's own assets being rented
+  out or otherwise utilized; **Compliance report** (Company) — the
+  existing `ComplianceItem` model is platform-wide admin data (jurisdiction/
+  category tracking for `platform_admin`), not scoped to an owning
+  account at all, so it doesn't answer "is my own portfolio compliant"
+  the way this named report means; **Maintenance report** (Owner) beyond
+  the existing open/resolved counts — `MaintenanceRequest` has no cost
+  field, so a real maintenance *cost* report isn't buildable from what's
+  on record; **Project progress report** and **Investment performance
+  report** (Owner) beyond what already exists per-project
+  (`ProjectStageBar`) and per-property (the ROI/valuation dashboard) —
+  no portfolio-wide rollup of either was built this pass; **Listing
+  performance** and **Inquiry conversion** (Marketplace) — a real,
+  evidence-backed gap (`PropertyListing.viewCount` is already live and
+  incremented, `ListingInquiry`/`ListingOffer` status funnels already
+  exist, just never aggregated across an account's listings), cut to
+  keep this pass to 5 metric groups rather than 7, the same kind of
+  bounded cut Module 19 made across its own 9 named features.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
@@ -5223,14 +5319,19 @@ blueprint, or explicitly cut from it:
   for Module 23 — both modules' own engineering notes flagged them as
   needing real device/AR infrastructure this pass deliberately doesn't
   add, so each ships the concrete, buildable architecture piece its own
-  notes actually asked for instead. Module 24 (Reports and Analytics)
-  now has real, user-supplied scope too, but hasn't been scoped into a
-  buildable slice yet — its three report categories (Owner, Company,
-  Marketplace reports) overlap substantially with what the existing
-  Reports dashboard and report builder already compute, so closing it
-  needs a pass dedicated to auditing which of its ~17 named reports are
-  already covered versus genuinely new, the same audit this file did for
-  Module 20 against its 14 AI features. Module 6's risk-flag coverage is
+  notes actually asked for instead. Module 24 (Reports and Analytics) now
+  has real, user-supplied scope too — see "Module 24: Reports and
+  Analytics — Phase 1" above: 5 new report-builder metric groups
+  (property expenses, rental income, vendor performance/job completion,
+  supplier sales, material order trends) closing 6 of its 17 named
+  reports, added as pure `METRIC_REGISTRY` entries with zero new frontend
+  code, since the existing report-builder UI already lists whatever
+  `GET /reports/metrics` returns. Branch/facility/asset-utilization/
+  compliance reports, a maintenance *cost* report, portfolio-wide
+  project-progress/investment rollups, and listing performance/inquiry
+  conversion are explicitly deferred — see that section for why each one
+  specifically. There is genuinely no module left in the 6/14/16-24
+  bucket without real, user-supplied scope now. Module 6's risk-flag coverage is
   complete now across every entity type that has one — see "Risk flags
   for projects and leases" and
   "Risk flags for vendors and suppliers" above: `assess_listing_risk` used
