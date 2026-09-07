@@ -5426,6 +5426,89 @@ rather than "Live View" to be honest about the difference.
   has at that address (which the embed simply shows "no imagery here"
   for, gracefully, when it doesn't).
 
+## Public profiles — a one-page website per account (this pass)
+
+Another user-requested feature, not from the numbered blueprint: "every
+company, user, vendors and etc, to have a one page website that contains
+their listings and summary of their business." This is the first
+genuinely public, no-login surface in this codebase beyond two existing
+token-gated invite previews — every other route that reads real data,
+including this app's own "public marketplace browse" (`GET /vendors/:id`,
+`GET /suppliers/:id`, `GET /listings`), still sits behind
+`JwtAuthGuard`. That distinction matters: the new endpoint doesn't reuse
+`VendorsService.findOne`/`MaterialsService.findSupplier`'s own return
+shapes, because those include real sensitive data no anonymous visitor
+should ever receive — `Vendor`'s bank/payout fields
+(`bankAccountNumber`, `paystackRecipientCode`, ...), a
+`platform_reviewer`'s internal `verificationNotes`, and a trust score's
+`latestAudit.notes`. `PublicProfilesService` hand-picks a whitelist
+instead.
+
+- **`GET /public/accounts/:accountId`** (new module, no guards at all)
+  — one endpoint, three shapes depending on `Account.accountType`:
+  - **VENDOR** — `businessName`, `serviceCategory`, `locationCoverage`,
+    `verificationStatus`, `ratingAverage`, a stripped-down
+    `trustScore` (`{score, band}` only — never the factors object, which
+    would otherwise leak the audit notes above), and non-hidden reviews
+    (`rating`/`comment`/`response`, never the moderation fields).
+  - **SUPPLIER** — the same shape, plus its active product catalog
+    (`ListingsService.findPublishedForAccount`'s materials-marketplace
+    counterpart was already there via `MaterialsService`'s own
+    `status: 'active'` product filter, just reused directly).
+  - **INDIVIDUAL / FAMILY / COMPANY** — published listings via a new
+    `ListingsService.findPublishedForAccount`, deliberately distinct
+    from the existing `findMine` (which includes drafts, meant only for
+    the owner's own dashboard): `status: {in: ['active','under_offer']}`
+    only, and — same privacy line this codebase's own existing public
+    marketplace browse (`findAll`) already draws — the property's
+    `city`/`country` only, never its exact `addressLine`. There's
+    genuinely nothing else to show for this account type: confirmed by
+    audit that `Account.name` is the only identifying text field these
+    account types have (no bio/logo/description anywhere on `Account`).
+  - **TENANT** — no public page at all (`404`), on purpose: a renter
+    owns nothing to list and runs no business to summarize, so a public
+    "here's a renter" page would only ever cost privacy with no
+    offsetting value. A suspended account (`Account.status`, Module 16)
+    is treated the same way.
+- **`apps/web/pages/go/[accountId].tsx`** — a real standalone page, not
+  wrapped in `AppShell` and never calling `useRequireAuth()` (the one
+  thing that would have forced a login redirect) — plain `useAuth()`
+  only, same as every other unauthenticated page already in this app
+  (login/register/the two accept-invite pages), fetching with no token
+  at all, same shape `getInvite(token)` already uses. Renders a listings
+  grid, a product grid, or a review list depending on which of
+  `vendor`/`supplier`/`listings` the response actually carries.
+- **Discoverability**: a "View my public page ↗" link on each account's
+  own dashboard where one already exists — the vendor's `/vendors/me`,
+  the supplier's `/marketplace/materials/me`, and the Portfolio page
+  header for an owning account — each opening the real `/go/:accountId`
+  URL in a new tab.
+- **Verified live, fully unauthenticated** (no session cookie sent,
+  confirmed via the real network response): loaded a real owner
+  account's page and confirmed its one active listing rendered
+  correctly with `city`/`country` only, no `addressLine` or internal
+  ids anywhere in the response; loaded a real vendor's page and
+  confirmed the exact sanitized shape server-side — `trustScore` was
+  `{score, band}` only, reviews carried no moderation fields, and
+  nothing resembling a bank/payout field or an audit note appeared
+  anywhere in the raw JSON; loaded a real supplier's page and confirmed
+  its product grid (including a rentable item's daily rate) and reviews
+  rendered correctly; loaded a real `TENANT` account's URL directly and
+  confirmed a real `404` with no crash; confirmed the "View my public
+  page" link on the Portfolio page points at the correct URL.
+- **Not done, by explicit scope, not oversight**: friendly/slug URLs —
+  confirmed by audit that no model in this schema has ever had a `slug`
+  field; every link here is by raw account UUID
+  (`/go/00000000-...-0001`), the same "ship by id first" tradeoff this
+  scaffold already accepts everywhere else (`/vendors/:id`,
+  `/properties/:id`, ...); any bio/logo/cover-photo editing UI — there's
+  no field anywhere on `Account` to hold one yet, so an owner-type
+  account's public page is, honestly, just its listings; sold/rented
+  listing history (only currently active/under-offer listings show, not
+  a past-sales portfolio); and any way to opt out of having a public
+  page at all (every non-TENANT, non-suspended account gets one
+  automatically — there's no `Account.publicProfileEnabled`-style flag).
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

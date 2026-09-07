@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useAuth } from "../../lib/auth";
 import {
   ApiError,
@@ -123,7 +124,12 @@ export default function VendorDashboardPage() {
                   {vendor.locationCoverage && ` · ${vendor.locationCoverage}`}
                 </p>
               </div>
-              <span className="potg-badge">{vendor.verificationStatus.replace(/_/g, " ")}</span>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                <span className="potg-badge">{vendor.verificationStatus.replace(/_/g, " ")}</span>
+                <Link href={`/go/${vendor.accountId}`} target="_blank" className="potg-muted" style={{ fontSize: 11 }}>
+                  View my public page ↗
+                </Link>
+              </div>
             </div>
             {vendor.verificationNotes && (
               <p className="potg-muted" style={{ fontSize: 12, marginTop: 10, borderLeft: "2px solid var(--potg-border)", paddingLeft: 8 }}>

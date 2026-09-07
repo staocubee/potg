@@ -213,6 +213,60 @@ export type AccountInviteMine = {
   role: { key: string; name: string };
 };
 
+// A user-requested feature (not from the numbered blueprint): a public,
+// no-login "one page website" per account — GET /public/accounts/:id,
+// the first genuinely public (no auth) data endpoint in this API beyond
+// the two token-gated invite previews. See
+// PublicProfilesService's own comment on why its return shape is a
+// hand-picked whitelist, not a reused authenticated-view shape.
+export type PublicProfile = {
+  accountId: string;
+  accountName: string;
+  accountType: string;
+  memberSince: string;
+  vendor?: {
+    businessName: string;
+    serviceCategory: string;
+    locationCoverage?: string | null;
+    verificationStatus: string;
+    ratingAverage?: string | null;
+    trustScore: { score: number; band: string };
+    reviews: { rating: number; comment?: string | null; response?: string | null; createdAt: string }[];
+  } | null;
+  supplier?: {
+    businessName: string;
+    category: string;
+    locationCoverage?: string | null;
+    verificationStatus: string;
+    ratingAverage?: string | null;
+    trustScore: { score: number; band: string };
+    reviews: { rating: number; comment?: string | null; response?: string | null; createdAt: string }[];
+    products: {
+      id: string;
+      name: string;
+      category: string;
+      unit: string;
+      unitPrice: string;
+      currency: string;
+      description?: string | null;
+      isRentable: boolean;
+      rentalPricePerDay?: string | null;
+    }[];
+  } | null;
+  listings?: {
+    id: string;
+    listingType: string;
+    askingPrice: string;
+    currency: string;
+    title: string;
+    description?: string | null;
+    photoUrls: string[];
+    propertyType: string;
+    city?: string | null;
+    country: string;
+  }[];
+};
+
 export type InvitePreview = {
   accountName: string;
   accountType: string;
@@ -1341,6 +1395,11 @@ export class ApiClient {
       `/accounts/${accountId}/invites/${inviteId}/resend`,
       { method: "POST", token: this.token, accountId: this.accountId },
     );
+  }
+
+  // --- Public profiles (no auth at all — see PublicProfilesController) ---
+  getPublicProfile(accountId: string) {
+    return request<PublicProfile>(`/public/accounts/${accountId}`);
   }
 
   // --- Invites (no account context — the recipient isn't a member yet) ---

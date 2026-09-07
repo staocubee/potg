@@ -24,6 +24,7 @@ import { StorageModule } from './storage/storage.module';
 import { PlatformAdminModule } from './platform-admin/platform-admin.module';
 import { CommunitiesModule } from './communities/communities.module';
 import { DevelopmentAgreementsModule } from './development-agreements/development-agreements.module';
+import { PublicProfilesModule } from './public-profiles/public-profiles.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { DevelopmentAgreementsModule } from './development-agreements/developmen
     PlatformAdminModule,
     CommunitiesModule,
     DevelopmentAgreementsModule,
+    PublicProfilesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

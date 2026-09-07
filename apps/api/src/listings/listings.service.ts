@@ -137,6 +137,22 @@ export class ListingsService {
     });
   }
 
+  // The public one-page-website feature's own listings query — unlike
+  // findMine (every listing this account has, including drafts, for the
+  // owner's own dashboard), this is what a public, no-login visitor is
+  // safe to see: active and under_offer only, never draft/sold/rented/
+  // withdrawn, and (same as findAll's own public-browse include) never
+  // the property's exact addressLine — city/country only, the same
+  // privacy line this codebase's existing public marketplace browse
+  // already draws.
+  findPublishedForAccount(accountId: string) {
+    return this.prisma.propertyListing.findMany({
+      where: { accountId, status: { in: ['active', 'under_offer'] } },
+      include: { property: { select: { propertyType: true, city: true, country: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   // accountId is who's asking, not who owns the listing — used only to
   // report whether *this* account has favorited it, closing the gap the
   // web app's own comment used to flag (favorite state was optimistic-only

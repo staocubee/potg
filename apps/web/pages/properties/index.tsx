@@ -110,9 +110,12 @@ export default function PortfolioPage() {
     <AppShell
       title="Portfolio"
       actions={
-        <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? "Cancel" : "+ Add property"}
-        </button>
+        <>
+          {auth.currentAccountId && <Link href={`/go/${auth.currentAccountId}`} target="_blank" className="potg-btn potg-btn-secondary">View my public page ↗</Link>}
+          <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "Cancel" : "+ Add property"}
+          </button>
+        </>
       }
       aiPanel={auth.currentAccountId ? <AskAiPanel moduleContext={`account:${auth.currentAccountId}`} heading="Portfolio AI" /> : undefined}
     >

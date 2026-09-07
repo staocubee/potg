@@ -67,7 +67,12 @@ export default function SupplierDashboardPage() {
                   {supplier.locationCoverage && ` · ${supplier.locationCoverage}`}
                 </p>
               </div>
-              <span className="potg-badge">{supplier.verificationStatus.replace(/_/g, " ")}</span>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+                <span className="potg-badge">{supplier.verificationStatus.replace(/_/g, " ")}</span>
+                <Link href={`/go/${supplier.accountId}`} target="_blank" className="potg-muted" style={{ fontSize: 11 }}>
+                  View my public page ↗
+                </Link>
+              </div>
             </div>
             {supplier.verificationNotes && (
               <p className="potg-muted" style={{ fontSize: 12, marginTop: 10, borderLeft: "2px solid var(--potg-border)", paddingLeft: 8 }}>
