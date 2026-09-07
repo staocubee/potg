@@ -83,6 +83,7 @@ model Account {
   announcements   PropertyAnnouncement[]
   communities     Community[]
   notifications   Notification[]
+  developmentAgreementsProposed PropertyDevelopmentAgreement[]
 
   @@map("accounts")
 }
@@ -393,6 +394,7 @@ model Property {
   announcements  PropertyAnnouncement[]
   devices        PropertyDevice[]
   tourAssets     PropertyTourAsset[]
+  developmentAgreements PropertyDevelopmentAgreement[]
 
   @@map("properties")
 }
@@ -1646,6 +1648,57 @@ model PropertyTourAsset {
   property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@map("property_tour_assets")
+}
+
+// --- Property Development Agreements -------------------------------------
+//
+// A user-requested feature (not from the numbered blueprint): let a
+// property owner invite a developer to build on their property under a
+// real deal, not just an assigned-vendor construction job. Same "invite
+// someone who may not be registered yet" shape AccountInvite already
+// uses (developerEmail + a hashed token + expiry — see AccountsService
+// for the pattern this clones), since a developer worth inviting may not
+// have a PropertyOnTheGo account at all yet.
+//
+// Two deal structures, matching what was actually asked for:
+//   - temporary_ownership: the developer gets a real, time-boxed
+//     fractional stake in the property itself. Accepting this kind
+//     writes a real PropertyOwner row (ownershipPercentage + startDate/
+//     endDate) — a model that has existed in this schema since Module 1
+//     and, per the same "dead field" audit that closed
+//     PropertyAccessGrant/Account.timezone/Account.status in earlier
+//     passes, had zero code anywhere reading or writing it before this.
+//   - proceeds_share: the developer gets an agreed percentage of the
+//     property's eventual sale proceeds. This is recorded as a real,
+//     binding term on the agreement — but not automatically paid out:
+//     nothing anywhere in this schema fires when a PropertyListing
+//     actually sells (no code ever transitions a listing to "sold"), and
+//     there's no proceeds-split/escrow mechanism for a sale event to pay
+//     into. Building that is a real, separate undertaking (a sale-closing
+//     flow plus a payout engine for it), deliberately not attempted here
+//     — see the README's own note on this model.
+model PropertyDevelopmentAgreement {
+  id                      String    @id @default(uuid())
+  propertyId              String
+  accountId               String // the property owner's own account
+  proposedByUserId        String
+  developerEmail          String
+  developerAccountId      String? // set once accepted — the account that now holds the stake/claim
+  agreementType           String // temporary_ownership | proceeds_share
+  ownershipPercentage     Decimal?  @db.Decimal(5, 2) // temporary_ownership only
+  termMonths              Int? // temporary_ownership only
+  proceedsSharePercentage Decimal?  @db.Decimal(5, 2) // proceeds_share only
+  terms                   String // the actual freeform agreement description — percentages alone don't capture a real deal
+  tokenHash               String    @unique
+  status                  String    @default("pending") // pending | accepted | declined | cancelled | expired
+  expiresAt               DateTime
+  respondedAt             DateTime?
+  createdAt               DateTime  @default(now())
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  account  Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("property_development_agreements")
 }
 
 // --- Module 17: Estate and Community Management -------------------------

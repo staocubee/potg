@@ -2,7 +2,7 @@ import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useState } fro
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { AccessGrant, AccountMemberSummary, ApiError, ComparableValuation, Lease, MaintenanceRequest, Project, Property, PropertyDevice, PropertyInspection, PropertyTourAsset, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
+import { AccessGrant, AccountMemberSummary, ApiError, ComparableValuation, DevelopmentAgreement, Lease, MaintenanceRequest, Project, Property, PropertyDevice, PropertyInspection, PropertyTourAsset, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -132,6 +132,8 @@ export default function PropertyDetailPage() {
           <PropertyDetailsCard property={property} onUpdated={setProperty} />
 
           <AccessGrantsCard propertyId={property.id} />
+
+          <DevelopmentAgreementsCard propertyId={property.id} />
 
           <DeviceRegistryCard propertyId={property.id} />
 
@@ -837,6 +839,232 @@ function AccessGrantsCard({ propertyId }: { propertyId: string }) {
               <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy} onClick={() => onRevoke(g.id)}>
                 Revoke
               </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const AGREEMENT_STATUS_COLOR: Record<string, string | undefined> = {
+  accepted: "var(--potg-success, #1a7f37)",
+  declined: "var(--potg-danger)",
+  cancelled: "var(--potg-danger)",
+  expired: "var(--potg-danger)",
+};
+
+// A user-requested feature (not from the numbered blueprint) — see
+// PropertyDevelopmentAgreement's own schema comment for the full
+// reasoning. Same self-fetching, propose/list/cancel shape
+// AccessGrantsCard already uses.
+function DevelopmentAgreementsCard({ propertyId }: { propertyId: string }) {
+  const auth = useAuth();
+  const [agreements, setAgreements] = useState<DevelopmentAgreement[] | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [developerEmail, setDeveloperEmail] = useState("");
+  const [agreementType, setAgreementType] = useState<"temporary_ownership" | "proceeds_share">("temporary_ownership");
+  const [ownershipPercentage, setOwnershipPercentage] = useState("");
+  const [termMonths, setTermMonths] = useState("");
+  const [proceedsSharePercentage, setProceedsSharePercentage] = useState("");
+  const [terms, setTerms] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  function load() {
+    setError(null);
+    auth.api
+      .listDevelopmentAgreements(propertyId)
+      .then(setAgreements)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load development agreements."));
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propertyId]);
+
+  async function onPropose(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const { inviteToken } = await auth.api.proposeDevelopmentAgreement(propertyId, {
+        developerEmail,
+        agreementType,
+        ownershipPercentage: agreementType === "temporary_ownership" ? Number(ownershipPercentage) : undefined,
+        termMonths: agreementType === "temporary_ownership" ? Number(termMonths) : undefined,
+        proceedsSharePercentage: agreementType === "proceeds_share" ? Number(proceedsSharePercentage) : undefined,
+        terms,
+      });
+      setNotice(
+        inviteToken
+          ? `Invite created — no email provider configured, so share this link directly: ${window.location.origin}/accept-development-agreement?token=${inviteToken}`
+          : `Invite emailed to ${developerEmail}.`,
+      );
+      setDeveloperEmail("");
+      setOwnershipPercentage("");
+      setTermMonths("");
+      setProceedsSharePercentage("");
+      setTerms("");
+      setShowForm(false);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't send that invite.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onCancel(agreementId: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.cancelDevelopmentAgreement(propertyId, agreementId);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't cancel that invite.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 18 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <h3 style={{ fontSize: 14, margin: 0 }}>Development partners</h3>
+        <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
+          {showForm ? "Cancel" : "+ Invite a developer"}
+        </button>
+      </div>
+      <p className="potg-muted" style={{ fontSize: 11, marginTop: 0, marginBottom: showForm ? 10 : 12 }}>
+        Invite a developer to build on this property under an agreed deal — either a time-boxed ownership stake, or
+        a share of proceeds whenever it's eventually sold.
+      </p>
+      {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+      {notice && (
+        <div className="potg-card" style={{ padding: 10, marginBottom: 8, fontSize: 12, wordBreak: "break-all" }}>
+          {notice}
+        </div>
+      )}
+
+      {showForm && (
+        <form onSubmit={onPropose} style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+          <input
+            className="potg-input"
+            type="email"
+            required
+            autoFocus
+            placeholder="Developer's email"
+            value={developerEmail}
+            onChange={(e) => setDeveloperEmail(e.target.value)}
+          />
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              type="button"
+              className={agreementType === "temporary_ownership" ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
+              style={{ fontSize: 12, padding: "5px 10px" }}
+              onClick={() => setAgreementType("temporary_ownership")}
+            >
+              Ownership for a period
+            </button>
+            <button
+              type="button"
+              className={agreementType === "proceeds_share" ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
+              style={{ fontSize: 12, padding: "5px 10px" }}
+              onClick={() => setAgreementType("proceeds_share")}
+            >
+              Share of sale proceeds
+            </button>
+          </div>
+
+          {agreementType === "temporary_ownership" ? (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <input
+                className="potg-input"
+                type="number"
+                min={0.01}
+                max={100}
+                step="0.01"
+                required
+                placeholder="Ownership %"
+                value={ownershipPercentage}
+                onChange={(e) => setOwnershipPercentage(e.target.value)}
+              />
+              <input
+                className="potg-input"
+                type="number"
+                min={1}
+                required
+                placeholder="Term (months)"
+                value={termMonths}
+                onChange={(e) => setTermMonths(e.target.value)}
+              />
+            </div>
+          ) : (
+            <input
+              className="potg-input"
+              type="number"
+              min={0.01}
+              max={100}
+              step="0.01"
+              required
+              placeholder="Share of sale proceeds %"
+              value={proceedsSharePercentage}
+              onChange={(e) => setProceedsSharePercentage(e.target.value)}
+            />
+          )}
+
+          <textarea
+            className="potg-input"
+            rows={3}
+            required
+            minLength={10}
+            placeholder="Describe the actual agreement — scope of the build, what happens at the end of the term, etc."
+            value={terms}
+            onChange={(e) => setTerms(e.target.value)}
+          />
+          <div>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+              {busy ? "Sending…" : "Send invite"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {agreements && agreements.length === 0 && !showForm && (
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+          No development agreements yet.
+        </p>
+      )}
+      {agreements && agreements.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {agreements.map((a) => (
+            <div key={a.id} style={{ borderTop: "1px solid var(--potg-border)", paddingTop: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>{a.developerEmail}</span>
+                <span className="potg-badge" style={{ color: AGREEMENT_STATUS_COLOR[a.status] }}>
+                  {a.status}
+                </span>
+              </div>
+              <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                {a.agreementType === "temporary_ownership"
+                  ? `${a.ownershipPercentage}% ownership for ${a.termMonths} month(s)`
+                  : `${a.proceedsSharePercentage}% of sale proceeds`}
+              </div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>{a.terms}</div>
+              {a.status === "pending" && (
+                <button
+                  className="potg-btn potg-btn-secondary"
+                  style={{ padding: "3px 8px", fontSize: 11, marginTop: 6 }}
+                  disabled={busy}
+                  onClick={() => onCancel(a.id)}
+                >
+                  Cancel invite
+                </button>
+              )}
             </div>
           ))}
         </div>

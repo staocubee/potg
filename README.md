@@ -5255,6 +5255,104 @@ documented rather than invented.
   keep this pass to 5 metric groups rather than 7, the same kind of
   bounded cut Module 19 made across its own 9 named features.
 
+## Property development agreements — invite a developer to build (this pass)
+
+A user-requested feature, not from the numbered blueprint: a property
+owner invites a developer to build on their property under a real deal
+— either a time-boxed fractional ownership stake, or a share of the
+property's eventual sale proceeds. Audited first (same discipline every
+numbered module gets): `PropertyOwner` has existed in this schema since
+Module 1 with `ownershipPercentage`/`startDate`/`endDate` fields and zero
+code anywhere reading or writing it — the same "dead field" shape
+`PropertyAccessGrant`/`Account.timezone`/`Account.status` were each in
+before their own passes — and `AccountInvite` already has a complete
+"invite someone who may not be registered yet" pattern (hashed token,
+expiry, email send with a raw-token fallback, a public preview, a "my
+invites" inbox). This clones that pattern rather than reusing
+`AccountInvite` itself (a developer deal carries terms an account
+membership invite has no fields for), and finally wires up `PropertyOwner`
+for the ownership-stake half.
+
+- **`PropertyDevelopmentAgreement`** (new model) — `developerEmail` +
+  hashed `tokenHash` + `expiresAt`, exactly `AccountInvite`'s own shape.
+  `agreementType` is `temporary_ownership` (`ownershipPercentage` +
+  `termMonths`) or `proceeds_share` (`proceedsSharePercentage`), plus a
+  required freeform `terms` field — percentages alone don't capture a
+  real deal (what gets built, what happens at the end of the term, etc).
+- **Owner side** (`POST/GET /properties/:propertyId/development-agreements`,
+  `DELETE .../:agreementId`) — propose, list, and cancel a still-pending
+  invite. `property:write`/`property:read`, same tier `PropertyAccessGrant`
+  already sits at.
+- **Developer side** (`/development-agreement-invites/...`, its own
+  controller, mirroring `InvitesController`'s separation from
+  `AccountsController`) — a public token preview
+  (`GET /development-agreement-invites/:token`, reachable signed out),
+  accept/decline by token, and a `mine` inbox
+  (`GET .../mine` + accept/decline by id) scoped to the signed-in user's
+  own email — the in-app fallback for when no email provider is
+  configured, the common case in this scaffold, the same gap
+  `AccountsService.findMyInvites` closed for account invites.
+- **Accepting actually does something real, not just flips a status**:
+  for `temporary_ownership`, accepting writes a real `PropertyOwner` row
+  (`ownerType: "account"`, the accepting account's own id,
+  `ownershipPercentage`, `startDate: now`, `endDate: now + termMonths`) —
+  in one transaction with marking the agreement `accepted`. For
+  `proceeds_share`, accepting only marks the agreement `accepted` — no
+  `PropertyOwner` row, since a proceeds claim isn't fractional ownership
+  of the property while it's held.
+- **Accepting requires an account, not just a user** — unlike joining
+  someone else's account (`AccountInvite`'s own shape), the accepting
+  party needs an account of their own to actually hold the stake or the
+  claim, so the accept routes sit behind `AccountContextGuard`
+  (`CurrentAccountMember`, not just `CurrentUser`). The accept page
+  handles every state this implies: not signed in + no account yet →
+  register; not signed in + already registered → sign in; signed in, no
+  account selected → prompted to create one (e.g. a Vendor account) and
+  come back to the same link; signed in with a mismatched email → told to
+  sign in as the invited address instead.
+- **Web**: `DevelopmentAgreementsCard` on the property page (propose
+  form with an ownership-vs-proceeds toggle, list with status badges,
+  cancel) — same self-fetching shape `AccessGrantsCard`/`DeviceRegistryCard`
+  already use; `accept-development-agreement.tsx`, the landing page for
+  the email link, mirroring `accept-invite.tsx`'s own branching; a "You've
+  been invited to develop a property" banner on the Portfolio page (only
+  rendered when the signed-in user has a pending invite) for in-app
+  discoverability without needing the email at all.
+- **Verified live, end to end, including the real database write**:
+  proposed a `temporary_ownership` deal (20% for 18 months) from the
+  Demo Owner account to a brand-new email with no platform account yet;
+  followed the fallback link (no `RESEND_API_KEY` configured) signed
+  out, registered a new Vendor account for that email, and confirmed the
+  in-app "invited to develop" banner showed the correct terms; accepted
+  it, and confirmed by direct query that a real `PropertyOwner` row was
+  created — `ownerAccountId` matching the new Vendor account,
+  `ownershipPercentage: 20`, `startDate` now, `endDate` exactly 18
+  months later. Proposed a second, `proceeds_share` deal (15%), declined
+  it from the same banner, and confirmed by query that its status became
+  `declined` and — correctly — no second `PropertyOwner` row was ever
+  created. Proposed and then cancelled a third, owner-side, confirming
+  the cancel button works.
+- **Not done, by explicit scope, not oversight**: actual payout of a
+  `proceeds_share` claim. Nothing anywhere in this schema fires when a
+  `PropertyListing` transitions to `"sold"` — no code ever sets that
+  status at all, confirmed by inspection — and there's no proceeds-split
+  or escrow-like mechanism for a sale event to pay into. Building that
+  is a real, separate undertaking (an actual sale-closing flow, plus a
+  payout engine for it, likely reusing `Payout`/`EscrowLedgerEntry`'s own
+  shapes) — recorded here as a real, binding term on the agreement, not
+  executed. Also not done: `canView`/`canEdit`-style access for an
+  accepted developer on the property itself (an accepted
+  `temporary_ownership` developer holds a real ownership percentage but
+  no `PropertyAccessGrant` — they can't yet see or act on the property
+  through the app, only hold the stake on record); multiple simultaneous
+  developers on one property (nothing prevents proposing more than one
+  agreement, but there's no UI or validation reasoning about *total*
+  percentage across them); and renewal/renegotiation once a
+  `temporary_ownership` term ends (an ended stake's `PropertyOwner` row
+  simply has a past `endDate` — nothing currently reads that to mean
+  "and therefore excluded from X," since nothing else in this schema
+  reads `PropertyOwner` at all yet beyond this pass's own write).
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

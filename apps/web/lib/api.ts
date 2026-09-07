@@ -222,6 +222,46 @@ export type InvitePreview = {
   hasAccount: boolean;
 };
 
+// A user-requested feature (not from the numbered blueprint): a property
+// owner invites a developer to build on their property under a real
+// deal — either a time-boxed fractional ownership stake, or a share of
+// the eventual sale proceeds. See PropertyDevelopmentAgreement's own
+// schema comment for the full reasoning, including why proceeds_share is
+// recorded but not automatically paid out.
+export type DevelopmentAgreement = {
+  id: string;
+  propertyId: string;
+  accountId: string;
+  developerEmail: string;
+  developerAccountId?: string | null;
+  agreementType: "temporary_ownership" | "proceeds_share" | string;
+  ownershipPercentage?: string | null;
+  termMonths?: number | null;
+  proceedsSharePercentage?: string | null;
+  terms: string;
+  status: "pending" | "accepted" | "declined" | "cancelled" | "expired" | string;
+  expiresAt: string;
+  respondedAt?: string | null;
+  createdAt: string;
+};
+
+export type DevelopmentAgreementPreview = {
+  propertyName: string;
+  propertyAddress: string;
+  developerEmail: string;
+  agreementType: string;
+  ownershipPercentage?: string | null;
+  termMonths?: number | null;
+  proceedsSharePercentage?: string | null;
+  terms: string;
+  expiresAt: string;
+  hasAccount: boolean;
+};
+
+export type DevelopmentAgreementMine = DevelopmentAgreement & {
+  property: { id: string; name: string };
+};
+
 // Module 17, Phase 1 — Communities, Residents, and Community
 // Announcements. See apps/api/src/communities and schema.prisma's own
 // "Module 17" comment for the full scoping reasoning.
@@ -1311,6 +1351,73 @@ export class ApiClient {
   }
   acceptMyInvite(inviteId: string) {
     return request<AccountMemberSummary>(`/invites/mine/${inviteId}/accept`, { method: "POST", token: this.token });
+  }
+
+  // --- Property development agreements (owner side, property-scoped) ---
+  listDevelopmentAgreements(propertyId: string) {
+    return request<DevelopmentAgreement[]>(`/properties/${propertyId}/development-agreements`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  proposeDevelopmentAgreement(
+    propertyId: string,
+    input: {
+      developerEmail: string;
+      agreementType: "temporary_ownership" | "proceeds_share";
+      ownershipPercentage?: number;
+      termMonths?: number;
+      proceedsSharePercentage?: number;
+      terms: string;
+    },
+  ) {
+    return request<{ agreement: DevelopmentAgreement; inviteToken?: string }>(
+      `/properties/${propertyId}/development-agreements`,
+      { method: "POST", body: input, token: this.token, accountId: this.accountId },
+    );
+  }
+  cancelDevelopmentAgreement(propertyId: string, agreementId: string) {
+    return request<DevelopmentAgreement>(`/properties/${propertyId}/development-agreements/${agreementId}`, {
+      method: "DELETE",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+
+  // --- Property development agreements (developer/recipient side) ---
+  getDevelopmentAgreementByToken(token: string) {
+    return request<DevelopmentAgreementPreview>(`/development-agreement-invites/${token}`);
+  }
+  // Accepting requires an account context — see
+  // DevelopmentAgreementsService.acceptByToken's own comment on why.
+  acceptDevelopmentAgreement(token: string) {
+    return request<DevelopmentAgreement>(`/development-agreement-invites/${token}/accept`, {
+      method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  declineDevelopmentAgreement(token: string) {
+    return request<DevelopmentAgreement>(`/development-agreement-invites/${token}/decline`, {
+      method: "POST",
+      token: this.token,
+    });
+  }
+  listMyDevelopmentAgreementInvites() {
+    return request<DevelopmentAgreementMine[]>("/development-agreement-invites/mine", { token: this.token });
+  }
+  acceptMyDevelopmentAgreementInvite(agreementId: string) {
+    return request<DevelopmentAgreement>(`/development-agreement-invites/mine/${agreementId}/accept`, {
+      method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  declineMyDevelopmentAgreementInvite(agreementId: string) {
+    return request<DevelopmentAgreement>(`/development-agreement-invites/mine/${agreementId}/decline`, {
+      method: "POST",
+      token: this.token,
+    });
   }
 
   // --- Properties (account-scoped) ---

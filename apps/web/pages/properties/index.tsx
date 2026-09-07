@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Announcement, Property } from "../../lib/api";
+import { ApiError, Announcement, DevelopmentAgreementMine, Property } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 
@@ -99,6 +99,8 @@ export default function PortfolioPage() {
       aiPanel={auth.currentAccountId ? <AskAiPanel moduleContext={`account:${auth.currentAccountId}`} heading="Portfolio AI" /> : undefined}
     >
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
+
+      <MyDevelopmentInvitesCard />
 
       <AnnouncementsCard properties={properties ?? []} />
 
@@ -297,6 +299,88 @@ function AddPropertyForm({ onCreated }: { onCreated: (p: Property) => void }) {
         </button>
       </div>
     </form>
+  );
+}
+
+// Pending "invited to develop a property" invites sent to this signed-in
+// user's own email — the in-app counterpart to the email link
+// accept-development-agreement.tsx handles, same "no way to discover an
+// invite without the email" gap AccountInvite's own "mine" inbox closes,
+// and doubly important here since this scaffold often runs with no real
+// email provider configured at all.
+function MyDevelopmentInvitesCard() {
+  const auth = useAuth();
+  const [invites, setInvites] = useState<DevelopmentAgreementMine[] | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    auth.api
+      .listMyDevelopmentAgreementInvites()
+      .then(setInvites)
+      .catch(() => setInvites([]));
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function onAccept(id: string) {
+    setBusyId(id);
+    setError(null);
+    try {
+      await auth.api.acceptMyDevelopmentAgreementInvite(id);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't accept that invite — you may need an account of your own first.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onDecline(id: string) {
+    setBusyId(id);
+    setError(null);
+    try {
+      await auth.api.declineMyDevelopmentAgreementInvite(id);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't decline that invite.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (!invites || invites.length === 0) return null;
+
+  return (
+    <div className="potg-card" style={{ padding: 16, marginBottom: 16 }}>
+      <h3 style={{ fontSize: 14, marginTop: 0, marginBottom: 8 }}>You've been invited to develop a property</h3>
+      {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {invites.map((inv) => (
+          <div key={inv.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{inv.property.name}</div>
+              <div className="potg-muted" style={{ fontSize: 11 }}>
+                {inv.agreementType === "temporary_ownership"
+                  ? `${inv.ownershipPercentage}% ownership for ${inv.termMonths} month(s)`
+                  : `${inv.proceedsSharePercentage}% of sale proceeds`}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button className="potg-btn potg-btn-primary" style={{ padding: "4px 9px", fontSize: 11 }} disabled={busyId !== null} onClick={() => onAccept(inv.id)}>
+                {busyId === inv.id ? "…" : "Accept"}
+              </button>
+              <button className="potg-btn potg-btn-danger" style={{ padding: "4px 9px", fontSize: 11 }} disabled={busyId !== null} onClick={() => onDecline(inv.id)}>
+                Decline
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
