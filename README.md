@@ -3494,16 +3494,24 @@ draft to get a feel for an idea.
   request through the actual web form still isn't possible yet, but
   every piece of the chain except OpenAI's own account balance is now
   independently confirmed working with real credentials.
+- **Update: a new `OPENAI_API_KEY` (the billing issue resolved) arrived
+  later still — real end-to-end generation is now fully confirmed.**
+  Submitted a real request through the actual web form (a real photo
+  URL, a plain-language prompt) and this time it ran to completion:
+  `status: "completed"`, a real `afterImageUrl` on the R2 bucket
+  (`.../visualizations/<propertyId>/<uuid>.png`), both the before and
+  after images rendering correctly in the UI. Every piece of the chain
+  named in the two "Update" bullets above — OpenAI's own request/auth,
+  R2's own upload/public-URL step, and now the actual image edit itself
+  — is confirmed working end to end with real credentials, not just
+  independently exercised.
 - **What this doesn't do.** No real AR/VR, per the design decision
   above. Generation is synchronous (the request stays open until OpenAI
   and R2 both finish, no polling) since no job queue exists in this
   scaffold and OpenAI's edit call is itself a single request/response —
   fine at this scale, but a real deployment doing many of these
   concurrently would want a queue instead of holding an HTTP connection
-  open per generation. See the two "Update" bullets above for what's
-  since been live-verified with real credentials (R2 fully; OpenAI's
-  own request logic, blocked only on account billing) — real end-to-end
-  generation itself is still the one piece not yet confirmed.
+  open per generation.
 
 ## Requiring a license for a regulated trade before a vendor can be assigned (this pass)
 
@@ -3805,21 +3813,27 @@ to run, pay for, or operate.
   immediately, with a `Skipping embedding for property ...` warning
   logged afterward), and both new endpoints surfacing a clean, specific
   `BadRequestException` instead of a crash or opaque 500 — all verified
-  live against the real running app. The embedding call itself hits the
-  same pre-existing OpenAI billing block already documented for the
-  visualizer (`"You have no credits remaining"` — confirmed live, both
-  from the reindex button and the search box); this is an account-level
-  limitation on the user's end already flagged as an open, acknowledged
-  item, not a code bug, and this pass didn't attempt to work around it or
-  fake a result.
+  live against the real running app. The embedding call itself used to
+  hit the same pre-existing OpenAI billing block documented for the
+  visualizer (`"You have no credits remaining"`) — since resolved, see
+  the "Update" bullet below.
+- **Update: a new `OPENAI_API_KEY` arrived — real end-to-end generation
+  now fully confirmed.** `POST /properties/reindex-embeddings` against
+  the real running app returned `{"total":4,"indexed":4,"failed":0}` —
+  every property on the account really re-embedded. Then, the real
+  point of the feature: `GET /properties/search?q=renovated family home
+  in Lekki` correctly ranked "14 Ocean Drive" (an actual renovated,
+  4-bed family home in Lekki) first among four real properties, ahead of
+  a bare test house and two placeholder rows with no matching
+  description at all — genuine cosine-similarity ranking against real
+  embeddings, not a coincidence of row order.
 - **Not done**: no automatic re-indexing on property update (no
-  `PATCH`/update endpoint exists on `Property` at all yet — nothing to
-  hook), no embeddings for anything other than `Property` (listings,
-  vendors, projects, documents — all still pg_trgm/exact-match only), no
-  hybrid search combining vector similarity with the pg_trgm results
-  above, and — same honest caveat as the AI-generated visualizer — no
-  actual embedding has ever been generated end-to-end, since that
-  requires OpenAI credit this account doesn't currently have.
+  `PATCH`/update endpoint existed on `Property` when this was written —
+  one exists now, see "Module 3: Property Details" above, but this
+  pass's own reindex hook was never revisited to fire from it), no
+  embeddings for anything other than `Property` (listings, vendors,
+  projects, documents — all still pg_trgm/exact-match only), no hybrid
+  search combining vector similarity with the pg_trgm results above.
 
 ## A real report builder (this pass)
 
@@ -4666,14 +4680,12 @@ piece already hinted at elsewhere in this codebase — see below.
   updated property and confirmed it still fails the same documented way
   (`"You have no credits remaining"`) rather than a new, different
   error — the embedding-text change didn't introduce a regression, it's
-  still blocked on the same pre-existing OpenAI billing issue as
-  everywhere else semantic search is discussed in this file.
+  blocked on the same pre-existing OpenAI billing issue as everywhere
+  else semantic search is discussed in this file (since resolved — see
+  "Semantic property search" above).
 - **Not done**: no way to reorder or caption individual photos, no
   amenities autocomplete/fixed vocabulary (freeform, matching the
-  "record what's true" tradeoff `Lease.tenantName` already accepts), and
-  semantic search still can't be verified end-to-end against these new
-  fields until OpenAI billing is restored — a pre-existing block, not a
-  new one this pass introduced.
+  "record what's true" tradeoff `Lease.tenantName` already accepts).
 
 ## Module 17: Estate and Community Management — Phase 1 (this pass)
 
@@ -5751,12 +5763,10 @@ blueprint, or explicitly cut from it:
   nothing parallel to add.
 - **Real AR/VR renovation visualization — deliberately not attempted.**
   See "AI-generated renovation visualizations — the 2D half only" above:
-  a bounded 2D "AI-edited before/after photo" slice is built, and its
-  storage half (Cloudflare R2) is now confirmed live with real
-  credentials — a real upload, fetched back over a real public URL. Only
-  the actual OpenAI image generation call remains unverified, blocked on
-  a billing/credits issue on the account the key belongs to, not on
-  anything left to build. Real AR/VR needs a native mobile app or
+  a bounded 2D "AI-edited before/after photo" slice is built, and every
+  piece of it — R2 storage and the OpenAI image generation call itself —
+  is now confirmed live end to end with real credentials, a real
+  generated image included. Real AR/VR itself still needs a native mobile app or
   WebXR, photogrammetry/3D reconstruction, and a full 3D content
   pipeline — none of which exist here, and none of which are a bounded
   addition to this scaffold the way everything else on this list is. See
@@ -5874,12 +5884,13 @@ blueprint, or explicitly cut from it:
   vendors, and materials. The vector half — see "Semantic property search
   — pgvector + OpenAI embeddings" above — uses `pgvector` on the same
   Postgres instance rather than a dedicated vector DB service, and is
-  fully wired for `Property` only (routing, auth/account-scoping, and
-  error handling all verified live) but has never actually generated a
-  real embedding end-to-end: it hits the same pre-existing OpenAI billing
-  block already documented for the visualizer below. Neither pass stood
-  up new infrastructure to run or pay for — that was the explicit
-  tradeoff made when choosing them. S3-compatible object storage is no
+  fully wired for `Property` only, and now fully verified live with a
+  real embedding end to end too — a real natural-language query
+  correctly ranked a genuinely matching property first among four real
+  candidates (see "Semantic property search" above for the exact query
+  and result). Neither pass stood up new infrastructure to run or pay
+  for — that was the explicit tradeoff made when choosing them.
+  S3-compatible object storage is no
   longer narrow, either — see "A general file-upload pipeline" above:
   `StorageService` (Cloudflare R2) moved out of the visualizations
   module into its own, and a real `POST /uploads` endpoint feeds a real
