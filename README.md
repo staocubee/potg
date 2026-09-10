@@ -5509,6 +5509,60 @@ instead.
   page at all (every non-TENANT, non-suspended account gets one
   automatically — there's no `Account.publicProfileEnabled`-style flag).
 
+## A real public landing page (this pass)
+
+Another user-requested feature: "the landing page, should be elegantly
+built while projecting the vendor and marketplace amongst other things
+on it." Audited first, same as everything else in this file — `pages/
+index.tsx` never actually rendered anything: it was a pure router that
+sent every signed-out visitor straight to `/login` with nothing shown in
+between (confirmed by reading its prior version — a loading spinner and
+an effect, no markup). There was no landing page to improve; this builds
+the first one.
+
+- **`GET /public/marketplace/highlights`** (new route, same module and
+  "no guards at all" shape as the public-profiles work) — a small, real
+  cross-section of the marketplace: up to 6 active/under-offer listings,
+  6 verified vendors, and 6 verified suppliers, each ranked the same way
+  their own in-app browse already ranks them (rating, then recency).
+  Same hand-picked field whitelist discipline as `getProfile` — this
+  does *not* reuse `VendorsService.findAll`'s own return shape, which is
+  the raw `Vendor` row (bank/payout fields included); it re-derives a
+  small, safe subset instead.
+- **`pages/index.tsx`** — a real page now, for the one case the router
+  used to skip straight past: signed out, nothing to redirect to. A
+  signed-in visitor still gets exactly the prior behavior, untouched
+  (the same effect, same destinations). Sections: a hero with three real
+  stat callouts (payment gateways, AI skills, escrow coverage — pulled
+  from what this README itself documents as built, not invented
+  numbers), the live listings grid, a verified-vendors/suppliers grid
+  whose cards link straight to that account's own public `/go/:accountId`
+  page (no login needed to follow them — this is the first page in the
+  app two separately-shipped public features actually connect to each
+  other), and a feature grid naming real, built capabilities only.
+  `Fraunces` (Google Fonts) for the display headings, layered over the
+  app's existing navy/teal token set — no new color system, just a
+  second typeface reserved for this one page's hero/section titles.
+- **A real bug caught during verification**: `photoUrls` on this
+  scaffold are "you host it yourself" links (same convention as
+  `Document.fileUrl`), and the seeded demo data's own example photo URLs
+  don't actually resolve to anything. The first version used
+  `background: url(...) center/cover` with the brand gradient only as a
+  fallback for *no* photo — for a listing that had a photo URL which
+  simply failed to load, that left a blank white gap instead of showing
+  anything. Fixed by always layering the gradient as a second background
+  underneath the photo attempt (a failed `background-image` layer paints
+  nothing and lets the layer behind it show through) — confirmed via the
+  actual computed style after the fix, not just visually.
+- **Verified live**: loaded `/` signed out and confirmed real data
+  throughout — real listings (including one whose title/price/location
+  matched a known seeded row), real verified vendors and suppliers with
+  correct trust bands and star ratings; clicked a vendor card and landed
+  on that account's real public profile page, confirming the two
+  features genuinely connect; confirmed both "Get started" links point
+  at `/register`; loaded `/` again while signed in and confirmed the
+  pre-existing redirect-to-portfolio behavior is completely unchanged.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

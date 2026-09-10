@@ -136,4 +136,79 @@ export class PublicProfilesService {
     }));
     return { ...base, listings };
   }
+
+  // The landing page's own public data need: a real, small cross-section
+  // of the marketplace — not the full authenticated browse
+  // (VendorsService.findAll/MaterialsService.findProducts/ListingsService
+  // .findAll all still sit behind JwtAuthGuard, and VendorsService.findAll
+  // in particular returns the same raw row — bank/payout fields included
+  // — GetProfile's own comment already flags). Same hand-picked-whitelist
+  // discipline as getProfile: every vendor/supplier card carries only
+  // what's already safe to show a stranger, and links back to that
+  // account's own /go/:accountId page rather than any authenticated
+  // route. Capped small (6 each) — a landing page teaser, not a browse
+  // page; deliberately not paginated.
+  async getMarketplaceHighlights() {
+    const [listingRows, vendorRows, supplierRows] = await Promise.all([
+      this.prisma.propertyListing.findMany({
+        where: { status: { in: ['active', 'under_offer'] } },
+        include: { property: { select: { propertyType: true, city: true, country: true } } },
+        orderBy: { createdAt: 'desc' },
+        take: 6,
+      }),
+      this.prisma.vendor.findMany({
+        where: { verificationStatus: 'verified' },
+        orderBy: [{ ratingAverage: 'desc' }, { createdAt: 'desc' }],
+        take: 6,
+      }),
+      this.prisma.supplier.findMany({
+        where: { verificationStatus: 'verified' },
+        orderBy: [{ ratingAverage: 'desc' }, { createdAt: 'desc' }],
+        take: 6,
+      }),
+    ]);
+
+    const listings = listingRows.map((l) => ({
+      id: l.id,
+      accountId: l.accountId,
+      listingType: l.listingType,
+      askingPrice: l.askingPrice,
+      currency: l.currency,
+      title: l.title,
+      photoUrls: l.photoUrls,
+      propertyType: l.property.propertyType,
+      city: l.property.city,
+      country: l.property.country,
+    }));
+
+    const vendors = await Promise.all(
+      vendorRows.map(async (v) => {
+        const trustScore = await getVendorTrustScore(this.prisma, v);
+        return {
+          accountId: v.accountId,
+          businessName: v.businessName,
+          serviceCategory: v.serviceCategory,
+          locationCoverage: v.locationCoverage,
+          ratingAverage: v.ratingAverage,
+          trustScore: { score: trustScore.score, band: trustScore.band },
+        };
+      }),
+    );
+
+    const suppliers = await Promise.all(
+      supplierRows.map(async (s) => {
+        const trustScore = await getSupplierTrustScore(this.prisma, s);
+        return {
+          accountId: s.accountId,
+          businessName: s.businessName,
+          category: s.category,
+          locationCoverage: s.locationCoverage,
+          ratingAverage: s.ratingAverage,
+          trustScore: { score: trustScore.score, band: trustScore.band },
+        };
+      }),
+    );
+
+    return { listings, vendors, suppliers };
+  }
 }

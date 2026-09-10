@@ -267,6 +267,39 @@ export type PublicProfile = {
   }[];
 };
 
+// The landing page's own public data — a small, real cross-section of
+// the marketplace. See PublicProfilesService.getMarketplaceHighlights.
+export type MarketplaceHighlights = {
+  listings: {
+    id: string;
+    accountId: string;
+    listingType: string;
+    askingPrice: string;
+    currency: string;
+    title: string;
+    photoUrls: string[];
+    propertyType: string;
+    city?: string | null;
+    country: string;
+  }[];
+  vendors: {
+    accountId: string;
+    businessName: string;
+    serviceCategory: string;
+    locationCoverage?: string | null;
+    ratingAverage?: string | null;
+    trustScore: { score: number; band: string };
+  }[];
+  suppliers: {
+    accountId: string;
+    businessName: string;
+    category: string;
+    locationCoverage?: string | null;
+    ratingAverage?: string | null;
+    trustScore: { score: number; band: string };
+  }[];
+};
+
 export type InvitePreview = {
   accountName: string;
   accountType: string;
@@ -1400,6 +1433,11 @@ export class ApiClient {
   // --- Public profiles (no auth at all — see PublicProfilesController) ---
   getPublicProfile(accountId: string) {
     return request<PublicProfile>(`/public/accounts/${accountId}`);
+  }
+  // The landing page's own data — see
+  // PublicProfilesService.getMarketplaceHighlights.
+  getMarketplaceHighlights() {
+    return request<MarketplaceHighlights>("/public/marketplace/highlights");
   }
 
   // --- Invites (no account context — the recipient isn't a member yet) ---
