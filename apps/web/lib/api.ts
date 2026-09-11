@@ -671,6 +671,9 @@ export type InspectionFinding = {
   area: string;
   description: string;
   severity: "minor" | "moderate" | "major" | string;
+  // Real remote-verification evidence — uploaded via uploadFile()
+  // (POST /uploads, Cloudflare R2), not a pasted URL.
+  photoUrls: string[];
   createdAt: string;
 };
 
@@ -688,6 +691,9 @@ export type PropertyInspection = {
   inspectorName?: string | null;
   overallResult?: "pass" | "needs_attention" | "fail" | string | null;
   summary?: string | null;
+  // General walkthrough/overview photos, set alongside overallResult on
+  // completion — see InspectionFinding.photoUrls for per-finding evidence.
+  photoUrls: string[];
   completedAt?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -1850,7 +1856,12 @@ export class ApiClient {
   completeInspection(
     propertyId: string,
     inspectionId: string,
-    input: { overallResult: string; summary?: string; findings?: { area: string; description: string; severity?: string }[] },
+    input: {
+      overallResult: string;
+      summary?: string;
+      findings?: { area: string; description: string; severity?: string; photoUrls?: string[] }[];
+      photoUrls?: string[];
+    },
   ) {
     return request<PropertyInspection>(`/properties/${propertyId}/inspections/${inspectionId}/complete`, {
       method: "POST",

@@ -1,4 +1,4 @@
-import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
@@ -1755,6 +1755,98 @@ function VendorOrNameField({
   );
 }
 
+// Real remote-verification evidence — uploads through the same real
+// POST /uploads (Cloudflare R2) pipeline vendors.me.tsx/materials.me.tsx/
+// documents already use, not a pasted-URL text field. Shared between the
+// inspection-level "overview photos" picker and each finding's own
+// per-finding picker below, since both need identical multi-file-upload +
+// thumbnail + remove behavior.
+function PhotoPicker({ urls, onChange, label }: { urls: string[]; onChange: (urls: string[]) => void; label: string }) {
+  const auth = useAuth();
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onFilesSelected(e: ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const uploaded: string[] = [];
+      for (const file of Array.from(files)) {
+        const { url } = await auth.api.uploadFile(file);
+        uploaded.push(url);
+      }
+      onChange([...urls, ...uploaded]);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't upload that photo.");
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  }
+
+  return (
+    <div>
+      {urls.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+          {urls.map((url, idx) => (
+            <div key={url} style={{ position: "relative" }}>
+              <img
+                src={url}
+                alt=""
+                style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6, border: "1px solid var(--potg-border)" }}
+              />
+              <button
+                type="button"
+                onClick={() => onChange(urls.filter((_, i) => i !== idx))}
+                aria-label="Remove photo"
+                style={{
+                  position: "absolute",
+                  top: -6,
+                  right: -6,
+                  width: 16,
+                  height: 16,
+                  borderRadius: "50%",
+                  background: "var(--potg-danger)",
+                  color: "#fff",
+                  border: "none",
+                  fontSize: 10,
+                  lineHeight: "16px",
+                  padding: 0,
+                  cursor: "pointer",
+                }}
+              >
+                &times;
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <label className="potg-btn potg-btn-secondary" style={{ fontSize: 11, padding: "4px 9px", display: "inline-block", cursor: "pointer" }}>
+        {uploading ? "Uploading…" : label}
+        <input type="file" accept="image/*" multiple onChange={onFilesSelected} style={{ display: "none" }} disabled={uploading} />
+      </label>
+      {error && <div className="potg-error" style={{ fontSize: 10, marginTop: 4 }}>{error}</div>}
+    </div>
+  );
+}
+
+// Small read-only thumbnail strip for a completed inspection's/finding's
+// own photoUrls — the other half of PhotoPicker above.
+function PhotoThumbs({ urls }: { urls: string[] }) {
+  if (urls.length === 0) return null;
+  return (
+    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
+      {urls.map((url) => (
+        <a key={url} href={url} target="_blank" rel="noreferrer">
+          <img src={url} alt="" style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 5, border: "1px solid var(--potg-border)" }} />
+        </a>
+      ))}
+    </div>
+  );
+}
+
 function ScheduleInspectionForm({
   propertyId,
   projects,
@@ -1860,7 +1952,9 @@ function InspectionRow({
   const [findingArea, setFindingArea] = useState("");
   const [findingDescription, setFindingDescription] = useState("");
   const [findingSeverity, setFindingSeverity] = useState("minor");
-  const [pendingFindings, setPendingFindings] = useState<{ area: string; description: string; severity: string }[]>([]);
+  const [findingPhotoUrls, setFindingPhotoUrls] = useState<string[]>([]);
+  const [inspectionPhotoUrls, setInspectionPhotoUrls] = useState<string[]>([]);
+  const [pendingFindings, setPendingFindings] = useState<{ area: string; description: string; severity: string; photoUrls: string[] }[]>([]);
   const [editType, setEditType] = useState(inspection.inspectionType);
   const [editScheduledFor, setEditScheduledFor] = useState(inspection.scheduledFor.slice(0, 10));
   const [editProjectId, setEditProjectId] = useState(inspection.projectId ?? "");
@@ -1871,10 +1965,11 @@ function InspectionRow({
 
   function addFinding() {
     if (!findingArea || !findingDescription) return;
-    setPendingFindings((prev) => [...prev, { area: findingArea, description: findingDescription, severity: findingSeverity }]);
+    setPendingFindings((prev) => [...prev, { area: findingArea, description: findingDescription, severity: findingSeverity, photoUrls: findingPhotoUrls }]);
     setFindingArea("");
     setFindingDescription("");
     setFindingSeverity("minor");
+    setFindingPhotoUrls([]);
   }
 
   async function onComplete(e: FormEvent) {
@@ -1886,6 +1981,7 @@ function InspectionRow({
         overallResult,
         summary: summary || undefined,
         findings: pendingFindings,
+        photoUrls: inspectionPhotoUrls,
       });
       setCompleting(false);
       onChanged();
@@ -1940,11 +2036,13 @@ function InspectionRow({
             {!inspection.inspectorVendor && inspection.inspectorName && ` · ${inspection.inspectorName}`}
           </div>
           {inspection.summary && <div style={{ marginTop: 4 }}>{inspection.summary}</div>}
+          <PhotoThumbs urls={inspection.photoUrls} />
           {inspection.findings && inspection.findings.length > 0 && (
             <ul style={{ margin: "6px 0 0", paddingLeft: 16 }}>
               {inspection.findings.map((f) => (
                 <li key={f.id} className="potg-muted" style={{ fontSize: 12 }}>
                   <strong>{f.area}</strong> ({f.severity}): {f.description}
+                  <PhotoThumbs urls={f.photoUrls} />
                 </li>
               ))}
             </ul>
@@ -2020,6 +2118,10 @@ function InspectionRow({
             <option value="fail">Fail</option>
           </select>
           <textarea className="potg-input" rows={2} placeholder="Summary (optional)" value={summary} onChange={(e) => setSummary(e.target.value)} />
+          <div>
+            <div className="potg-muted" style={{ fontSize: 11, marginBottom: 4 }}>Overview photos (optional)</div>
+            <PhotoPicker urls={inspectionPhotoUrls} onChange={setInspectionPhotoUrls} label="+ Add overview photos" />
+          </div>
 
           <div className="potg-muted" style={{ fontSize: 11 }}>Findings (optional)</div>
           {pendingFindings.length > 0 && (
@@ -2027,6 +2129,7 @@ function InspectionRow({
               {pendingFindings.map((f, idx) => (
                 <li key={idx} style={{ fontSize: 12 }}>
                   <strong>{f.area}</strong> ({f.severity}): {f.description}
+                  <PhotoThumbs urls={f.photoUrls} />
                 </li>
               ))}
             </ul>
@@ -2043,6 +2146,7 @@ function InspectionRow({
               + Add
             </button>
           </div>
+          <PhotoPicker urls={findingPhotoUrls} onChange={setFindingPhotoUrls} label="+ Add photos to next finding" />
 
           <div style={{ display: "flex", gap: 6 }}>
             <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>

@@ -14,6 +14,16 @@ class InspectionFindingInput {
   @IsOptional()
   @IsIn(SEVERITIES)
   severity?: string;
+
+  // Real remote-verification evidence for this specific finding — see
+  // InspectionFinding.photoUrls's own schema comment. Populated with real
+  // URLs from POST /uploads (Cloudflare R2), same "just a String[], this
+  // app doesn't validate the URL shape" convention AddProjectUpdateDto.
+  // mediaUrls already uses.
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  photoUrls?: string[];
 }
 
 export class CompleteInspectionDto {
@@ -29,4 +39,11 @@ export class CompleteInspectionDto {
   @ValidateNested({ each: true })
   @Type(() => InspectionFindingInput)
   findings?: InspectionFindingInput[];
+
+  // General walkthrough/overview photos for the inspection as a whole —
+  // see PropertyInspection.photoUrls's own schema comment.
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  photoUrls?: string[];
 }

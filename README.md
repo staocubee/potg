@@ -6009,6 +6009,62 @@ already uses.
 - No expiry reminder or automatic resend — a link that lapses after 24
   hours just needs a manual "Resend" click, no scheduled nudge.
 
+## Inspection photo evidence (this pass)
+
+The one real gap a code-level audit of the product thesis turned up:
+`PropertyInspection`/`InspectionFinding` were real and wired to real
+routes, but findings were text-only (area/description/severity) — a
+"cracked tile in bathroom" finding with no photo isn't actually
+verifiable by an owner who isn't standing in the room. Remote *viewing*
+already existed (`PropertyTourAsset`'s 360° media, AI-generated
+`RenovationVisualization`); remote *verification of a specific claim*
+didn't. This closes that.
+
+**What's built**:
+
+- `PropertyInspection.photoUrls` and `InspectionFinding.photoUrls` — both
+  plain `String[]`, same convention `ProjectUpdate.mediaUrls`/
+  `PropertyListing.photoUrls` already use. Inspection-level photos are
+  general walkthrough/overview shots; finding-level photos are tied to
+  the *specific* claim they back, which is the actual point — evidence
+  for "the roof has a leak" needs to be a photo of the leak, not just
+  somewhere in the same batch of uploads.
+- `CompleteInspectionDto` (and its nested `InspectionFindingInput`) both
+  gained an optional `photoUrls?: string[]` — set once, at completion
+  time, since that's the only point evidence actually exists (nothing to
+  photograph yet when an inspection is merely scheduled).
+- Real uploads, not pasted URLs — a new `PhotoPicker` component
+  (`apps/web/components` — used inline in `pages/properties/[id].tsx`)
+  uploads through the same real `POST /uploads` (Cloudflare R2) pipeline
+  `vendors/me.tsx`/`marketplace/materials/me.tsx`/`documents` already
+  use, with multi-file select, live thumbnails, and a remove button —
+  not the raw comma-separated text field `Property.photoUrls` itself
+  still uses elsewhere on this same page. A `PhotoThumbs` component
+  renders the read-only result wherever a completed inspection or its
+  findings are shown.
+- **Verified live, the real pipeline end to end**: uploaded a real PNG
+  through `POST /uploads` — confirmed a genuine Cloudflare R2 URL came
+  back (`pub-....r2.dev/uploads/<accountId>/<uuid>.png`), not a stub.
+  Completed a real scheduled inspection with that URL attached both at
+  the inspection level and on a specific finding ("Bathroom (moderate):
+  Cracked tile near shower") — confirmed both `photoUrls` arrays
+  persisted correctly in the API response, then reloaded the property
+  page and confirmed both thumbnails actually render from the real R2
+  URL, at both the inspection-overview and per-finding level.
+
+**Not done — explicit scope, not oversight**:
+
+- `Property.photoUrls` itself (the property record's own general photos,
+  separate from any inspection) still uses the older pasted-URL text
+  field on this same page — upgrading it to the same real `PhotoPicker`
+  is a natural, low-risk follow-up but a separate edit, not part of
+  closing the inspection-evidence gap specifically.
+- No annotation/markup on a photo (e.g. circling the exact crack) — the
+  photo itself is the evidence, nothing draws on top of it.
+- No required-photo enforcement — a finding can still be saved with no
+  photo at all, same as before; this adds the capability, it doesn't
+  mandate using it.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

@@ -660,11 +660,17 @@ export class PropertiesService {
     const [updated] = await this.prisma.$transaction([
       this.prisma.propertyInspection.update({
         where: { id: inspectionId },
-        data: { status: 'completed', overallResult: dto.overallResult, summary: dto.summary, completedAt: new Date() },
+        data: {
+          status: 'completed',
+          overallResult: dto.overallResult,
+          summary: dto.summary,
+          completedAt: new Date(),
+          photoUrls: dto.photoUrls ?? [],
+        },
       }),
       ...(dto.findings ?? []).map((f) =>
         this.prisma.inspectionFinding.create({
-          data: { inspectionId, area: f.area, description: f.description, severity: f.severity ?? 'minor' },
+          data: { inspectionId, area: f.area, description: f.description, severity: f.severity ?? 'minor', photoUrls: f.photoUrls ?? [] },
         }),
       ),
     ]);

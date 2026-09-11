@@ -1457,6 +1457,14 @@ model PropertyInspection {
   inspectorName     String?
   overallResult     String? // pass | needs_attention | fail — set on completion
   summary           String?
+  // Real remote-verification evidence (this pass) — general walkthrough/
+  // overview shots for the inspection as a whole, set alongside
+  // overallResult/summary on completion. Same "you host it, this just
+  // stores the URL" convention ProjectUpdate.mediaUrls/PropertyListing.
+  // photoUrls already use — populated for real via POST /uploads (Cloudflare
+  // R2), not a pasted-URL text field, matching how vendors.me.tsx/
+  // materials.me.tsx/documents already upload real files.
+  photoUrls         String[]  @default([])
   completedAt       DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -1475,6 +1483,14 @@ model InspectionFinding {
   area         String // e.g. "Kitchen", "Roof", "Electrical wiring"
   description  String
   severity     String   @default("minor") // minor | moderate | major
+  // Real photo evidence tied to this specific finding, not just the
+  // inspection as a whole — this is the actual gap between "you can view
+  // a property remotely" (PropertyTourAsset, RenovationVisualization) and
+  // "you can verify a specific claim remotely": a "cracked tile in
+  // bathroom" finding with no photo is unverifiable at a distance, one
+  // with a photo isn't. Same String[] convention as PropertyInspection.
+  // photoUrls above.
+  photoUrls    String[] @default([])
   createdAt    DateTime @default(now())
 
   inspection PropertyInspection @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
