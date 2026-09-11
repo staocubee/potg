@@ -100,6 +100,14 @@ export default function PropertyMarketplacePage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
           {listings.map((l) => (
             <Link key={l.id} href={`/marketplace/${l.id}`} className="potg-card" style={{ display: "block", padding: 16 }}>
+              {l.packageBadge && (
+                <span
+                  className="potg-badge"
+                  style={{ background: "#fff4d6", borderColor: "#e8c46a", color: "#8a6a00", marginBottom: 6, display: "inline-block" }}
+                >
+                  ★ {l.packageBadge.packageTitle}
+                </span>
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                 <h3 style={{ fontSize: 15 }}>{l.title}</h3>
                 <span className="potg-badge">{l.listingType.replace(/_/g, " ")}</span>

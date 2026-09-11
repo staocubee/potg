@@ -219,11 +219,18 @@ export type AccountInviteMine = {
 // the two token-gated invite previews. See
 // PublicProfilesService's own comment on why its return shape is a
 // hand-picked whitelist, not a reused authenticated-view shape.
+// A currently-active visibility-package boost — see boost.util.ts.
+// Deliberately not named/worded "verified": that's the platform's own
+// separate KYC-style verificationStatus concept on Vendor/Supplier/
+// PropertyListing, shown as its own distinct badge wherever it appears.
+export type PackageBadge = { packageTitle: string; boostWeight: number } | null;
+
 export type PublicProfile = {
   accountId: string;
   accountName: string;
   accountType: string;
   memberSince: string;
+  packageBadge: PackageBadge;
   vendor?: {
     businessName: string;
     serviceCategory: string;
@@ -281,6 +288,7 @@ export type MarketplaceHighlights = {
     propertyType: string;
     city?: string | null;
     country: string;
+    packageBadge: PackageBadge;
   }[];
   vendors: {
     accountId: string;
@@ -289,6 +297,7 @@ export type MarketplaceHighlights = {
     locationCoverage?: string | null;
     ratingAverage?: string | null;
     trustScore: { score: number; band: string };
+    packageBadge: PackageBadge;
   }[];
   suppliers: {
     accountId: string;
@@ -297,7 +306,41 @@ export type MarketplaceHighlights = {
     locationCoverage?: string | null;
     ratingAverage?: string | null;
     trustScore: { score: number; band: string };
+    packageBadge: PackageBadge;
   }[];
+};
+
+// The visibility-package catalog and an account's own purchase history —
+// see PackagesService/PackageSubscription's own schema comment. `status`
+// here is exactly what's stored ("pending" | "active" | "failed"); the
+// web app computes "expired" itself from expiresAt, same live check the
+// API's own boost.util.ts uses, rather than trusting a stored value that
+// never actually flips.
+export type VisibilityPackage = {
+  id: string;
+  code: string;
+  title: string;
+  description?: string | null;
+  price: string;
+  currency: string;
+  billingPeriod: "monthly" | "annual" | string;
+  boostWeight: number;
+  active: boolean;
+};
+
+export type PackageSubscription = {
+  id: string;
+  accountId: string;
+  packageId: string;
+  status: "pending" | "active" | "failed" | string;
+  amount: string;
+  currency: string;
+  provider: string;
+  providerReference?: string | null;
+  startedAt?: string | null;
+  expiresAt?: string | null;
+  createdAt: string;
+  package: VisibilityPackage;
 };
 
 export type InvitePreview = {
@@ -848,6 +891,9 @@ export type Vendor = {
   createdAt: string;
   reviews?: VendorReview[];
   trustScore?: VendorTrustScore;
+  // Only present on GET /vendors (the directory browse) — see
+  // VendorsService.findAll's own boost.util.ts wiring.
+  packageBadge?: PackageBadge;
 };
 
 export type PaystackBank = { name: string; code: string; currency: string };
@@ -1155,6 +1201,9 @@ export type Listing = {
   // Only present on GET /listings/:listingId — whether the calling
   // account has favorited this listing.
   isFavorited?: boolean;
+  // Only present on GET /listings (the marketplace browse) — see
+  // ListingsService.findAll's own boost.util.ts wiring.
+  packageBadge?: PackageBadge;
 };
 
 export type ListingInquiry = {
@@ -1225,6 +1274,9 @@ export type Supplier = {
   products?: Product[];
   reviews?: SupplierReview[];
   trustScore?: SupplierTrustScore;
+  // Only present on GET /suppliers (the directory browse) — see
+  // MaterialsService.findSuppliers's own boost.util.ts wiring.
+  packageBadge?: PackageBadge;
 };
 
 export type SupplierReview = {
@@ -2283,6 +2335,31 @@ export class ApiClient {
   }
   getPaymentsOverview() {
     return request<PaymentsOverview>("/payments/overview", { token: this.token, accountId: this.accountId });
+  }
+  // --- Visibility packages (account-wide, not per-project — see
+  // PackagesController) ---
+  getPackageCatalog() {
+    return request<VisibilityPackage[]>("/packages", { token: this.token, accountId: this.accountId });
+  }
+  getMyPackageSubscriptions() {
+    return request<PackageSubscription[]>("/packages/me", { token: this.token, accountId: this.accountId });
+  }
+  getMyActiveBoost() {
+    return request<PackageSubscription | null>("/packages/me/active", { token: this.token, accountId: this.accountId });
+  }
+  subscribeToPackage(input: { packageId: string; provider?: string }) {
+    return request<{ subscription: PackageSubscription; authorizationUrl?: string }>("/packages/subscribe", {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  verifyPackageSubscription(subscriptionId: string) {
+    return request<{ subscription: PackageSubscription; alreadyVerified: boolean }>(
+      `/packages/subscriptions/${subscriptionId}/verify`,
+      { method: "POST", token: this.token, accountId: this.accountId },
+    );
   }
   getPortfolioOverview() {
     return request<PortfolioOverview>("/reports/portfolio-overview", { token: this.token, accountId: this.accountId });

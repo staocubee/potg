@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ListingsService } from '../listings/listings.service';
 import { getVendorTrustScore } from '../vendors/trust-score';
 import { getSupplierTrustScore } from '../materials/trust-score';
+import { getActiveBoostMap, applyVisibilityBoost, getActiveBoostForAccount } from '../packages/boost.util';
 
 // A user-requested feature (not from the numbered blueprint): "every
 // company, user, vendor... to have a one page website that contains
@@ -48,6 +49,7 @@ export class PublicProfilesService {
       accountName: account.name,
       accountType: account.accountType,
       memberSince: account.createdAt,
+      packageBadge: await getActiveBoostForAccount(this.prisma, account.id),
     };
 
     if (account.accountType === 'VENDOR') {
@@ -149,26 +151,41 @@ export class PublicProfilesService {
   // route. Capped small (6 each) — a landing page teaser, not a browse
   // page; deliberately not paginated.
   async getMarketplaceHighlights() {
-    const [listingRows, vendorRows, supplierRows] = await Promise.all([
+    // Candidate pool wider than the final take:6 (capped at 30 — this is
+    // a landing-page teaser, not a real paginated query) so a currently-
+    // boosted account can actually surface into the final six even when
+    // it isn't already top-rated/most-recent — see boost.util.ts. The
+    // boost partition + re-slice to 6 happens in JS below, once per list,
+    // after this fetch.
+    const [listingRows, vendorRows, supplierRows, boostMap] = await Promise.all([
       this.prisma.propertyListing.findMany({
         where: { status: { in: ['active', 'under_offer'] } },
         include: { property: { select: { propertyType: true, city: true, country: true } } },
         orderBy: { createdAt: 'desc' },
-        take: 6,
+        take: 30,
       }),
       this.prisma.vendor.findMany({
         where: { verificationStatus: 'verified' },
         orderBy: [{ ratingAverage: 'desc' }, { createdAt: 'desc' }],
-        take: 6,
+        take: 30,
       }),
       this.prisma.supplier.findMany({
         where: { verificationStatus: 'verified' },
         orderBy: [{ ratingAverage: 'desc' }, { createdAt: 'desc' }],
-        take: 6,
+        take: 30,
       }),
+      getActiveBoostMap(this.prisma),
     ]);
 
-    const listings = listingRows.map((l) => ({
+    // Boost partition happens on the raw rows, before the trust-score
+    // computation below (one query per row) — slicing to the final 6
+    // first means that work only ever runs for accounts that actually
+    // make the cut, boosted or not.
+    const boostedListingRows = applyVisibilityBoost(listingRows, boostMap).slice(0, 6);
+    const boostedVendorRows = applyVisibilityBoost(vendorRows, boostMap).slice(0, 6);
+    const boostedSupplierRows = applyVisibilityBoost(supplierRows, boostMap).slice(0, 6);
+
+    const listings = boostedListingRows.map((l) => ({
       id: l.id,
       accountId: l.accountId,
       listingType: l.listingType,
@@ -179,10 +196,11 @@ export class PublicProfilesService {
       propertyType: l.property.propertyType,
       city: l.property.city,
       country: l.property.country,
+      packageBadge: l.packageBadge,
     }));
 
     const vendors = await Promise.all(
-      vendorRows.map(async (v) => {
+      boostedVendorRows.map(async (v) => {
         const trustScore = await getVendorTrustScore(this.prisma, v);
         return {
           accountId: v.accountId,
@@ -191,12 +209,13 @@ export class PublicProfilesService {
           locationCoverage: v.locationCoverage,
           ratingAverage: v.ratingAverage,
           trustScore: { score: trustScore.score, band: trustScore.band },
+          packageBadge: v.packageBadge,
         };
       }),
     );
 
     const suppliers = await Promise.all(
-      supplierRows.map(async (s) => {
+      boostedSupplierRows.map(async (s) => {
         const trustScore = await getSupplierTrustScore(this.prisma, s);
         return {
           accountId: s.accountId,
@@ -205,6 +224,7 @@ export class PublicProfilesService {
           locationCoverage: s.locationCoverage,
           ratingAverage: s.ratingAverage,
           trustScore: { score: trustScore.score, band: trustScore.band },
+          packageBadge: s.packageBadge,
         };
       }),
     );

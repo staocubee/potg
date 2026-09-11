@@ -84,6 +84,7 @@ model Account {
   communities     Community[]
   notifications   Notification[]
   developmentAgreementsProposed PropertyDevelopmentAgreement[]
+  packageSubscriptions PackageSubscription[]
 
   @@map("accounts")
 }
@@ -1828,4 +1829,59 @@ model Notification {
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
   @@map("notifications")
+}
+
+// The visibility-package catalog — real, admin-defined SKUs (seed.ts seeds
+// a starting set), not a free-text plan name. Each row IS a specific
+// purchasable tier+period pair (e.g. "Featured — Monthly", "Featured —
+// Annual") rather than a tier with a period toggle, so pricing per period
+// is just this row's own `price`, no separate rate table. `boostWeight`
+// breaks ties when two currently-boosted accounts compete for the same
+// slot (see PackagesService/boost.util.ts) — a higher tier's subscriber
+// always outranks a lower tier's, regardless of who subscribed first.
+model VisibilityPackage {
+  id            String   @id @default(uuid())
+  code          String   @unique
+  title         String
+  description   String?
+  price         Decimal  @db.Decimal(14, 2)
+  currency      String
+  billingPeriod String // monthly | annual
+  boostWeight   Int      @default(1)
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  subscriptions PackageSubscription[]
+
+  @@map("visibility_packages")
+}
+
+// One row per purchase, not a single "current subscription" column on
+// Account — a full history, same reasoning Payout/Payment keep their own
+// append-only rows rather than a single mutable balance. Deliberately no
+// stored "expired" status: status only ever moves pending -> active (or
+// -> failed) exactly once; whether an "active" row is *currently* boosting
+// is always computed live as `status === 'active' && expiresAt > now`
+// (see boost.util.ts) rather than a cron flipping a flag — nothing here
+// depends on knowing the instant it lapses, only whether it has right now.
+// Renewing is just subscribing again (a new row) — no auto-renewal wired
+// up yet, see README's own "Not done" note on this feature.
+model PackageSubscription {
+  id                String    @id @default(uuid())
+  accountId         String
+  packageId         String
+  status            String    @default("pending") // pending | active | failed
+  amount            Decimal   @db.Decimal(14, 2)
+  currency          String
+  provider          String    @default("manual") // manual | paystack | flutterwave | stripe | paypal
+  providerReference String?
+  startedAt         DateTime?
+  expiresAt         DateTime?
+  createdAt         DateTime  @default(now())
+
+  account Account           @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  package VisibilityPackage @relation(fields: [packageId], references: [id])
+
+  @@index([accountId])
+  @@map("package_subscriptions")
 }

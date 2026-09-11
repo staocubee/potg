@@ -14,6 +14,7 @@ import { SetPaypalPayoutEmailDto } from './dto/set-paypal-payout-email.dto';
 import { SetVendorLicenseDto } from './dto/set-vendor-license.dto';
 import { SubmitVendorVerificationEvidenceDto } from './dto/submit-vendor-verification-evidence.dto';
 import { rankingBoost } from '../common/search-ranking.util';
+import { getActiveBoostMap, applyVisibilityBoost } from '../packages/boost.util';
 import { getVendorTrustScore } from './trust-score';
 import { PaystackService } from '../payments/paystack.service';
 import { FlutterwaveService } from '../payments/flutterwave.service';
@@ -158,12 +159,16 @@ export class VendorsService {
       orderBy: relevanceOrder ? undefined : [{ ratingAverage: 'desc' }, { createdAt: 'desc' }],
     });
 
-    if (!relevanceOrder || !relevanceScore) return vendors;
+    // Visibility-package boost — see ListingsService.findAll's own comment
+    // on the same split (browse gets unconditional top placement, search
+    // only gets the badge plus rankingBoost's much smaller tiebreak).
+    const boostMap = await getActiveBoostMap(this.prisma);
+    if (!relevanceOrder || !relevanceScore) return applyVisibilityBoost(vendors, boostMap);
     // See ListingsService.findAll's own comment on rankingBoost — text
     // relevance stays dominant, this only breaks near-ties. Vendors get
     // all three signals (rating, verification, recency), unlike listings.
     const scored = vendors.map((vendor) => ({
-      vendor,
+      vendor: { ...vendor, packageBadge: boostMap.get(vendor.accountId) ?? null },
       finalScore:
         (relevanceScore!.get(vendor.id) ?? 0) +
         rankingBoost({

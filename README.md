@@ -5669,6 +5669,98 @@ made the two decisions that actually govern it:
   persisted, and readable per-payout/per-project, but nothing yet
   aggregates it across the whole platform into its own dashboard.
 
+## Visibility packages — Phase 1 of 2 (this pass)
+
+The second monetization idea discussed alongside the platform fee above
+(the other being "packages that once an individual, family, company, or
+vendor subscribes to... adverts appear verified with the package title
+and top of the list" — plus, in the same request, an "earn credits for
+AI usage" mechanic). Scoped into two phases: **this pass is the boost
+itself** — a real catalog, a real purchase that activates it, and the
+actual top-of-list + badge effect across every marketplace browse
+surface. The next pass (explicitly deferred, not forgotten) is real
+recurring auto-billing instead of today's "renewing is just subscribing
+again" model, plus the AI-credits mechanic, which needs its own
+usage-metering layer that doesn't exist yet — there's currently no
+per-call cost on any AI skill to spend a credit against.
+
+**What's built**:
+
+- `VisibilityPackage` — a real, admin-defined catalog (seeded: Featured
+  and Premium, each monthly or annual — 4 rows), not a free-text plan
+  name. `PackageSubscription` — one row per purchase, append-only same as
+  Payment/Payout, not a single mutable "current plan" column on Account.
+  See both models' own schema comments.
+- Buying one is a real one-off charge — `PackagesService.subscribe`
+  mirrors `PaymentsService.deposit`'s own shape (Paystack/Flutterwave/
+  PayPal/Stripe real gateway checkout, or the "manual" instant-complete
+  simulation), just with no project/escrow to attach to, so it duplicates
+  that shape rather than reusing `Payment` (its `projectId`/
+  `escrowAccountId` columns are both `NOT NULL`). No stored "expired"
+  status — whether a subscription is *currently* boosting is always
+  computed live (`status === 'active' && expiresAt > now`), never a cron
+  flipping a flag.
+- The actual effect — `src/packages/boost.util.ts`, one shared helper
+  wired into `ListingsService.findAll`, `VendorsService.findAll`,
+  `MaterialsService.findSuppliers`, and the landing page's own
+  `PublicProfilesService.getMarketplaceHighlights`: every currently-
+  boosted account's listing/vendor/supplier row moves to the top of the
+  default (no search query) browse order and carries a `packageBadge`
+  (`{ packageTitle, boostWeight }`). A real search (`q` present) leaves
+  this alone on purpose — `search-ranking.util.ts`'s own much smaller
+  relevance tiebreak stays in sole control there, so a boosted account
+  can never bury a strongly-relevant match; it still shows its badge,
+  just doesn't jump the queue. Two tiers compete by `boostWeight` when
+  more than one boosted account would land in the same slot (e.g. the
+  landing page's own top-6 teaser).
+- Deliberately **not** named/worded "verified" anywhere in the field name
+  or the UI badge — `verificationStatus` already means something else
+  entirely (the platform's own KYC-style review outcome) on Vendor/
+  Supplier/PropertyListing, and this is paid placement, a different
+  concept. The badge reads "★ {package title}" (e.g. "★ Premium"), styled
+  distinctly (gold) from the existing verification/trust badges.
+  `PackageBadge`'s own type comment in `lib/api.ts` explains the same
+  choice on the frontend. A currently-boosted account's own public
+  `/go/:accountId` profile page carries the badge too.
+- A new **Boost** nav item and `/packages` page — the catalog with a
+  Subscribe form per package (provider picker, same shape as the
+  project page's own deposit form), the account's current active boost
+  summary, and its full subscription history. `package:read`/
+  `package:write` are new permissions — every role that can spend money
+  elsewhere (`property_owner`, `family_admin`, `company_admin`,
+  `vendor`, `supplier`) gets both; `viewer` gets read-only, matching its
+  existing `payment:read`-without-`payment:write` pattern.
+- **Verified live**: subscribed the demo owner account to Premium
+  (monthly, manual provider) — activated instantly with the correct
+  `expiresAt` (+1 month); confirmed `GET /packages/me/active` and the
+  `/packages` page's own summary card both reflect it. Confirmed the
+  boost then actually moved that account's listing ("14 Ocean Drive") to
+  the top of `GET /listings` ahead of two comparable listings created
+  more recently (which `orderBy: createdAt desc` would otherwise have
+  ranked first) — both in the raw API response and rendered in the
+  Marketplace page with its gold "★ Premium" badge. Confirmed the same
+  badge + ordering on the completely public, signed-out
+  `GET /public/marketplace/highlights` (the landing page's own data
+  source) and on that account's own `/go/:accountId` public profile
+  page — a real, un-authenticated request, not just the logged-in view.
+
+**Not done — explicit scope, not oversight (Phase 2)**:
+
+- No real recurring auto-billing — renewing is subscribing again (a new
+  row), same simplification the platform fee section above's own
+  "subscription module" framing already flagged as a bigger, separate
+  lift (renewal webhooks, retry/dunning logic).
+- No "earn credits for AI usage" mechanic — needs its own per-skill
+  usage-metering layer first (there's no concept of what one AI skill
+  call costs today), a separate subsystem from the boost itself.
+- No early cancellation — a subscription runs to its own `expiresAt`.
+- No admin UI to manage the package catalog — the 4 seeded rows
+  (`prisma/seed.ts`) are real and live, but adding/editing/retiring one
+  needs a direct database change, not a screen.
+- No per-`Product` boost on the materials marketplace, only `Supplier` —
+  matches Vendor's own granularity (a business, not each individual
+  listing within it) on that marketplace.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

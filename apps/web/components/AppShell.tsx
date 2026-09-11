@@ -25,6 +25,12 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/documents", label: "Documents", icon: "📄", enabled: true },
   { href: "/payments", label: "Payments", icon: "💳", enabled: true },
   { href: "/reports", label: "Reports", icon: "📊", enabled: true },
+  // Visibility packages (this pass, not from the numbered blueprint) —
+  // see packages.module.ts's own comment. Every role that reaches this
+  // array carries package:read at minimum (see seed.ts); package:write
+  // (subscribing) is narrower — the page itself hides the "Subscribe"
+  // button for a viewer, same as it would 403 anyway.
+  { href: "/packages", label: "Boost", icon: "🚀", enabled: true },
 ];
 
 // A TENANT-type account has no real use for any item above — it doesn't

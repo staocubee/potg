@@ -19,6 +19,7 @@ import { UpsertCartItemDto } from './dto/upsert-cart-item.dto';
 import { CheckoutCartDto } from './dto/checkout-cart.dto';
 import { getSupplierTrustScore } from './trust-score';
 import { rankingBoost } from '../common/search-ranking.util';
+import { getActiveBoostMap, applyVisibilityBoost } from '../packages/boost.util';
 
 @Injectable()
 export class MaterialsService {
@@ -42,11 +43,17 @@ export class MaterialsService {
     return this.prisma.supplier.create({ data: { accountId, ...dto } });
   }
 
-  findSuppliers(category?: string) {
-    return this.prisma.supplier.findMany({
+  // Visibility-package boost — see ListingsService.findAll's own comment;
+  // this list has no search mode of its own, so it's always the
+  // unconditional browse-path reorder, no separate relevance-preserving
+  // branch needed.
+  async findSuppliers(category?: string) {
+    const suppliers = await this.prisma.supplier.findMany({
       where: category ? { category } : undefined,
       orderBy: [{ ratingAverage: 'desc' }, { createdAt: 'desc' }],
     });
+    const boostMap = await getActiveBoostMap(this.prisma);
+    return applyVisibilityBoost(suppliers, boostMap);
   }
 
   async findMySupplier(accountId: string) {

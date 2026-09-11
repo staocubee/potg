@@ -85,6 +85,13 @@ const PERMISSIONS = [
   // reviewer-only verb.
   { key: 'community:read', label: 'View communities, their residents, and announcements' },
   { key: 'community:write', label: 'Create a community, manage its residents, and post announcements' },
+  // Visibility packages (this pass, not from the numbered blueprint) —
+  // see packages.module.ts's own comment. package:read covers browsing
+  // the catalog and viewing an account's own subscription history;
+  // package:write is the one action that spends money (subscribing), so
+  // it's withheld from viewer the same way payment:write is.
+  { key: 'package:read', label: 'Browse visibility packages and view your own subscription history' },
+  { key: 'package:write', label: 'Subscribe your account to a visibility package' },
 ];
 
 // No new permission keys needed for the inspector role below — it's built
@@ -132,6 +139,8 @@ const ROLES: Record<string, string[]> = {
     'rental:read',
     'rental:write',
     'review:write',
+    'package:read',
+    'package:write',
   ],
   family_admin: [
     'property:read',
@@ -172,6 +181,8 @@ const ROLES: Record<string, string[]> = {
     'rental:read',
     'rental:write',
     'review:write',
+    'package:read',
+    'package:write',
   ],
   company_admin: [
     'property:read',
@@ -212,6 +223,8 @@ const ROLES: Record<string, string[]> = {
     'rental:read',
     'rental:write',
     'review:write',
+    'package:read',
+    'package:write',
   ],
   // A vendor account browses/edits its own marketplace profile, sees the
   // projects it's been invited to or hired for, quotes on them, and can
@@ -239,6 +252,8 @@ const ROLES: Record<string, string[]> = {
     // side of Module 10's rental calendar.
     'rental:read',
     'rental:write',
+    'package:read',
+    'package:write',
   ],
   // A distinct, narrower role for a VENDOR-type account whose whole
   // business is being picked as an inspector (Module 8) — not bidding on
@@ -283,6 +298,8 @@ const ROLES: Record<string, string[]> = {
     // dispute permissions, which already existed.
     'dispute:read',
     'dispute:write',
+    'package:read',
+    'package:write',
   ],
   // A renter's own account — the other half of the "no separate Tenant
   // identity" gap Lease.tenantName's own schema comment used to flag.
@@ -318,6 +335,7 @@ const ROLES: Record<string, string[]> = {
     'product:read',
     'order:read',
     'rental:read',
+    'package:read',
   ],
   // Module 6's actual "neutral reviewer" — a role deliberately never
   // granted to the vendor or supplier roles above, so a vendor/supplier
@@ -970,6 +988,26 @@ async function main() {
       status: 'active',
     },
   });
+
+  // Visibility-package catalog — real, admin-defined SKUs (see
+  // VisibilityPackage's own schema comment), upserted on `code` the same
+  // idempotent way PERMISSIONS/ROLES above are, not demo-only data tied to
+  // any of the accounts above. boostWeight ordering: featured < premium,
+  // regardless of monthly vs. annual — the period only changes price and
+  // how long a single purchase lasts, never how strongly it boosts.
+  const PACKAGES = [
+    { code: 'featured_monthly', title: 'Featured', description: 'Your listings, vendor profile, or supplier profile shown with a Featured badge and moved ahead of unboosted results for 30 days.', price: 15000, currency: 'NGN', billingPeriod: 'monthly', boostWeight: 1 },
+    { code: 'featured_annual', title: 'Featured (Annual)', description: 'The Featured boost, billed once a year at a discount to the monthly price.', price: 150000, currency: 'NGN', billingPeriod: 'annual', boostWeight: 1 },
+    { code: 'premium_monthly', title: 'Premium', description: 'The Featured boost plus top priority over every other boosted account when more than one is competing for the same spot, for 30 days.', price: 35000, currency: 'NGN', billingPeriod: 'monthly', boostWeight: 2 },
+    { code: 'premium_annual', title: 'Premium (Annual)', description: 'The Premium boost, billed once a year at a discount to the monthly price.', price: 350000, currency: 'NGN', billingPeriod: 'annual', boostWeight: 2 },
+  ];
+  for (const pkg of PACKAGES) {
+    await prisma.visibilityPackage.upsert({
+      where: { code: pkg.code },
+      update: { title: pkg.title, description: pkg.description, price: pkg.price, currency: pkg.currency, billingPeriod: pkg.billingPeriod, boostWeight: pkg.boostWeight },
+      create: pkg,
+    });
+  }
 
   console.log('\nDone. Demo login:');
   console.log(`  email:           ${DEMO_USER_EMAIL}`);

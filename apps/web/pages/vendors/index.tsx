@@ -108,6 +108,14 @@ export default function VendorMarketplacePage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
           {vendors.map((v) => (
             <Link key={v.id} href={`/vendors/${v.id}`} className="potg-card" style={{ display: "block", padding: 16 }}>
+              {v.packageBadge && (
+                <span
+                  className="potg-badge"
+                  style={{ background: "#fff4d6", borderColor: "#e8c46a", color: "#8a6a00", marginBottom: 6, display: "inline-block" }}
+                >
+                  ★ {v.packageBadge.packageTitle}
+                </span>
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                 <h3 style={{ fontSize: 15 }}>{v.businessName}</h3>
                 <span className="potg-badge">{v.verificationStatus.replace(/_/g, " ")}</span>

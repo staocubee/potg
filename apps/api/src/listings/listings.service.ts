@@ -6,6 +6,7 @@ import { CreateOfferDto } from './dto/create-offer.dto';
 import { RespondOfferDto } from './dto/respond-offer.dto';
 import { SearchListingsQuery } from './dto/search-listings.dto';
 import { rankingBoost } from '../common/search-ranking.util';
+import { getActiveBoostMap, applyVisibilityBoost } from '../packages/boost.util';
 import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
 
 @Injectable()
@@ -114,7 +115,17 @@ export class ListingsService {
       orderBy: relevanceOrder ? undefined : { createdAt: 'desc' },
     });
 
-    if (!relevanceOrder || !relevanceScore) return listings;
+    // Visibility-package boost (see boost.util.ts) — every listing carries
+    // its own account's `packageBadge` either way; the browse (no `q`)
+    // path also moves boosted accounts' listings to the top, unconditional
+    // paid placement rather than a scoring nudge. A search (`q` present)
+    // deliberately leaves rankingBoost's own much smaller relevance
+    // tiebreak below in sole control of order, so a boosted account can
+    // never bury a strongly-relevant match — it still shows its badge,
+    // just doesn't jump the queue on a real search.
+    const boostMap = await getActiveBoostMap(this.prisma);
+    if (!relevanceOrder || !relevanceScore) return applyVisibilityBoost(listings, boostMap);
+
     // Text relevance stays the dominant signal — rankingBoost only ever
     // adds up to 0.10 (no rating exists for a listing itself, so just
     // recency + verification here), nowhere near enough to let a weakly-
@@ -122,7 +133,7 @@ export class ListingsService {
     // near-ties between similarly-relevant results in a sensible
     // direction (newer, verified listings first).
     const scored = listings.map((listing) => ({
-      listing,
+      listing: { ...listing, packageBadge: boostMap.get(listing.accountId) ?? null },
       finalScore:
         (relevanceScore!.get(listing.id) ?? 0) +
         rankingBoost({ createdAt: listing.createdAt, isVerified: listing.verificationStatus === 'verified' }),

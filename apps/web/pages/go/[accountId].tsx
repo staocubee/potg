@@ -79,6 +79,14 @@ export default function PublicProfilePage() {
               <div className="potg-card" style={{ padding: 24 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
                   <div>
+                    {profile.packageBadge && (
+                      <span
+                        className="potg-badge"
+                        style={{ background: "#fff4d6", borderColor: "#e8c46a", color: "#8a6a00", marginBottom: 6, display: "inline-block" }}
+                      >
+                        ★ {profile.packageBadge.packageTitle}
+                      </span>
+                    )}
                     <h1 style={{ fontSize: 22, marginBottom: 4 }}>
                       {profile.vendor?.businessName ?? profile.supplier?.businessName ?? profile.accountName}
                     </h1>

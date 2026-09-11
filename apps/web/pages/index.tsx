@@ -185,6 +185,14 @@ export default function LandingPage() {
                     <span className="potg-badge" style={{ background: "rgba(255,255,255,0.9)" }}>{l.listingType}</span>
                   </div>
                   <div style={{ padding: 14 }}>
+                    {l.packageBadge && (
+                      <span
+                        className="potg-badge"
+                        style={{ background: "#fff4d6", borderColor: "#e8c46a", color: "#8a6a00", marginBottom: 6, display: "inline-block" }}
+                      >
+                        ★ {l.packageBadge.packageTitle}
+                      </span>
+                    )}
                     <div style={{ fontSize: 13.5, fontWeight: 600, marginBottom: 4 }}>{l.title}</div>
                     <div className="potg-muted" style={{ fontSize: 11.5, marginBottom: 8 }}>
                       {l.propertyType.replace(/_/g, " ")} · {[l.city, l.country].filter(Boolean).join(", ")}
@@ -210,6 +218,14 @@ export default function LandingPage() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 16 }}>
               {businesses.map((b) => (
                 <Link key={b.accountId} href={`/go/${b.accountId}`} className="potg-card" style={{ display: "block", padding: 16 }}>
+                  {b.packageBadge && (
+                    <span
+                      className="potg-badge"
+                      style={{ background: "#fff4d6", borderColor: "#e8c46a", color: "#8a6a00", marginBottom: 6, display: "inline-block" }}
+                    >
+                      ★ {b.packageBadge.packageTitle}
+                    </span>
+                  )}
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
                     <span style={{ fontSize: 14, fontWeight: 700, color: "var(--potg-navy)" }}>{b.businessName}</span>
                     <span className="potg-badge" style={{ color: TRUST_BAND_COLOR[b.trustScore.band] ?? undefined, flexShrink: 0 }}>
