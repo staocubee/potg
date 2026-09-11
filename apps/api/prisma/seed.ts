@@ -92,6 +92,11 @@ const PERMISSIONS = [
   // it's withheld from viewer the same way payment:write is.
   { key: 'package:read', label: 'Browse visibility packages and view your own subscription history' },
   { key: 'package:write', label: 'Subscribe your account to a visibility package' },
+  // Module 24's "Branch property report"/"Facility cost report" (this
+  // pass) — see branches.module.ts's own comment. Same read/write pair
+  // every other account-owned resource in this file already uses.
+  { key: 'branch:read', label: 'View branches and which properties are assigned to each' },
+  { key: 'branch:write', label: 'Create, edit, or remove a branch, and assign properties to one' },
 ];
 
 // No new permission keys needed for the inspector role below — it's built
@@ -141,6 +146,8 @@ const ROLES: Record<string, string[]> = {
     'review:write',
     'package:read',
     'package:write',
+    'branch:read',
+    'branch:write',
   ],
   family_admin: [
     'property:read',
@@ -183,6 +190,8 @@ const ROLES: Record<string, string[]> = {
     'review:write',
     'package:read',
     'package:write',
+    'branch:read',
+    'branch:write',
   ],
   company_admin: [
     'property:read',
@@ -225,6 +234,8 @@ const ROLES: Record<string, string[]> = {
     'review:write',
     'package:read',
     'package:write',
+    'branch:read',
+    'branch:write',
   ],
   // A vendor account browses/edits its own marketplace profile, sees the
   // projects it's been invited to or hired for, quotes on them, and can
@@ -336,6 +347,7 @@ const ROLES: Record<string, string[]> = {
     'order:read',
     'rental:read',
     'package:read',
+    'branch:read',
   ],
   // Module 6's actual "neutral reviewer" — a role deliberately never
   // granted to the vendor or supplier roles above, so a vendor/supplier

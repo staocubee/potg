@@ -26,6 +26,7 @@ import { CommunitiesModule } from './communities/communities.module';
 import { DevelopmentAgreementsModule } from './development-agreements/development-agreements.module';
 import { PublicProfilesModule } from './public-profiles/public-profiles.module';
 import { PackagesModule } from './packages/packages.module';
+import { BranchesModule } from './branches/branches.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { PackagesModule } from './packages/packages.module';
     DevelopmentAgreementsModule,
     PublicProfilesModule,
     PackagesModule,
+    BranchesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

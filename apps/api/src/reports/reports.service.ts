@@ -116,21 +116,21 @@ const METRIC_REGISTRY: Record<string, { label: string; rows: (o: PortfolioOvervi
   //
   // Real, user-supplied scope: 17 named reports across Owner/Company/
   // Marketplace categories. Property portfolio summary and document
-  // status report were already covered by the metrics above; these 5
-  // new keys close the property expense report, rental income report,
-  // vendor performance report (which doubles as "vendor job completion"
-  // — the same underlying data, Company and Marketplace categories both
-  // naming it), and supplier sales / material order trends — all
-  // computed from real data that already existed (payouts, rent
-  // payments, vendor assignments/reviews, orders) but had never been
-  // aggregated into a report before. See getPortfolioOverview's own
+  // status report were already covered by the metrics above; these keys
+  // close the property expense report, rental income report, vendor
+  // performance report (which doubles as "vendor job completion" — the
+  // same underlying data, Company and Marketplace categories both naming
+  // it), supplier sales / material order trends, and — a later pass,
+  // once Branch existed and the listing-engagement/ROI gaps were closed
+  // — branch property report, facility cost report, listing performance,
+  // inquiry conversion, and investment performance. All computed from
+  // real data (payouts, rent payments, vendor assignments/reviews,
+  // orders, listings, valuations) that already existed but had never
+  // been aggregated into a report before. See getPortfolioOverview's own
   // comment on each new group for what's genuinely new vs already
-  // tracked, and the README for what this pass explicitly didn't reach
-  // (branch/facility reports — no Branch entity exists; asset
-  // utilization — RentalBooking only tracks this account renting *from*
-  // suppliers, not utilization of its own assets; listing performance/
-  // inquiry conversion — a real, buildable gap, cut to keep this pass
-  // bounded).
+  // tracked, and the README for what's still explicitly out of scope
+  // (asset utilization — RentalBooking only tracks this account renting
+  // *from* suppliers, not utilization of its own assets).
   property_expenses: {
     label: 'Property expense report (project spend)',
     rows: (o) => o.propertyExpenses.map((p) => ({ label: `${p.propertyName} — spend (${p.currency})`, value: p.total })),
@@ -158,6 +158,42 @@ const METRIC_REGISTRY: Record<string, { label: string; rows: (o: PortfolioOvervi
   material_order_trends: {
     label: 'Material order trends (last 90 days)',
     rows: (o) => o.materialOrderTrends.map((m) => ({ label: `${m.productName} — ${m.quantity} unit(s) (${m.currency})`, value: m.total })),
+  },
+  branch_property_report: {
+    label: 'Branch property report',
+    rows: (o) => o.branchPropertyReport.map((b) => ({ label: `${b.branchName} — properties`, value: b.count })),
+  },
+  facility_cost_report: {
+    label: 'Facility cost report',
+    rows: (o) => o.facilityCostReport.map((b) => ({ label: `${b.branchName} — spend (${b.currency})`, value: b.total })),
+  },
+  listing_performance: {
+    label: 'Listing performance report',
+    rows: (o) =>
+      o.listingPerformance.map((l) => ({
+        label: `${l.title} — views/inquiries/offers/favorites`,
+        value: `${l.viewCount}/${l.inquiryCount}/${l.offerCount}/${l.favoriteCount}`,
+      })),
+  },
+  inquiry_conversion: {
+    label: 'Inquiry conversion report',
+    rows: (o) => [
+      { label: 'Total inquiries received', value: o.inquiryConversion.totalInquiries },
+      { label: 'Listings with at least one inquiry', value: o.inquiryConversion.listingsWithInquiries },
+      { label: 'Of those, sold or rented', value: o.inquiryConversion.listingsConverted },
+      { label: 'Conversion rate', value: `${(o.inquiryConversion.conversionRate * 100).toFixed(1)}%` },
+    ],
+  },
+  investment_performance: {
+    label: 'Investment performance report',
+    rows: (o) => [
+      ...o.investmentPerformanceTotals.flatMap((t) => [
+        { label: `Total invested (${t.currency})`, value: t.totalInvested },
+        { label: `Total current value (${t.currency})`, value: t.totalCurrentValue },
+        { label: `Overall ROI (${t.currency})`, value: `${t.overallRoiPercent.toFixed(1)}%` },
+      ]),
+      ...o.investmentPerformance.map((p) => ({ label: `${p.propertyName} — ROI`, value: `${p.simpleRoiPercent.toFixed(1)}%` })),
+    ],
   },
 };
 
@@ -218,8 +254,14 @@ export class ReportsService {
       vendorReviews,
       orders,
       allRentPayments,
+      branches,
+      listings,
+      valuations,
     ] = await Promise.all([
-      this.prisma.property.findMany({ where: { accountId }, select: { id: true, name: true, status: true, estimatedValue: true } }),
+      this.prisma.property.findMany({
+        where: { accountId },
+        select: { id: true, name: true, status: true, estimatedValue: true, branchId: true },
+      }),
       this.prisma.project.findMany({ where: { accountId }, select: { status: true } }),
       this.prisma.maintenanceRequest.findMany({ where: { property: { accountId } }, select: { status: true } }),
       this.prisma.propertyInspection.findMany({ where: { property: { accountId } }, select: { status: true, overallResult: true } }),
@@ -296,6 +338,42 @@ export class ReportsService {
         where: { lease: { property: { accountId } } },
         select: { amount: true, currency: true, lease: { select: { propertyId: true } } },
       }),
+      // Module 24's "Branch property report"/"Facility cost report" —
+      // just the id/name this account's own branches need to be grouped
+      // by below; a branch's own property list is already derivable from
+      // `properties` above via branchId, no need to include it here too.
+      this.prisma.branch.findMany({ where: { accountId }, select: { id: true, name: true } }),
+      // Module 24's "Listing performance report"/"Inquiry conversion
+      // report" — Prisma's own relation `_count` rather than three
+      // separate findMany + .length passes over ListingInquiry/
+      // ListingOffer/ListingFavorite, since nothing here needs the
+      // individual rows, only how many exist per listing.
+      this.prisma.propertyListing.findMany({
+        where: { accountId },
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          viewCount: true,
+          _count: { select: { inquiries: true, offers: true, favorites: true } },
+        },
+      }),
+      // Module 24's "Investment performance report" — the same
+      // acquisitionValue/currentValue/simpleRoiPercent formula
+      // PropertiesService.getRoiSummary already uses per-property,
+      // computed here for every property in the portfolio at once
+      // (reusing `properties`/`payouts` above for acquisitionValue/
+      // totalProjectSpend) rather than N+1 calls to that endpoint, and
+      // without its own heavier valuationHistory array — a report row,
+      // not a full ROI drill-down. Only the latest valuation per property
+      // is actually used (see investmentPerformance below), but every
+      // valuation is fetched in one query rather than N — small enough
+      // per account that this is never worth a groupBy/distinct-on query.
+      this.prisma.propertyValuation.findMany({
+        where: { property: { accountId } },
+        orderBy: { valuedAt: 'asc' },
+        select: { propertyId: true, estimatedValue: true, currency: true },
+      }),
     ]);
 
     const completedInspections = inspections.filter((i: { status: string }) => i.status === 'completed');
@@ -349,6 +427,66 @@ export class ReportsService {
         });
       }
     }
+
+    // Branch property report / Facility cost report — grouped by branch,
+    // with every unassigned property/payout landing in a real
+    // "Unassigned" bucket rather than being silently dropped (see
+    // Branch's own schema comment on why null branchId is an expected,
+    // permanent state, not a migration gap to clean up). "Facility cost"
+    // is reframed honestly the same way "Supplier sales" already was
+    // (this account's own spend, not a facility's real-world operating
+    // cost): project spend on properties in that branch — the same
+    // grossAmount expenseByProperty above already computed, just resummed
+    // by branch instead of by property, so this is a re-aggregation of
+    // data already fetched, not a second pass over payouts.
+    const branchNameById = new Map((branches as { id: string; name: string }[]).map((b) => [b.id, b.name]));
+    const branchIdByProperty = new Map((properties as { id: string; branchId: string | null }[]).map((p) => [p.id, p.branchId]));
+    const UNASSIGNED_BRANCH_LABEL = 'Unassigned';
+    const branchProperties = new Map<string, { branchId: string | null; branchName: string; count: number; totalEstimatedValue: number }>();
+    for (const p of properties as { id: string; branchId: string | null; estimatedValue: unknown }[]) {
+      const key = p.branchId ?? 'unassigned';
+      const existing = branchProperties.get(key);
+      const value = Number(p.estimatedValue ?? 0);
+      if (existing) {
+        existing.count += 1;
+        existing.totalEstimatedValue += value;
+      } else {
+        branchProperties.set(key, {
+          branchId: p.branchId,
+          branchName: p.branchId ? (branchNameById.get(p.branchId) ?? 'Unknown branch') : UNASSIGNED_BRANCH_LABEL,
+          count: 1,
+          totalEstimatedValue: value,
+        });
+      }
+    }
+    // Every branch with zero properties still shows up (count: 0) — a
+    // company that just created a branch and hasn't assigned anything to
+    // it yet is a real, common state, not something this report should
+    // hide.
+    for (const b of branches as { id: string; name: string }[]) {
+      if (!branchProperties.has(b.id)) {
+        branchProperties.set(b.id, { branchId: b.id, branchName: b.name, count: 0, totalEstimatedValue: 0 });
+      }
+    }
+    const branchPropertyReport = Array.from(branchProperties.values()).sort((a, b) => b.count - a.count);
+
+    const branchCosts = new Map<string, { branchId: string | null; branchName: string; currency: string; total: number }>();
+    for (const e of expenseByProperty.values()) {
+      const branchId = branchIdByProperty.get(e.propertyId) ?? null;
+      const key = `${branchId ?? 'unassigned'}:${e.currency}`;
+      const existing = branchCosts.get(key);
+      if (existing) {
+        existing.total += e.total;
+      } else {
+        branchCosts.set(key, {
+          branchId,
+          branchName: branchId ? (branchNameById.get(branchId) ?? 'Unknown branch') : UNASSIGNED_BRANCH_LABEL,
+          currency: e.currency,
+          total: e.total,
+        });
+      }
+    }
+    const facilityCostReport = Array.from(branchCosts.values()).sort((a, b) => b.total - a.total);
 
     // Rental income report — LeaseRentPayment has existed since Module 13
     // and was, until now, only ever read to decide whether rent looks
@@ -450,6 +588,87 @@ export class ReportsService {
       .sort((a, b) => b.total - a.total)
       .slice(0, 10);
 
+    // Listing performance report / Inquiry conversion report — real
+    // per-listing engagement (views, inquiries, offers, favorites), and
+    // an honest account-wide conversion read on top of it. Inquiries and
+    // offers aren't directly linked to each other anywhere in this schema
+    // (both only carry listingId, no inquiryId on offer or vice versa),
+    // so "conversion" is deliberately framed at the listing level — did a
+    // listing that received at least one inquiry go on to actually sell
+    // or rent — rather than claiming any specific inquiry caused any
+    // specific sale, which this data can't actually prove.
+    const listingPerformance = (
+      listings as { id: string; title: string; status: string; viewCount: number; _count: { inquiries: number; offers: number; favorites: number } }[]
+    ).map((l) => ({
+      listingId: l.id,
+      title: l.title,
+      status: l.status,
+      viewCount: l.viewCount,
+      inquiryCount: l._count.inquiries,
+      offerCount: l._count.offers,
+      favoriteCount: l._count.favorites,
+    }));
+    const listingsWithInquiries = listingPerformance.filter((l) => l.inquiryCount > 0);
+    const listingsConverted = listingsWithInquiries.filter((l) => l.status === 'sold' || l.status === 'rented');
+    const inquiryConversion = {
+      totalInquiries: listingPerformance.reduce((sum, l) => sum + l.inquiryCount, 0),
+      listingsWithInquiries: listingsWithInquiries.length,
+      listingsConverted: listingsConverted.length,
+      conversionRate: listingsWithInquiries.length > 0 ? listingsConverted.length / listingsWithInquiries.length : 0,
+    };
+
+    // Investment performance report — same simpleRoiPercent formula
+    // PropertiesService.getRoiSummary uses per-property, reusing
+    // `properties`/`payouts` already fetched above rather than
+    // recomputing totalProjectSpend a third time. currentValue is the
+    // latest PropertyValuation for that property (valuations is ordered
+    // valuedAt asc, so the last one seen per property in this single pass
+    // IS the latest — no separate max() query needed), falling back to
+    // the property's own estimatedValue when it has never been valued.
+    const latestValuationByProperty = new Map<string, { estimatedValue: number; currency: string }>();
+    for (const v of valuations as { propertyId: string; estimatedValue: unknown; currency: string }[]) {
+      latestValuationByProperty.set(v.propertyId, { estimatedValue: Number(v.estimatedValue), currency: v.currency });
+    }
+    const projectSpendByProperty = new Map<string, number>();
+    for (const p of payouts as { grossAmount: unknown; project: { propertyId: string } }[]) {
+      const propertyId = p.project.propertyId;
+      projectSpendByProperty.set(propertyId, (projectSpendByProperty.get(propertyId) ?? 0) + Number(p.grossAmount));
+    }
+    const investmentPerformance = (properties as { id: string; name: string; estimatedValue: unknown }[]).map((prop) => {
+      const acquisitionValue = Number(prop.estimatedValue ?? 0);
+      const latestValuation = latestValuationByProperty.get(prop.id);
+      const currentValue = latestValuation ? latestValuation.estimatedValue : acquisitionValue;
+      const totalProjectSpend = projectSpendByProperty.get(prop.id) ?? 0;
+      const invested = acquisitionValue + totalProjectSpend;
+      const simpleRoiPercent = invested > 0 ? ((currentValue - invested) / invested) * 100 : 0;
+      return {
+        propertyId: prop.id,
+        propertyName: prop.name,
+        currency: latestValuation?.currency ?? account.currency,
+        acquisitionValue,
+        currentValue,
+        totalProjectSpend,
+        invested,
+        simpleRoiPercent,
+      };
+    });
+    // Portfolio totals, grouped by currency — never summed across
+    // currencies, same convention every other money aggregate above
+    // already follows.
+    const investmentTotalsByCurrency = new Map<string, { totalInvested: number; totalCurrentValue: number }>();
+    for (const p of investmentPerformance) {
+      const existing = investmentTotalsByCurrency.get(p.currency) ?? { totalInvested: 0, totalCurrentValue: 0 };
+      existing.totalInvested += p.invested;
+      existing.totalCurrentValue += p.currentValue;
+      investmentTotalsByCurrency.set(p.currency, existing);
+    }
+    const investmentPerformanceTotals = Array.from(investmentTotalsByCurrency, ([currency, t]) => ({
+      currency,
+      totalInvested: t.totalInvested,
+      totalCurrentValue: t.totalCurrentValue,
+      overallRoiPercent: t.totalInvested > 0 ? ((t.totalCurrentValue - t.totalInvested) / t.totalInvested) * 100 : 0,
+    }));
+
     return {
       currency: account.currency,
       digestFrequency: account.reportDigestFrequency,
@@ -497,6 +716,12 @@ export class ReportsService {
       vendorPerformance,
       supplierSales,
       materialOrderTrends,
+      branchPropertyReport,
+      facilityCostReport,
+      listingPerformance,
+      inquiryConversion,
+      investmentPerformance,
+      investmentPerformanceTotals,
     };
   }
 

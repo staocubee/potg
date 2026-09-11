@@ -49,6 +49,10 @@ export class PropertiesService {
   private readonly vendorSummarySelect = { id: true, businessName: true, serviceCategory: true, verificationStatus: true } as const;
 
   async create(accountId: string, dto: CreatePropertyDto) {
+    if (dto.branchId) {
+      const branch = await this.prisma.branch.findFirst({ where: { id: dto.branchId, accountId } });
+      if (!branch) throw new BadRequestException('That branch does not belong to this account');
+    }
     const property = await this.prisma.property.create({
       data: { accountId, ...dto },
     });
@@ -329,7 +333,22 @@ export class PropertiesService {
   // swallow-and-log reasoning `create` already uses — a stale embedding
   // is a search-quality issue, not something that should fail an edit.
   async updateProperty(propertyId: string, dto: UpdatePropertyDto) {
-    const property = await this.prisma.property.update({ where: { id: propertyId }, data: dto });
+    // Module 24's Branch feature — the account a branchId belongs to
+    // isn't otherwise checked anywhere on this route (:branchId isn't a
+    // URL param here for PermissionsGuard's own ABAC check to key on,
+    // since this arrives in the body), so this is the one place that
+    // actually has to confirm it before letting the assignment through.
+    if (dto.branchId) {
+      const owner = await this.prisma.property.findUniqueOrThrow({ where: { id: propertyId }, select: { accountId: true } });
+      const branch = await this.prisma.branch.findFirst({ where: { id: dto.branchId, accountId: owner.accountId } });
+      if (!branch) throw new BadRequestException('That branch does not belong to this account');
+    }
+    const property = await this.prisma.property.update({
+      where: { id: propertyId },
+      // Empty string means "unassign" — same convention
+      // UpdateInspectionDto.projectId's own handling already uses.
+      data: { ...dto, branchId: dto.branchId !== undefined ? dto.branchId || null : undefined },
+    });
     this.indexEmbedding(property).catch((err) => {
       this.logger.warn(`Skipping re-index for property ${property.id}: ${err instanceof Error ? err.message : err}`);
     });

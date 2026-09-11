@@ -83,4 +83,11 @@ export class CreatePropertyDto {
   @IsArray()
   @IsString({ each: true })
   photoUrls?: string[];
+
+  // Module 24's Branch feature — optional, same reasoning every field
+  // here is: a property is real and useful long before its owner has
+  // organized it into a branch.
+  @IsOptional()
+  @IsString()
+  branchId?: string;
 }

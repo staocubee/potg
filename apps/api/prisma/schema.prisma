@@ -85,6 +85,7 @@ model Account {
   notifications   Notification[]
   developmentAgreementsProposed PropertyDevelopmentAgreement[]
   packageSubscriptions PackageSubscription[]
+  branches Branch[]
 
   @@map("accounts")
 }
@@ -397,6 +398,10 @@ model KycVerification {
 model Property {
   id             String    @id @default(uuid())
   accountId      String
+  // Optional — see Branch's own schema comment. Null means "not assigned
+  // to a branch," a real, expected state every branch-scoped report
+  // reports as its own "Unassigned" bucket rather than silently dropping.
+  branchId       String?
   propertyType   String
   name           String
   addressLine    String
@@ -432,6 +437,7 @@ model Property {
   updatedAt      DateTime  @updatedAt
 
   account        Account                 @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  branch         Branch?                 @relation(fields: [branchId], references: [id], onDelete: SetNull)
   owners         PropertyOwner[]
   documents      Document[]
   accessGrants   PropertyAccessGrant[]
@@ -1822,6 +1828,35 @@ model Community {
   announcements CommunityAnnouncement[]
 
   @@map("communities")
+}
+
+// Module 24's "Branch property report"/"Facility cost report" (Company
+// Reports) — the structural gap a code-level audit found: a COMPANY
+// account managing properties across multiple physical locations/offices
+// had nowhere to record that grouping at all, so those two reports could
+// never have existed no matter how the report code was written. Same
+// shape as Community above (an account-owned, optionally-located
+// sub-resource), deliberately not account-type-restricted at the schema
+// level — a FAMILY or INDIVIDUAL account with properties in more than
+// one city can use this too, same as nothing else in this schema gates
+// on accountType beyond what a role's own permission set decides.
+// Properties are optionally assigned (Property.branchId, nullable) — a
+// property never has to belong to one, and every report below accounts
+// for an "Unassigned" bucket rather than assuming full coverage.
+model Branch {
+  id        String   @id @default(uuid())
+  accountId String
+  name      String
+  city      String?
+  state     String?
+  country   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  account    Account    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  properties Property[]
+
+  @@map("branches")
 }
 
 // Freeform, same "record what's true, no forced workflow" reasoning

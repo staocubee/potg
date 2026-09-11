@@ -5193,13 +5193,15 @@ documented rather than invented.
   so these 5 new keys just appear as selectable checkboxes, and running/
   exporting/AI-narrating a saved report that includes them already
   worked, unchanged.
-  - **`property_expenses`** (Owner's "Property expense report", and
-    Company's "Facility cost report" — this schema has no separate
-    Facility concept from Property, so the same report covers both) —
-    real `Payout` spend, grouped by property (joined through
+  - **`property_expenses`** (Owner's "Property expense report") — real
+    `Payout` spend, grouped by property (joined through
     `Payout.project.propertyId`) and currency. Previously only ever
     summed account-wide (`vendorSpendByCurrency`/`topVendors`), never
-    broken down per property.
+    broken down per property. (A later pass added a real `Branch` model
+    and its own dedicated `facility_cost_report` — see below — this
+    bullet's original claim that "Facility cost report" was already
+    covered here didn't hold up once a real Facility/Branch concept
+    existed to check it against.)
   - **`property_rental_income`** (Owner's "Rental income report") —
     real `LeaseRentPayment.amount`, grouped by property and currency.
     That table has existed since Module 13 and was, until now, only
@@ -5242,30 +5244,23 @@ documented rather than invented.
   multiple ended leases) now appears. Also verified CSV export and AI
   narration both correctly include the new metrics unchanged, then
   deleted the test report definition to leave the demo account clean.
-- **Not done, by explicit scope, not oversight**: **Branch property
-  report** (Company) — this schema has no Branch entity or any
-  multi-location concept under a COMPANY-type account, the same
-  "needs infrastructure this pass doesn't add" reasoning as Module 22's
-  device integrations; **Asset utilization report** (Company) —
-  `RentalBooking.accountId` is the account *renting from* a supplier,
-  there's no tracking anywhere of an account's own assets being rented
-  out or otherwise utilized; **Compliance report** (Company) — the
-  existing `ComplianceItem` model is platform-wide admin data (jurisdiction/
-  category tracking for `platform_admin`), not scoped to an owning
-  account at all, so it doesn't answer "is my own portfolio compliant"
-  the way this named report means; **Maintenance report** (Owner) beyond
-  the existing open/resolved counts — `MaintenanceRequest` has no cost
-  field, so a real maintenance *cost* report isn't buildable from what's
-  on record; **Project progress report** and **Investment performance
-  report** (Owner) beyond what already exists per-project
-  (`ProjectStageBar`) and per-property (the ROI/valuation dashboard) —
-  no portfolio-wide rollup of either was built this pass; **Listing
-  performance** and **Inquiry conversion** (Marketplace) — a real,
-  evidence-backed gap (`PropertyListing.viewCount` is already live and
-  incremented, `ListingInquiry`/`ListingOffer` status funnels already
-  exist, just never aggregated across an account's listings), cut to
-  keep this pass to 5 metric groups rather than 7, the same kind of
-  bounded cut Module 19 made across its own 9 named features.
+- **Not done, by explicit scope, not oversight**: **Asset utilization
+  report** (Company) — `RentalBooking.accountId` is the account *renting
+  from* a supplier, there's no tracking anywhere of an account's own
+  assets being rented out or otherwise utilized; **Compliance report**
+  (Company) — the existing `ComplianceItem` model is platform-wide admin
+  data (jurisdiction/category tracking for `platform_admin`), not scoped
+  to an owning account at all, so it doesn't answer "is my own portfolio
+  compliant" the way this named report means; **Maintenance report**
+  (Owner) beyond the existing open/resolved counts — `MaintenanceRequest`
+  has no cost field, so a real maintenance *cost* report isn't buildable
+  from what's on record; **Project progress report** (Owner) beyond what
+  already exists per-project (`ProjectStageBar`) — no portfolio-wide
+  rollup was built this pass. (**Branch property report**, **Investment
+  performance report**, **Listing performance**, and **Inquiry
+  conversion** — all named here as cut for this same reason — were
+  closed in a later pass; see "Module 24: Branch, Investment, Listing,
+  and Inquiry reports" below.)
 
 ## Property development agreements — invite a developer to build (this pass)
 
@@ -6137,6 +6132,82 @@ scoping anywhere" shape that module's own comment already describes.
 - Marketplace GMV still doesn't include property-listing sales, for the
   real schema reason above — closing that means adding a recorded sale
   price to `PropertyListing` first, a separate, earlier gap.
+
+## Module 24: Branch, Investment, Listing, and Inquiry reports (this pass)
+
+The four remaining Module 24 gaps a code-level audit found — three of
+them (Listing performance, Inquiry conversion, Investment performance)
+were buildable immediately from data that already existed; the fourth
+(Branch/Facility reports) needed a real new model first, since nothing
+in this schema had ever recorded that a COMPANY (or any) account
+organizes its properties across more than one physical location.
+
+**What's built**:
+
+- **`Branch`** (new model) — an account-owned location/office a property
+  can optionally belong to (`Property.branchId`, nullable — a property
+  never has to have one, and every report below treats "unassigned" as a
+  real, permanent bucket, not a migration gap to clean up). Deliberately
+  not restricted to `accountType: COMPANY` at the schema level, same as
+  nothing else here gates on account type beyond what a role's own
+  permissions decide. Full CRUD (`branches.module.ts`, `branch:read`/
+  `branch:write`, granted to the same three owner-tier roles as every
+  other account-owned resource) plus a `/branches` list page and detail
+  page, and a branch picker on the property create/edit forms.
+- **`branch_property_report`** — properties grouped by branch (count +
+  total estimated value), including a zero-property branch (a company
+  that just created one) and the Unassigned bucket.
+- **`facility_cost_report`** — project spend (`Payout.grossAmount`,
+  re-aggregating the exact same data `property_expenses` already
+  computed, just re-summed by branch instead of by property) grouped by
+  branch. Reframed honestly the same way "Supplier sales" already was:
+  this account's own spend, not a facility's real-world operating cost.
+- **`listing_performance`** — real per-listing engagement:
+  `PropertyListing.viewCount` (already live, already incremented on
+  every detail view) alongside inquiry/offer/favorite counts via
+  Prisma's own relation `_count`, not three extra queries.
+- **`inquiry_conversion`** — deliberately framed at the listing level,
+  not the individual-inquiry level: `ListingInquiry` and `ListingOffer`
+  aren't linked to each other anywhere in this schema (both only carry
+  `listingId`), so this reports "did a listing that received at least
+  one inquiry go on to actually sell or rent" rather than claiming any
+  specific inquiry caused any specific sale, which this data can't
+  actually prove.
+- **`investment_performance`** — the same `acquisitionValue`/
+  `currentValue`/`simpleRoiPercent` formula `PropertiesService.
+  getRoiSummary` already uses per-property, computed for every property
+  in the portfolio at once (reusing data already fetched for other
+  metrics rather than N+1 calls to that endpoint) and rolled up into
+  real portfolio totals, grouped by currency.
+- All five are pure `METRIC_REGISTRY` additions inside the same
+  `getPortfolioOverview` call every other metric already comes from —
+  zero new frontend code for the report-builder side, same as the first
+  five Module 24 metrics; they just appear as new selectable checkboxes.
+- **Verified live, cross-checked against real data**: created a real
+  branch, assigned the demo property to it, built a saved report
+  selecting all five new metrics, and ran it — confirmed the Unassigned
+  bucket correctly held the other 3 demo properties, the branch's own
+  facility cost (₦903,500) and investment totals (₦185,903,500 invested,
+  13.0% ROI) matched figures independently verified earlier this session
+  for this exact property, listing performance showed the real view
+  count (18) with correctly-zero inquiries/offers, and inquiry
+  conversion correctly reported 0% rather than a crash or `NaN` on an
+  account with no real inquiries yet.
+
+**Not done — explicit scope, not oversight**:
+
+- No way to reassign multiple properties to a branch at once — one at a
+  time, from each property's own edit form.
+- Investment performance's per-property ROI reads 0% for any property
+  that has never received a separate `PropertyValuation` (acquisitionValue
+  and currentValue both fall back to the same `estimatedValue`) — correct
+  behavior, not a bug, but worth knowing before reading a portfolio full
+  of 0%s as "nothing is appreciating."
+- Inquiry conversion still can't attribute a specific sale to a specific
+  inquiry, for the real schema reason above — an `inquiryId` on `ListingOffer`
+  would need to exist first, and that's a UX decision (does making an
+  offer require citing which inquiry prompted it?) not just a schema
+  addition.
 
 ## Not built yet
 

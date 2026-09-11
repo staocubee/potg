@@ -90,4 +90,11 @@ export class UpdatePropertyDto {
   @IsArray()
   @IsString({ each: true })
   photoUrls?: string[];
+
+  // Module 24's Branch feature — an empty string means "unassign," same
+  // convention UpdateInspectionDto.projectId already uses (see
+  // PropertiesService.updateProperty's own handling of this).
+  @IsOptional()
+  @IsString()
+  branchId?: string;
 }

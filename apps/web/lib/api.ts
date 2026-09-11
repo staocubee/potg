@@ -440,6 +440,22 @@ export type Community = {
   announcements?: CommunityAnnouncement[];
 };
 
+// Module 24's "Branch property report"/"Facility cost report" — see
+// Branch's own schema comment. `_count` only present on GET /branches
+// (the list view); `properties` only present on GET /branches/:id.
+export type Branch = {
+  id: string;
+  accountId: string;
+  name: string;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  _count?: { properties: number };
+  properties?: { id: string; name: string; propertyType: string; status: string; estimatedValue?: string | null }[];
+};
+
 export type Property = {
   id: string;
   accountId: string;
@@ -465,6 +481,9 @@ export type Property = {
   yearBuilt?: number | null;
   amenities: string[];
   photoUrls: string[];
+  // Module 24's Branch feature — null means unassigned, a real, expected
+  // state (see Branch's own schema comment).
+  branchId?: string | null;
   createdAt: string;
   updatedAt: string;
   owners?: unknown[];
@@ -1690,6 +1709,7 @@ export class ApiClient {
     yearBuilt?: number;
     amenities?: string[];
     photoUrls?: string[];
+    branchId?: string;
   }) {
     return request<Property>("/properties", { method: "POST", body: input, token: this.token, accountId: this.accountId });
   }
@@ -1712,6 +1732,9 @@ export class ApiClient {
       yearBuilt: number;
       amenities: string[];
       photoUrls: string[];
+      // Empty string means "unassign" — see UpdatePropertyDto's own
+      // comment on this convention.
+      branchId: string;
     }>,
   ) {
     return request<Property>(`/properties/${propertyId}`, {
@@ -2563,6 +2586,22 @@ export class ApiClient {
       token: this.token,
       accountId: this.accountId,
     });
+  }
+  // --- Module 24: Branches (branch:read/write) ---
+  listBranches() {
+    return request<Branch[]>("/branches", { token: this.token, accountId: this.accountId });
+  }
+  createBranch(input: { name: string; city?: string; state?: string; country?: string }) {
+    return request<Branch>("/branches", { method: "POST", body: input, token: this.token, accountId: this.accountId });
+  }
+  getBranch(branchId: string) {
+    return request<Branch>(`/branches/${branchId}`, { token: this.token, accountId: this.accountId });
+  }
+  updateBranch(branchId: string, input: { name?: string; city?: string; state?: string; country?: string }) {
+    return request<Branch>(`/branches/${branchId}`, { method: "PATCH", body: input, token: this.token, accountId: this.accountId });
+  }
+  deleteBranch(branchId: string) {
+    return request<{ message: string }>(`/branches/${branchId}`, { method: "DELETE", token: this.token, accountId: this.accountId });
   }
   // --- Platform compliance tracker (compliance:read/write — platform_reviewer only) ---
   listComplianceItems() {

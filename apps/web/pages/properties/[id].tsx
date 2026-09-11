@@ -2,7 +2,7 @@ import { ChangeEvent, FormEvent, PointerEvent as ReactPointerEvent, useEffect, u
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { AccessGrant, AccountMemberSummary, ApiError, ComparableValuation, DevelopmentAgreement, Lease, MaintenanceRequest, Project, Property, PropertyDevice, PropertyInspection, PropertyTourAsset, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
+import { AccessGrant, AccountMemberSummary, ApiError, Branch, ComparableValuation, DevelopmentAgreement, Lease, MaintenanceRequest, Project, Property, PropertyDevice, PropertyInspection, PropertyTourAsset, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -680,8 +680,15 @@ function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUp
   const [yearBuilt, setYearBuilt] = useState(property.yearBuilt?.toString() ?? "");
   const [amenities, setAmenities] = useState(property.amenities.join(", "));
   const [photoUrls, setPhotoUrls] = useState(property.photoUrls.join(", "));
+  const [branchId, setBranchId] = useState(property.branchId ?? "");
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    auth.api.listBranches().then(setBranches).catch(() => setBranches([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function startEditing() {
     setBedrooms(property.bedrooms?.toString() ?? "");
@@ -690,6 +697,7 @@ function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUp
     setYearBuilt(property.yearBuilt?.toString() ?? "");
     setAmenities(property.amenities.join(", "));
     setPhotoUrls(property.photoUrls.join(", "));
+    setBranchId(property.branchId ?? "");
     setError(null);
     setEditing(true);
   }
@@ -711,6 +719,10 @@ function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUp
           .split(",")
           .map((u) => u.trim())
           .filter(Boolean),
+        // Sent directly, not `|| undefined` — an empty string here means
+        // "unassign," same convention UpdateInspectionDto.projectId's own
+        // edit form already uses.
+        branchId,
       });
       onUpdated(updated);
       setEditing(false);
@@ -771,6 +783,17 @@ function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUp
               onChange={(e) => setPhotoUrls(e.target.value)}
             />
           </div>
+          <div>
+            <label className="potg-label">Branch (optional)</label>
+            <select className="potg-input" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+              <option value="">No branch</option>
+              {branches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button className="potg-btn potg-btn-primary" disabled={busy} onClick={onSave}>
               {busy ? "Saving…" : "Save"}
@@ -782,6 +805,14 @@ function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUp
         </div>
       ) : (
         <>
+          {property.branchId && (
+            <p className="potg-muted" style={{ fontSize: 12, margin: "0 0 10px" }}>
+              Branch:{" "}
+              <Link href={`/branches/${property.branchId}`} style={{ color: "var(--potg-teal)", fontWeight: 600 }}>
+                {branches.find((b) => b.id === property.branchId)?.name ?? "…"}
+              </Link>
+            </p>
+          )}
           {property.amenities.length > 0 && (
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: property.photoUrls.length > 0 ? 12 : 0 }}>
               {property.amenities.map((a) => (

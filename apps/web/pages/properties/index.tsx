@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Announcement, DevelopmentAgreementMine, Property } from "../../lib/api";
+import { ApiError, Announcement, Branch, DevelopmentAgreementMine, Property } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 
@@ -234,8 +234,15 @@ function AddPropertyForm({ onCreated }: { onCreated: (p: Property) => void }) {
   const [bathrooms, setBathrooms] = useState("");
   const [squareFootage, setSquareFootage] = useState("");
   const [yearBuilt, setYearBuilt] = useState("");
+  const [branchId, setBranchId] = useState("");
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    auth.api.listBranches().then(setBranches).catch(() => setBranches([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -254,6 +261,7 @@ function AddPropertyForm({ onCreated }: { onCreated: (p: Property) => void }) {
         bathrooms: bathrooms ? Number(bathrooms) : undefined,
         squareFootage: squareFootage ? Number(squareFootage) : undefined,
         yearBuilt: yearBuilt ? Number(yearBuilt) : undefined,
+        branchId: branchId || undefined,
       });
       onCreated(property);
     } catch (err) {
@@ -300,6 +308,19 @@ function AddPropertyForm({ onCreated }: { onCreated: (p: Property) => void }) {
           <input className="potg-input" required value={country} onChange={(e) => setCountry(e.target.value)} />
         </div>
       </div>
+      {branches.length > 0 && (
+        <div>
+          <label className="potg-label">Branch (optional)</label>
+          <select className="potg-input" value={branchId} onChange={(e) => setBranchId(e.target.value)}>
+            <option value="">No branch</option>
+            {branches.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       <div>
         <label className="potg-label">Estimated value (optional)</label>
         <input className="potg-input" type="number" min={0} value={estimatedValue} onChange={(e) => setEstimatedValue(e.target.value)} />

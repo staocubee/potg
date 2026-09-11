@@ -80,6 +80,17 @@ export class PermissionsGuard implements CanActivate {
       }
     }
 
+    // Same pattern for :branchId (Module 24's Branch/Facility reports) —
+    // a Branch is an account-owned top-level resource exactly like
+    // Community above.
+    const branchId = req.params?.branchId;
+    if (branchId) {
+      const branch = await this.prisma.branch.findUnique({ where: { id: branchId } });
+      if (!branch || branch.accountId !== accountMember.accountId) {
+        throw new NotFoundException('Branch not found');
+      }
+    }
+
     // Same pattern for :accountId (Module 1) — no extra query needed since
     // AccountContextGuard already resolved which account the caller is
     // acting as. Without this, POST /accounts/:accountId/members had a real

@@ -20,6 +20,9 @@ const NAV_ITEMS: NavItem[] = [
   // the same three roles property:read/write do), so it lives alongside
   // it unconditionally rather than behind a role check.
   { href: "/communities", label: "Communities", icon: "🏘️", enabled: true },
+  // Module 24's "Branch property report"/"Facility cost report" (this
+  // pass) — see branches.module.ts's own comment.
+  { href: "/branches", label: "Branches", icon: "🏢", enabled: true },
   { href: "/projects", label: "Projects", icon: "🛠️", enabled: true },
   { href: "/vendors", label: "Vendors", icon: "🧰", enabled: true },
   { href: "/marketplace", label: "Marketplace", icon: "🏷️", enabled: true },
