@@ -137,6 +137,14 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // Real email verification (this pass) — null means unverified, the
+  // state a brand-new password registration starts in. Not the same
+  // thing as identityVerificationStatus below (a person's real-world
+  // identity, via Sumsub) — this is only "does this account control the
+  // inbox it registered with." See EmailVerificationToken's own schema
+  // comment for exactly what sets this and when.
+  emailVerifiedAt DateTime?
+
   // Module 6's real neutral-reviewer gap that isn't about a business
   // (Vendor/Supplier.verificationStatus) or a document
   // (Document.verificationStatus) — this is the actual person behind an
@@ -158,10 +166,11 @@ model User {
   identityVerifiedAt         DateTime?
   sumsubApplicantId          String?
 
-  memberships         AccountMember[]
-  passwordResetTokens PasswordResetToken[]
-  refreshTokens       RefreshToken[]
-  sentInvites         AccountInvite[]
+  memberships             AccountMember[]
+  passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  refreshTokens           RefreshToken[]
+  sentInvites             AccountInvite[]
 
   @@map("users")
 }
@@ -183,6 +192,31 @@ model PasswordResetToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("password_reset_tokens")
+}
+
+// Real email verification (this pass) — same tokenHash/expiresAt/usedAt
+// shape as PasswordResetToken above, for the same reasons. Backs
+// POST /auth/verify-email + /auth/resend-verification.
+// User.emailVerifiedAt is what actually gates the "verify your email"
+// banner (null = unverified) — set directly, with no token flow at all,
+// for a brand-new Google Sign-In user (Google already proved the
+// address) and for an existing password account the moment it links a
+// Google identity with the same verified email; earned the ordinary way
+// (clicking the emailed link) for every plain password registration.
+// AuthService.resetPassword also sets it on a successful reset — actually
+// clicking a link mailed to that address is the same real proof of inbox
+// control this flow is otherwise built around.
+model EmailVerificationToken {
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_verification_tokens")
 }
 
 // One row per issued refresh token, keyed by the `jti` claim embedded in

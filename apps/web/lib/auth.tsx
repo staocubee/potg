@@ -19,6 +19,13 @@ type AuthContextValue = {
   // whether one existed.
   token: string | null;
   currentUserEmail: string | null;
+  // null while hydrating — see EmailVerificationBanner, which waits for
+  // a definite false before rendering rather than flashing on every load.
+  emailVerified: boolean | null;
+  // Re-fetches GET /auth/me and updates emailVerified/currentUserEmail in
+  // place — used after a successful verify-email so the banner disappears
+  // without a full page reload.
+  refreshMe: () => Promise<void>;
   accounts: AccountSummary[];
   accountsLoaded: boolean;
   currentAccountId: string | null;
@@ -36,6 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [token, setTokenState] = useState<string | null>(null);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+  const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
   const [currentAccountId, setCurrentAccountId] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   // True once GET /auth/accounts has resolved at least once for the current
@@ -53,6 +61,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.localStorage.removeItem(ACCOUNT_KEY);
     setTokenState(null);
     setCurrentUserEmail(null);
+    setEmailVerified(null);
     setCurrentAccountId(null);
     setAccounts([]);
     // Best-effort: an httpOnly cookie can't be cleared by this code
@@ -66,7 +75,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const setSignedIn = useCallback((user: CurrentUser) => {
     setTokenState(user.id);
     setCurrentUserEmail(user.email);
+    setEmailVerified(user.emailVerified);
   }, []);
+
+  // Re-asks GET /auth/me and applies the result the same way setSignedIn
+  // does — the verify-email page's own "it worked" moment calls this so
+  // the banner disappears immediately, without forcing a full reload just
+  // to pick up one field. Same `new ApiClient(null, null)` shape the
+  // initial hydration effect below already uses — me()'s own "pending"
+  // token marker is what actually authenticates the request, not
+  // anything passed to the constructor here.
+  const refreshMe = useCallback(async () => {
+    const user = await new ApiClient(null, null).me();
+    setSignedIn(user);
+  }, [setSignedIn]);
 
   // Wires lib/api.ts's request() up to this provider: on a 401 that a
   // silent refresh couldn't fix, force a real logout. See api.ts's own
@@ -133,6 +155,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     hydrated,
     token,
     currentUserEmail,
+    emailVerified,
+    refreshMe,
     accounts,
     accountsLoaded,
     currentAccountId,

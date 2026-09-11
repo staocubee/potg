@@ -5938,6 +5938,77 @@ that goes nowhere.
   password once one exists — both credentials just keep working side by
   side once linked.
 
+## Email verification (this pass)
+
+A gap surfaced during a pre-push review of the whole session's own work:
+password registration created a fully-working, fee-paying account off
+whatever email someone typed, with no confirmation it was real —
+standing out specifically against the Google Sign-In feature above,
+which hands over a *verified* email for free. Closes that asymmetry with
+a real send-a-link-and-check-it flow, the same shape password reset
+already uses.
+
+**What's built**:
+
+- `User.emailVerifiedAt` (null = unverified) and `EmailVerificationToken`
+  — same tokenHash/expiresAt(24h)/usedAt one-time-use shape as
+  `PasswordResetToken`, for the same reasons (see that model's own
+  schema comment).
+- `register()` fires a real verification email the moment the account is
+  created — same `EmailService`/Resend integration password reset
+  already uses, with the identical graceful fallback (log the link
+  server-side, and return it in the response) when Resend can't actually
+  deliver, whether that's because `RESEND_API_KEY` is unset or, as
+  confirmed live below, because Resend's own sandbox sender refused a
+  recipient outside the account it's registered to.
+- Google Sign-In needs no separate flow at all — a brand-new Google user
+  gets `emailVerifiedAt` set directly at creation (Google already proved
+  the address), and linking Google onto an *existing* password account
+  upgrades that account to verified too, in both cases only if it wasn't
+  verified already.
+- `resetPassword` also marks the email verified now — actually clicking
+  a link mailed to that exact address is the same real proof of inbox
+  control this whole feature is built around, so it would be strange not
+  to count it.
+- `POST /auth/verify-email` (the link's own target, unauthenticated —
+  the token is the credential) and `POST /auth/resend-verification`
+  (authenticated, 3/min) round out the flow. `GET /auth/me` changed from
+  echoing the JWT payload to a real DB lookup, specifically so
+  `emailVerified` is always fresh — encoding it into the 1-hour access
+  token instead would mean a UI that just verified could still show
+  stale state for up to an hour.
+- **Deliberately non-blocking** — nothing in this app actually gates any
+  action on a verified email. `EmailVerificationBanner` shows on every
+  screen via `AppShell` until verified, with a working "Resend" button,
+  but password sign-in/register/every other action keep working exactly
+  as before. A real prompt, not a wall — see "Not done" below for why
+  hard-gating specific actions is a deliberate line this pass doesn't
+  cross.
+- **Verified live, the complete loop**: registered a brand-new password
+  account — confirmed `GET /auth/me` reported `emailVerified: false` and
+  the banner rendered on a real `AppShell` page. Clicking "Resend"
+  surfaced the dev-mode fallback link (Resend genuinely rejected
+  delivery to the test account's address, confirmed in the server log —
+  a real external response, not a stub), and clicking that real link
+  through the actual `/verify-email` page flipped the account to
+  verified and made the banner disappear on the next page load.
+  Separately confirmed the token is truly one-time-use (reusing it
+  returned a clean 400) and that resending after verification correctly
+  reports "already verified" instead of minting a needless new token.
+
+**Not done — explicit scope, not oversight**:
+
+- Nothing is actually gated behind a verified email (no blocked
+  payments, no blocked package purchases) — this pass closes the
+  "accounts are created with unconfirmed emails" gap itself; deciding
+  *which* real-money actions ought to require verification first touches
+  payments, packages, and materials orders each separately and is a
+  real, separate scope decision, not a natural extension of this one.
+- No re-verification if a user's email address changes — there's no
+  "change my email" feature at all yet for this to hook into.
+- No expiry reminder or automatic resend — a link that lapses after 24
+  hours just needs a manual "Resend" click, no scheduled nudge.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

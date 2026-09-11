@@ -22,6 +22,12 @@ const ACCESS_TOKEN_TTL = '1h';
 const REFRESH_TOKEN_TTL = '30d';
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
+// Longer than the password reset token's TTL above — verifying an email
+// is a lower-stakes, less time-sensitive action than resetting a
+// password (nothing about the account changes access until the account
+// holder actually clicks it), so a more forgiving window is the right
+// tradeoff here.
+const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 @Injectable()
 export class AuthService {
@@ -95,6 +101,18 @@ export class AuthService {
       ]);
     }
 
+    // Fire-and-forget in spirit (never fails registration itself — same
+    // "an enrichment failing shouldn't fail the action that triggered it"
+    // reasoning InAppNotificationsService.notify already follows), but
+    // still awaited so the server-side fallback log line (see
+    // sendVerificationEmail) actually lands before this request finishes,
+    // useful for a developer testing this without RESEND_API_KEY set.
+    try {
+      await this.sendVerificationEmail(user.id, user.email);
+    } catch (err) {
+      this.logger.error(`Failed to send verification email to ${user.email}: ${err instanceof Error ? err.message : err}`);
+    }
+
     return this.issueTokenPair(user.id, user.email);
   }
 
@@ -160,16 +178,25 @@ export class AuthService {
         // create a duplicate row for the same email (email is @unique,
         // so a duplicate isn't even possible; this is the deliberate
         // choice of *which* outcome, not a workaround for a constraint).
-        user = await this.prisma.user.update({ where: { id: existingByEmail.id }, data: { googleId } });
+        // Google just proved control of this address too, so this is
+        // also a legitimate moment to mark it verified if it wasn't
+        // already — never overwrites an earlier, real verification
+        // timestamp with a later one.
+        user = await this.prisma.user.update({
+          where: { id: existingByEmail.id },
+          data: { googleId, emailVerifiedAt: existingByEmail.emailVerifiedAt ?? new Date() },
+        });
       } else {
         // Brand new — same optional invite-consumption register() does,
         // only reachable here because no User with this email existed a
         // moment ago (an existing account's stale invite link is simply
         // ignored, same as register()'s own ConflictException path never
         // reaches its own invite check for an already-registered email).
+        // emailVerifiedAt is set directly, no token/email round-trip —
+        // Google already did that proof.
         const invite = inviteToken ? await this.validateInvite(inviteToken, email) : null;
         user = await this.prisma.user.create({
-          data: { name: payload.name ?? email.split('@')[0], email, googleId },
+          data: { name: payload.name ?? email.split('@')[0], email, googleId, emailVerifiedAt: new Date() },
         });
         if (invite) {
           await this.prisma.$transaction([
@@ -236,6 +263,79 @@ export class AuthService {
       });
     }
     return { message: 'Logged out.' };
+  }
+
+  // Backs GET /auth/me — a real DB lookup rather than just echoing the
+  // JWT payload (id/email only) JwtAuthGuard already put on the request,
+  // specifically so `emailVerified` is always fresh: clicking a
+  // verification link should be reflected the moment the app asks again,
+  // not up to an hour later when the access token happens to be
+  // reissued. Low-traffic enough (that route's own comment: "only ever
+  // needs to be called once... on page load") that the extra query costs
+  // nothing worth avoiding.
+  async getMe(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    return { id: user.id, email: user.email, emailVerified: !!user.emailVerifiedAt };
+  }
+
+  // Shared by register() (fire-and-forget on signup) and
+  // resendVerificationEmail (an authenticated user asking for a fresh
+  // one) — one place that actually creates the token and sends the mail,
+  // same "logged + returned raw when no provider is configured" fallback
+  // forgotPassword already uses, for the same reason (a developer/demo
+  // environment with no RESEND_API_KEY still needs a way to complete the
+  // flow).
+  private async sendVerificationEmail(userId: string, email: string): Promise<{ sent: boolean; rawToken: string }> {
+    const rawToken = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    await this.prisma.emailVerificationToken.create({
+      data: { userId, tokenHash, expiresAt: new Date(Date.now() + EMAIL_VERIFICATION_TTL_MS) },
+    });
+
+    const verifyLink = `${process.env.WEB_APP_URL ?? 'http://localhost:3000'}/verify-email?token=${rawToken}`;
+    const sent = await this.email.send({
+      to: email,
+      subject: 'Verify your PropertyOnTheGo email',
+      html: `<p>Confirm this is your email address to finish setting up your PropertyOnTheGo account.</p><p><a href="${verifyLink}">Verify your email</a></p><p>This link expires in 24 hours. If you didn't create this account, you can ignore this email.</p>`,
+      text: `Verify your PropertyOnTheGo email: ${verifyLink}\n\nThis link expires in 24 hours. If you didn't create this account, you can ignore this email.`,
+    });
+    const linkStatus = sent
+      ? '(emailed)'
+      : this.email.isConfigured
+        ? '(email send failed — see the EmailService error above)'
+        : '(would be emailed, no RESEND_API_KEY configured)';
+    this.logger.log(`Verification email for ${email} — link ${linkStatus}: ${verifyLink}`);
+
+    return { sent, rawToken };
+  }
+
+  async verifyEmail(rawToken: string) {
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const record = await this.prisma.emailVerificationToken.findUnique({ where: { tokenHash } });
+    if (!record || record.usedAt || record.expiresAt < new Date()) {
+      throw new BadRequestException('This verification link is invalid or has expired — request a new one');
+    }
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: record.userId }, data: { emailVerifiedAt: new Date() } }),
+      this.prisma.emailVerificationToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
+    ]);
+    return { message: 'Email verified.' };
+  }
+
+  // The authenticated "resend" action behind the banner's own button —
+  // unlike forgotPassword, this never needs the "don't confirm whether
+  // the email exists" non-enumeration shape (the caller is already
+  // signed in as this exact user, JwtAuthGuard already proved that), so
+  // it can just say plainly whether there was anything to resend.
+  async resendVerificationEmail(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (user.emailVerifiedAt) {
+      return { message: 'This email is already verified.', alreadyVerified: true };
+    }
+    const { sent, rawToken } = await this.sendVerificationEmail(user.id, user.email);
+    const generic = { message: 'Verification email sent.', alreadyVerified: false };
+    if (sent) return generic;
+    return { ...generic, verificationToken: rawToken };
   }
 
   // Returns the accounts this user can act as, so a client can prompt for
@@ -308,9 +408,20 @@ export class AuthService {
       throw new BadRequestException('This reset link is invalid or has expired — request a new one');
     }
 
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: record.userId } });
     const passwordHash = await bcrypt.hash(newPassword, 10);
     await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id: record.userId }, data: { passwordHash } }),
+      this.prisma.user.update({
+        where: { id: record.userId },
+        data: {
+          passwordHash,
+          // Clicking a link mailed to this exact address is the same
+          // real proof of inbox control email verification is otherwise
+          // built around — never overwrites an earlier, real
+          // verification timestamp with a later one.
+          emailVerifiedAt: user.emailVerifiedAt ?? new Date(),
+        },
+      }),
       this.prisma.passwordResetToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
       // A password reset should invalidate any refresh token issued before
       // it — otherwise a session started before the compromise that

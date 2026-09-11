@@ -164,7 +164,7 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
 
 // ---- Shapes -----------------------------------------------------------
 
-export type CurrentUser = { id: string; email: string };
+export type CurrentUser = { id: string; email: string; emailVerified: boolean };
 
 export type IdentityStatus = {
   identityVerificationStatus: "not_verified" | "pending" | "verified" | "failed" | string;
@@ -1460,6 +1460,15 @@ export class ApiClient {
   }
   resetPassword(token: string, newPassword: string) {
     return request<{ message: string }>("/auth/reset-password", { method: "POST", body: { token, newPassword } });
+  }
+  verifyEmail(token: string) {
+    return request<{ message: string }>("/auth/verify-email", { method: "POST", body: { token } });
+  }
+  resendVerificationEmail() {
+    return request<{ message: string; alreadyVerified: boolean; verificationToken?: string }>(
+      "/auth/resend-verification",
+      { method: "POST", token: this.token },
+    );
   }
   listMyAccounts() {
     return request<AccountSummary[]>("/auth/accounts", { token: this.token });

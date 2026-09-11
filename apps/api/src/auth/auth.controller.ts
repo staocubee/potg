@@ -7,6 +7,7 @@ import { LoginDto } from './dto/login.dto';
 import { GoogleAuthDto } from './dto/google-auth.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { setAuthCookies, clearAuthCookies } from './cookie.util';
@@ -86,8 +87,30 @@ export class AuthController {
   // live), not on every request.
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  me(@CurrentUser() user: { id: string; email: string }) {
-    return user;
+  me(@CurrentUser() user: { id: string }) {
+    return this.auth.getMe(user.id);
+  }
+
+  // Unauthenticated on purpose — same as reset-password, the token itself
+  // is the credential (whoever clicked the emailed link, not necessarily
+  // someone already signed in on this browser/device).
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('verify-email')
+  verifyEmail(@Body() dto: VerifyEmailDto) {
+    return this.auth.verifyEmail(dto.token);
+  }
+
+  // The "Resend" button behind the verification banner — authenticated,
+  // unlike verify-email above, since this needs to know *whose* email to
+  // resend to rather than reading a token. Tighter cap than the
+  // unauthenticated auth surface above: 3/min is plenty for a real "I
+  // didn't get it" retry, without making this a mail-bomb vector against
+  // one account's own inbox.
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  @Post('resend-verification')
+  resendVerification(@CurrentUser() user: { id: string }) {
+    return this.auth.resendVerificationEmail(user.id);
   }
 
   // Same reasoning as login: an unlimited forgot-password endpoint is both

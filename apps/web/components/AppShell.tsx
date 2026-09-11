@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useRequireAuth } from "../lib/auth";
 import AccountSwitcher from "./AccountSwitcher";
 import NotificationBell from "./NotificationBell";
+import EmailVerificationBanner from "./EmailVerificationBanner";
 
 type NavItem = { href: string; label: string; icon: string; enabled: boolean };
 
@@ -182,6 +183,8 @@ export default function AppShell({
               <AccountSwitcher />
             </div>
           </header>
+
+          <EmailVerificationBanner />
 
           <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
             <main style={{ flex: 1, minWidth: 0, padding: 24, overflowY: "auto" }}>{children}</main>
