@@ -622,6 +622,12 @@ function PayoutRow({ projectId, payout, onChanged }: { projectId: string; payout
         </div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontWeight: 700 }}>{formatMoney(payout.amount, payout.currency)}</div>
+          {Number(payout.platformFeeAmount) > 0 && (
+            <div className="potg-muted" style={{ fontSize: 10.5 }}>
+              of {formatMoney(payout.grossAmount, payout.currency)} released — platform fee{" "}
+              {formatMoney(payout.platformFeeAmount, payout.currency)}
+            </div>
+          )}
           <span className="potg-badge">{payout.status}</span>
         </div>
       </div>

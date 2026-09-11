@@ -47,7 +47,10 @@ export const summarizeProjectSkill: AiSkill = {
     );
     const primaryVendor = assignments.find((a: { role: string }) => a.role === 'primary_contractor') ?? assignments[0];
     const acceptedQuote = quotes.find((q: { status: string }) => q.status === 'accepted');
-    const totalReleased = payouts.reduce((sum: number, p: { amount: unknown }) => sum + Number(p.amount), 0);
+    // grossAmount — compared against the project's own budget below, so
+    // this needs to be "how much has actually been released," unaffected
+    // by the platform's own fee cut (src/payments/platform-fee.ts).
+    const totalReleased = payouts.reduce((sum: number, p: { grossAmount: unknown }) => sum + Number(p.grossAmount), 0);
     const budget = project.budget != null ? Number(project.budget) : null;
     const releasedPct = budget && budget > 0 ? Math.round((totalReleased / budget) * 100) : null;
 

@@ -920,7 +920,13 @@ export type Payout = {
   vendorId: string;
   projectId: string;
   milestoneId?: string | null;
+  // Net — what the vendor actually receives. grossAmount is the
+  // milestone's own full value (what left escrow); platformFeeAmount is
+  // the difference, the platform's own real fee cut — see
+  // PaymentsService.releaseMilestone's own comment on the model.
   amount: string;
+  grossAmount: string;
+  platformFeeAmount: string;
   currency: string;
   status: "pending" | "processing" | "paid" | "failed" | string;
   payoutMethod: string;

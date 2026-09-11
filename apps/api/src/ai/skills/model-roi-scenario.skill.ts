@@ -91,7 +91,10 @@ export const modelRoiScenarioSkill: AiSkill = {
     const payouts = projectIds.length
       ? await prisma.payout.findMany({ where: { projectId: { in: projectIds }, status: { not: 'failed' } } })
       : [];
-    const totalSpentOnProjects = payouts.reduce((sum: number, p: { amount: unknown }) => sum + Number(p.amount), 0);
+    // grossAmount, matching PropertiesService's own real ROI dashboard —
+    // "what's actually been put into this property" is unaffected by the
+    // platform's own fee cut (src/payments/platform-fee.ts).
+    const totalSpentOnProjects = payouts.reduce((sum: number, p: { grossAmount: unknown }) => sum + Number(p.grossAmount), 0);
     const invested = Number(property.estimatedValue ?? currentValue) + totalSpentOnProjects;
 
     const items: string[] = [];

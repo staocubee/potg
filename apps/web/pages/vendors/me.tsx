@@ -188,6 +188,11 @@ export default function VendorDashboardPage() {
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontWeight: 700 }}>{formatMoney(p.amount, p.currency)}</div>
+                    {Number(p.platformFeeAmount) > 0 && (
+                      <div className="potg-muted" style={{ fontSize: 10.5 }}>
+                        milestone {formatMoney(p.grossAmount, p.currency)} − {formatMoney(p.platformFeeAmount, p.currency)} platform fee
+                      </div>
+                    )}
                     <span className="potg-badge">{p.status}</span>
                   </div>
                 </div>

@@ -43,6 +43,7 @@ export const flagPaymentAnomalySkill: AiSkill = {
     type PayoutWithMilestone = {
       id: string;
       amount: unknown;
+      grossAmount: unknown;
       currency: string;
       milestoneId: string | null;
       milestone: { title: string; paymentAmount: unknown } | null;
@@ -62,10 +63,16 @@ export const flagPaymentAnomalySkill: AiSkill = {
         warn = true;
       }
       for (const payout of list) {
+        // Compared against grossAmount, not amount — amount is
+        // deliberately net of the platform's own fee cut now (see
+        // src/payments/platform-fee.ts), so it legitimately differs from
+        // the milestone's own paymentAmount on every real payout; the
+        // real invariant worth checking is that grossAmount (what
+        // actually left escrow) still matches the milestone exactly.
         const expected = payout.milestone?.paymentAmount != null ? Number(payout.milestone.paymentAmount) : null;
-        if (expected != null && Math.abs(expected - Number(payout.amount)) > 0.01) {
+        if (expected != null && Math.abs(expected - Number(payout.grossAmount)) > 0.01) {
           items.push(
-            `Payout of ${payout.amount} on "${payout.milestone?.title}" doesn't match its milestone's payment amount (${expected}).`,
+            `Payout of ${payout.grossAmount} on "${payout.milestone?.title}" doesn't match its milestone's payment amount (${expected}).`,
           );
           warn = true;
         }
@@ -75,9 +82,9 @@ export const flagPaymentAnomalySkill: AiSkill = {
     if (project.budget != null) {
       const budget = Number(project.budget);
       for (const payout of payouts as PayoutWithMilestone[]) {
-        if (Number(payout.amount) > budget * LARGE_PAYOUT_BUDGET_FRACTION) {
+        if (Number(payout.grossAmount) > budget * LARGE_PAYOUT_BUDGET_FRACTION) {
           items.push(
-            `A single payout of ${payout.amount} ${payout.currency} is more than ${LARGE_PAYOUT_BUDGET_FRACTION * 100}% of the project's stated budget (${budget}) — worth a second look.`,
+            `A single payout of ${payout.grossAmount} ${payout.currency} is more than ${LARGE_PAYOUT_BUDGET_FRACTION * 100}% of the project's stated budget (${budget}) — worth a second look.`,
           );
           warn = true;
         }

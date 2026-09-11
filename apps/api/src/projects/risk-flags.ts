@@ -32,7 +32,11 @@ export async function getProjectRiskFlags(
     flags.push(`${openDisputes.length} open dispute(s) on this project`);
   }
 
-  const totalReleased = payouts.reduce((sum: number, p: { amount: unknown }) => sum + Number(p.amount), 0);
+  // grossAmount — comparing against the project's own budget means "how
+  // much has actually been released against it," unaffected by the
+  // platform's own fee cut (see src/payments/platform-fee.ts), which
+  // only reduces the vendor's own net take-home.
+  const totalReleased = payouts.reduce((sum: number, p: { grossAmount: unknown }) => sum + Number(p.grossAmount), 0);
   const budget = project.budget != null ? Number(project.budget) : null;
   if (budget != null && budget > 0 && totalReleased > budget) {
     flags.push(

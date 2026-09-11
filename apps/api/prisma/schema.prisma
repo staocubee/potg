@@ -907,7 +907,23 @@ model Payout {
   vendorId          String
   projectId         String
   milestoneId       String?
+  // Net — what the vendor actually receives, after the platform fee
+  // below. Historically (before the fee existed) this equalled
+  // grossAmount exactly; every Payout created since carries the real
+  // split. This is what's actually sent through whichever real gateway
+  // this payout's own `provider` field names — never grossAmount.
   amount            Decimal   @db.Decimal(14, 2)
+  // The milestone's own full paymentAmount — also what's debited from
+  // escrow and what EscrowLedgerEntry's own "release" entry records, so
+  // the owner's real project cost is unaffected by the fee below; only
+  // the vendor's own take-home is. See src/payments/platform-fee.ts for
+  // the model this implements (vendor absorbs a real, configurable
+  // percentage cut) and why the fee comes off the vendor's side, not an
+  // extra charge to the owner. Rows created before this field existed
+  // are backfilled to grossAmount = amount, platformFeeAmount = 0 —
+  // historically accurate, since no fee was ever taken from them.
+  grossAmount       Decimal   @default(0) @db.Decimal(14, 2)
+  platformFeeAmount Decimal   @default(0) @db.Decimal(14, 2)
   currency          String
   status            String    @default("pending") // pending | processing | paid | failed
   payoutMethod      String    @default("manual") // manual | bank_transfer | mobile_money

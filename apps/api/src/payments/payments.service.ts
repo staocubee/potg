@@ -14,6 +14,7 @@ import { FlutterwaveService } from './flutterwave.service';
 import { PaypalService } from './paypal.service';
 import { StripeService } from './stripe.service';
 import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
+import { computePlatformFee, getPlatformFeePercent } from './platform-fee';
 
 // The shape every real deposit gateway besides Paystack shares closely
 // enough to dispatch on generically (Paystack keeps its own, unchanged
@@ -456,10 +457,16 @@ export class PaymentsService {
     if (!escrowAccount) {
       throw new BadRequestException('This project has no funded escrow account yet');
     }
-    const amount = Number(milestone.paymentAmount);
-    if (Number(escrowAccount.balance) < amount) {
+    const grossAmount = Number(milestone.paymentAmount);
+    if (Number(escrowAccount.balance) < grossAmount) {
       throw new BadRequestException('Insufficient escrow balance to release this milestone');
     }
+    // The platform's own real cut of this release — see
+    // src/payments/platform-fee.ts for the model (vendor absorbs a
+    // configurable percentage; the owner's own project cost, the escrow
+    // debit below, and the milestone's paymentAmount are all completely
+    // unaffected — only the vendor's actual take-home changes).
+    const { platformFeeAmount, netAmount } = computePlatformFee(grossAmount, getPlatformFeePercent(this.config));
 
     const assignment = await this.prisma.projectVendorAssignment.findFirst({ where: { projectId } });
     if (!assignment) {
@@ -488,7 +495,7 @@ export class PaymentsService {
 
       const reference = `potg_payout_${randomUUID()}`;
       const transfer = await this.paystack.initiateTransfer({
-        amount,
+        amount: netAmount,
         currency: escrowAccount.currency,
         recipientCode,
         reference,
@@ -499,7 +506,9 @@ export class PaymentsService {
           vendorId: vendor.id,
           projectId,
           milestoneId,
-          amount,
+          amount: netAmount,
+          grossAmount,
+          platformFeeAmount,
           currency: escrowAccount.currency,
           status: transfer.status === 'success' ? 'paid' : 'processing',
           payoutMethod: 'bank_transfer',
@@ -515,7 +524,7 @@ export class PaymentsService {
         // verifyDeposit already uses for the other direction.
         return { payout, receipt: null };
       }
-      return this.finalizePayout(escrowAccount, milestone, payout, vendor.accountId, amount);
+      return this.finalizePayout(escrowAccount, milestone, payout, vendor.accountId, grossAmount, netAmount);
     }
 
     // Real Flutterwave Transfer path — structurally simpler than
@@ -524,7 +533,7 @@ export class PaymentsService {
     if (vendor.bankAccountNumber && vendor.bankCode && vendor.payoutProvider === 'flutterwave' && this.flutterwave.isConfigured) {
       const reference = `potg_payout_${randomUUID()}`;
       const transfer = await this.flutterwave.initiateTransfer({
-        amount,
+        amount: netAmount,
         currency: escrowAccount.currency,
         accountNumber: vendor.bankAccountNumber,
         bankCode: vendor.bankCode,
@@ -537,7 +546,9 @@ export class PaymentsService {
           vendorId: vendor.id,
           projectId,
           milestoneId,
-          amount,
+          amount: netAmount,
+          grossAmount,
+          platformFeeAmount,
           currency: escrowAccount.currency,
           status: transfer.status === 'success' ? 'paid' : 'processing',
           payoutMethod: 'bank_transfer',
@@ -548,7 +559,7 @@ export class PaymentsService {
       if (transfer.status !== 'success') {
         return { payout, receipt: null };
       }
-      return this.finalizePayout(escrowAccount, milestone, payout, vendor.accountId, amount);
+      return this.finalizePayout(escrowAccount, milestone, payout, vendor.accountId, grossAmount, netAmount);
     }
 
     // Real PayPal Payout path — pays vendor.paypalPayoutEmail directly,
@@ -556,7 +567,7 @@ export class PaymentsService {
     if (vendor.paypalPayoutEmail && vendor.payoutProvider === 'paypal' && this.paypal.isConfigured) {
       const reference = `potg_payout_${randomUUID()}`;
       const transfer = await this.paypal.initiateTransfer({
-        amount,
+        amount: netAmount,
         currency: escrowAccount.currency,
         email: vendor.paypalPayoutEmail,
         reference,
@@ -567,7 +578,9 @@ export class PaymentsService {
           vendorId: vendor.id,
           projectId,
           milestoneId,
-          amount,
+          amount: netAmount,
+          grossAmount,
+          platformFeeAmount,
           currency: escrowAccount.currency,
           status: transfer.status === 'success' ? 'paid' : 'processing',
           payoutMethod: 'bank_transfer',
@@ -578,7 +591,7 @@ export class PaymentsService {
       if (transfer.status !== 'success') {
         return { payout, receipt: null };
       }
-      return this.finalizePayout(escrowAccount, milestone, payout, vendor.accountId, amount);
+      return this.finalizePayout(escrowAccount, milestone, payout, vendor.accountId, grossAmount, netAmount);
     }
 
     const payout = await this.prisma.payout.create({
@@ -586,12 +599,14 @@ export class PaymentsService {
         vendorId: vendor.id,
         projectId,
         milestoneId,
-        amount,
+        amount: netAmount,
+        grossAmount,
+        platformFeeAmount,
         currency: escrowAccount.currency,
         status: 'pending',
       },
     });
-    return this.finalizePayout(escrowAccount, milestone, payout, vendor.accountId, amount);
+    return this.finalizePayout(escrowAccount, milestone, payout, vendor.accountId, grossAmount, netAmount);
   }
 
   // Shared by the instant "manual" path above and verifyPayout below —
@@ -603,9 +618,15 @@ export class PaymentsService {
     milestone: { id: string; title: string },
     payout: { id: string },
     vendorAccountId: string,
-    amount: number,
+    grossAmount: number,
+    netAmount: number,
   ) {
-    const newBalance = Number(escrowAccount.balance) - amount;
+    // The FULL milestone value leaves escrow — the platform's own fee
+    // cut (see src/payments/platform-fee.ts) never touches the escrow
+    // balance or this ledger entry, only what the vendor is actually
+    // wired via the gateway (already netAmount by the time payout.amount
+    // was set at creation) and the receipt below.
+    const newBalance = Number(escrowAccount.balance) - grossAmount;
     const [, updatedPayout] = await this.prisma.$transaction([
       this.prisma.escrowAccount.update({ where: { id: escrowAccount.id }, data: { balance: newBalance } }),
       this.prisma.payout.update({ where: { id: payout.id }, data: { status: 'paid', paidAt: new Date() } }),
@@ -615,19 +636,23 @@ export class PaymentsService {
       data: {
         escrowAccountId: escrowAccount.id,
         entryType: 'release',
-        amount,
+        amount: grossAmount,
         balanceAfter: newBalance,
         relatedMilestoneId: milestone.id,
         relatedPayoutId: payout.id,
         notes: `Milestone released: ${milestone.title}`,
       },
     });
+    // Net — a receipt documents what the vendor actually received, not
+    // the milestone's full gross value (which the linked Payout row
+    // itself already carries, alongside the fee that made up the
+    // difference).
     const receipt = await this.prisma.receipt.create({
       data: {
         accountId: vendorAccountId,
         receiptNumber: receiptNumber(),
         payoutId: payout.id,
-        amount,
+        amount: netAmount,
         currency: escrowAccount.currency,
       },
     });
@@ -698,7 +723,7 @@ export class PaymentsService {
 
   private async applyTransferResult(
     projectId: string,
-    payout: { id: string; milestoneId: string | null; vendorId: string; amount: unknown },
+    payout: { id: string; milestoneId: string | null; vendorId: string; amount: unknown; grossAmount: unknown },
     result: { status: string },
   ) {
     if (result.status === 'failed' || result.status === 'reversed') {
@@ -724,6 +749,7 @@ export class PaymentsService {
       milestone,
       payout,
       vendor.accountId,
+      Number(payout.grossAmount),
       Number(payout.amount),
     );
     return { payout: finalPayout, receipt, alreadyVerified: false };

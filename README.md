@@ -5575,6 +5575,100 @@ the first one.
   at `/register`; loaded `/` again while signed in and confirmed the
   pre-existing redirect-to-portfolio behavior is completely unchanged.
 
+## Platform fee on milestone releases — (this pass)
+
+The first real, working piece of the platform's own revenue model — a
+take-rate on the money that already flows through the app, not a new
+subscription or a placement fee. Discussed as one of several
+monetization options; the user picked this one to scope and build, then
+made the two decisions that actually govern it:
+
+- **Who pays**: the vendor. A milestone's full value still leaves escrow
+  exactly as before — the owner's own project cost, ROI "total
+  invested," and every budget comparison in the app are completely
+  unaffected. The fee comes out of the vendor's own payout.
+- **Rate**: 5%, via `PLATFORM_FEE_PERCENT` in `apps/api/.env.example`
+  (`src/payments/platform-fee.ts`) — an env-configured whole number, not
+  a per-account or tiered rate, with an invalid/out-of-range value
+  (negative, 100+) falling back to the same default rather than a
+  runtime error.
+
+**What's built**:
+
+- `Payout` gained two real columns alongside the existing `amount`
+  (`prisma/migrations/20260911100000_add_platform_fee_to_payouts`):
+  `grossAmount` (the milestone's full value — what leaves escrow) and
+  `platformFeeAmount` (the platform's real revenue). `amount` is
+  redefined as **net** — what the vendor actually receives, and what's
+  actually sent through whichever real gateway that payout used.
+  Pre-existing payout rows are backfilled `grossAmount = amount`,
+  `platformFeeAmount = 0` — historically accurate, since no fee was ever
+  taken from them.
+- `PaymentsService.releaseMilestone` computes the split via
+  `computePlatformFee` and sends **net** to the real gateway
+  (Paystack/Flutterwave/PayPal) or the manual-instant path, across all
+  four branches. `finalizePayout` debits the escrow balance and records
+  the `EscrowLedgerEntry` 'release' entry at **gross** (the full
+  milestone value "leaves" escrow whether it goes to the vendor or is
+  retained as fee — zero structural change to the ledger, no new entry
+  type), and issues the vendor's `Receipt` at **net** (what they
+  actually got).
+- **A systematic ripple-effect audit**, done before writing any
+  downstream code: grepped every `prisma.payout.*` read across the API
+  to find anything that used to read `amount` as gross by coincidence
+  (pre-fee, gross always equalled net). Fixed 8 real call sites —
+  `reports.service.ts` (portfolio vendor spend, Module 24 property
+  expenses), `properties.service.ts` (ROI dashboard's total project
+  spend), `projects/risk-flags.ts` (budget-exceeded check), and the AI
+  skills `summarize-project`, `model-roi-scenario`, `flag-payment-anomaly`,
+  and `explain-fees` — all switched to `grossAmount` for any
+  owner-perspective "spend"/"invested"/"budget" figure.
+- **A real bug the audit caught, not testing**: `flag_payment_anomaly`
+  compared `payout.amount` against the milestone's own `paymentAmount`
+  to flag "payout doesn't match milestone" — once `amount` became net,
+  that would have false-positived on every single legitimate payout
+  going forward. Fixed to compare `grossAmount` instead, before it ever
+  ran against real fee-bearing data.
+- `explain_fees` (the AI skill) no longer uses its old
+  `PLATFORM_FEE_RATE = 0.025` stub constant (previously commented as
+  "illustrative... not actually deducted anywhere yet") — it now sums
+  real `grossAmount`/`amount`(net)/`platformFeeAmount` off actual
+  `Payout` rows.
+- Frontend: `Payout` type (`lib/api.ts`) carries all three fields; the
+  project page's payout list and the vendor's own "My payouts" list
+  (`pages/vendors/me.tsx`) both show a fee-transparency line under the
+  net amount whenever a real fee was taken (`platformFeeAmount > 0`) —
+  e.g. "of ₦2,000 released — platform fee ₦100".
+- **Verified live**, four separate real-data checks: (1) a real
+  Flutterwave release — response body confirmed
+  `grossAmount: "1000"`, `platformFeeAmount: "50"`, `amount: "950"`, and
+  that `950` (net), not `1000`, is what was sent to the gateway; (2) a
+  full manual-path release (₦2,000 milestone) exercising
+  `finalizePayout` end-to-end — confirmed via direct DB query that the
+  escrow balance dropped by the full gross ₦2,000 (658,000 → 656,000),
+  the ledger 'release' entry recorded gross (₦2,000), and the receipt
+  recorded net (₦1,900) with a ₦100 fee; (3) the ROI dashboard's "Total
+  invested" rendering the correct gross-based figure (₦185,903,500)
+  with no errors; (4) `explain_fees` on a project with a real mix of
+  historical (pre-fee) and new payouts correctly reporting "Released
+  from escrow: 903,500 NGN... vendor received 903,400 NGN net of a 100
+  NGN platform fee" — matching the one real fee actually taken across
+  that project's payout history.
+
+**Not done — explicit scope, not oversight**:
+
+- No per-account or tiered fee rates (e.g. a lower rate for
+  package-subscribed vendors) — a single global env-configured percent.
+- No fee on materials-marketplace `Order` payments — this pass covers
+  project milestone escrow releases only.
+- No real transfer of the retained platform fee to an actual platform
+  bank account — it's tracked correctly (`platformFeeAmount` sums are
+  real and queryable) but stays inside the scaffold's own accounting,
+  same as every other balance in this app.
+- No admin-facing "platform revenue" report — the fee is fully computed,
+  persisted, and readable per-payout/per-project, but nothing yet
+  aggregates it across the whole platform into its own dashboard.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

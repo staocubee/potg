@@ -505,7 +505,11 @@ export class PropertiesService {
     const payouts = projectIds.length
       ? await this.prisma.payout.findMany({ where: { projectId: { in: projectIds }, status: { not: 'failed' } } })
       : [];
-    const totalProjectSpend = payouts.reduce((sum, p) => sum + Number(p.amount), 0);
+    // grossAmount, not amount — "what has this property actually cost
+    // its owner" is unaffected by the platform's own fee cut (see
+    // src/payments/platform-fee.ts), which only reduces the vendor's own
+    // net take-home, not the milestone value the owner funded.
+    const totalProjectSpend = payouts.reduce((sum, p) => sum + Number(p.grossAmount), 0);
     const acquisitionValue = Number(property.estimatedValue ?? currentValue);
     const invested = acquisitionValue + totalProjectSpend;
     const simpleRoiPercent = invested > 0 ? ((currentValue - invested) / invested) * 100 : 0;

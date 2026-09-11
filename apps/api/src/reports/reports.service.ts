@@ -223,10 +223,16 @@ export class ReportsService {
       this.prisma.project.findMany({ where: { accountId }, select: { status: true } }),
       this.prisma.maintenanceRequest.findMany({ where: { property: { accountId } }, select: { status: true } }),
       this.prisma.propertyInspection.findMany({ where: { property: { accountId } }, select: { status: true, overallResult: true } }),
+      // grossAmount, not amount — every "spend"/"expense" figure derived
+      // from this query is the owner's own perspective (what did I pay
+      // out in total), which the platform's own fee cut (see
+      // src/payments/platform-fee.ts) never reduces — that fee only
+      // affects the vendor's own net take-home, tracked separately on
+      // each Payout row.
       this.prisma.payout.findMany({
         where: { project: { accountId }, status: { not: 'failed' } },
         select: {
-          amount: true,
+          grossAmount: true,
           currency: true,
           vendorId: true,
           vendor: { select: { businessName: true } },
@@ -302,8 +308,8 @@ export class ReportsService {
     // reasoning getAccountOverview already applies to deposits/releases.
     const spendByVendor = new Map<string, { vendorId: string; businessName: string; currency: string; total: number }>();
     const spendByCurrency = new Map<string, number>();
-    for (const p of payouts as { amount: unknown; currency: string; vendorId: string; vendor: { businessName: string } }[]) {
-      const amount = Number(p.amount);
+    for (const p of payouts as { grossAmount: unknown; currency: string; vendorId: string; vendor: { businessName: string } }[]) {
+      const amount = Number(p.grossAmount);
       spendByCurrency.set(p.currency, (spendByCurrency.get(p.currency) ?? 0) + amount);
       const key = `${p.vendorId}:${p.currency}`;
       const existing = spendByVendor.get(key);
@@ -327,11 +333,11 @@ export class ReportsService {
     // that join rather than adding a denormalized field for a value
     // that's always derivable.
     const expenseByProperty = new Map<string, { propertyId: string; propertyName: string; currency: string; total: number }>();
-    for (const p of payouts as { amount: unknown; currency: string; project: { propertyId: string } }[]) {
+    for (const p of payouts as { grossAmount: unknown; currency: string; project: { propertyId: string } }[]) {
       const propertyId = p.project.propertyId;
       const key = `${propertyId}:${p.currency}`;
       const existing = expenseByProperty.get(key);
-      const amount = Number(p.amount);
+      const amount = Number(p.grossAmount);
       if (existing) {
         existing.total += amount;
       } else {
