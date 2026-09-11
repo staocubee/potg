@@ -1864,8 +1864,28 @@ model VisibilityPackage {
 // is always computed live as `status === 'active' && expiresAt > now`
 // (see boost.util.ts) rather than a cron flipping a flag — nothing here
 // depends on knowing the instant it lapses, only whether it has right now.
-// Renewing is just subscribing again (a new row) — no auto-renewal wired
-// up yet, see README's own "Not done" note on this feature.
+//
+// Phase 2 (this pass) — real auto-renewal, Paystack only (the one gateway
+// this scaffold already treats as "full-featured" elsewhere, e.g. its own
+// bank list/resolve routes for payouts): authorizationCode is Paystack's
+// own reusable-card token, captured off a *successful* verify when
+// Paystack's own `authorization.reusable` flag says it can be charged
+// again with no cardholder present (see PaystackService.verifyTransaction
+// and PackagesService.chargeRenewal) — null for every manual/Flutterwave/
+// PayPal/Stripe row, and for a Paystack row whose card turned out not to
+// be reusable. payerEmail is the exact email Paystack associated with
+// that authorization at charge time — required to charge it again,
+// carried forward unchanged across a renewal chain rather than
+// re-derived from account membership (which could resolve to a different
+// email than the one Paystack actually knows this card by).
+// renewedFromId is a soft reference (no FK — same convention
+// ListingInquiry.accountId's own comment already uses) to the row a
+// successful auto-renewal renewed from, for the "My packages" history
+// screen to show a chain rather than unrelated purchases. autoRenew only
+// ever stays true on the single most-recent row in a chain — a
+// successful *or* failed renewal attempt both flip it off on the row
+// being renewed (see PackagesSchedulerService's own comment for why a
+// failed attempt doesn't retry).
 model PackageSubscription {
   id                String    @id @default(uuid())
   accountId         String
@@ -1878,10 +1898,15 @@ model PackageSubscription {
   startedAt         DateTime?
   expiresAt         DateTime?
   createdAt         DateTime  @default(now())
+  autoRenew         Boolean   @default(false)
+  authorizationCode String?
+  payerEmail        String?
+  renewedFromId     String?
 
   account Account           @relation(fields: [accountId], references: [id], onDelete: Cascade)
   package VisibilityPackage @relation(fields: [packageId], references: [id])
 
   @@index([accountId])
+  @@index([autoRenew, status, expiresAt])
   @@map("package_subscriptions")
 }

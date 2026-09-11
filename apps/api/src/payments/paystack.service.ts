@@ -12,6 +12,14 @@ export type PaystackVerifyResult = {
   amountKobo: number;
   currency: string;
   reference: string;
+  // Paystack's own reusable-card token, present only when its own
+  // `authorization.reusable` flag says this card can be charged again
+  // with no cardholder present — null for a one-time-use card/transfer,
+  // or when this transaction never got that far. The only consumer today
+  // is PackagesService's own real auto-renewal (see
+  // PackageSubscription.authorizationCode's schema comment);
+  // PaymentsService.verifyDeposit ignores this field entirely.
+  authorizationCode?: string | null;
 };
 
 export type PaystackBank = { name: string; code: string; currency: string };
@@ -109,11 +117,65 @@ export class PaystackService {
     const data = (await res.json()) as {
       status: boolean;
       message: string;
-      data?: { status: string; amount: number; currency: string; reference: string };
+      data?: {
+        status: string;
+        amount: number;
+        currency: string;
+        reference: string;
+        authorization?: { authorization_code: string; reusable: boolean } | null;
+      };
     };
     if (!res.ok || !data.status || !data.data) {
       this.logger.error(`Paystack verify failed (${res.status}): ${data.message}`);
       throw new BadRequestException(`Paystack couldn't verify this payment: ${data.message}`);
+    }
+    return {
+      status: data.data.status,
+      amountKobo: data.data.amount,
+      currency: data.data.currency,
+      reference: data.data.reference,
+      authorizationCode: data.data.authorization?.reusable ? data.data.authorization.authorization_code : null,
+    };
+  }
+
+  // The other half of real auto-renewal — charges a previously-captured
+  // reusable authorization with no cardholder present. Same request/
+  // response shape as initializeTransaction/verifyTransaction (amount in
+  // kobo, same success/failed/abandoned status strings), so
+  // PackagesService.chargeRenewal can apply the identical amount/currency
+  // mismatch check verifyDeposit's own Paystack branch already uses.
+  async chargeAuthorization(params: {
+    authorizationCode: string;
+    email: string;
+    amount: number;
+    currency: string;
+    reference: string;
+  }): Promise<{ status: string; amountKobo: number; currency: string; reference: string }> {
+    if (!this.isConfigured) {
+      throw new BadRequestException('Paystack is not configured on this server');
+    }
+    const res = await fetch(`${this.baseUrl}/transaction/charge_authorization`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${this.secretKey}`,
+      },
+      body: JSON.stringify({
+        authorization_code: params.authorizationCode,
+        email: params.email,
+        amount: Math.round(params.amount * 100),
+        currency: params.currency,
+        reference: params.reference,
+      }),
+    });
+    const data = (await res.json()) as {
+      status: boolean;
+      message: string;
+      data?: { status: string; amount: number; currency: string; reference: string };
+    };
+    if (!res.ok || !data.status || !data.data) {
+      this.logger.error(`Paystack charge_authorization failed (${res.status}): ${data.message}`);
+      throw new BadRequestException(`Paystack couldn't charge the saved card: ${data.message}`);
     }
     return {
       status: data.data.status,

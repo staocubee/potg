@@ -5744,22 +5744,107 @@ per-call cost on any AI skill to spend a credit against.
   source) and on that account's own `/go/:accountId` public profile
   page — a real, un-authenticated request, not just the logged-in view.
 
-**Not done — explicit scope, not oversight (Phase 2)**:
+**Not done — explicit scope, not oversight**:
 
-- No real recurring auto-billing — renewing is subscribing again (a new
-  row), same simplification the platform fee section above's own
-  "subscription module" framing already flagged as a bigger, separate
-  lift (renewal webhooks, retry/dunning logic).
 - No "earn credits for AI usage" mechanic — needs its own per-skill
   usage-metering layer first (there's no concept of what one AI skill
-  call costs today), a separate subsystem from the boost itself.
-- No early cancellation — a subscription runs to its own `expiresAt`.
+  call costs today), a separate subsystem from the boost itself. Still
+  deferred after Phase 2 below.
 - No admin UI to manage the package catalog — the 4 seeded rows
   (`prisma/seed.ts`) are real and live, but adding/editing/retiring one
   needs a direct database change, not a screen.
 - No per-`Product` boost on the materials marketplace, only `Supplier` —
   matches Vendor's own granularity (a business, not each individual
   listing within it) on that marketplace.
+
+## Visibility packages — Phase 2 of 2, real auto-renewal (this pass)
+
+Closes the one gap Phase 1 above deliberately left open: renewing used
+to mean subscribing again by hand. This pass adds a real recurring
+charge — Paystack only (the one gateway this scaffold already treats as
+"full-featured" elsewhere, e.g. its own bank list/resolve routes for
+payouts) — plus the actual "cancel my subscription" action, a self-serve
+"renew now," and the daily job that fires it automatically.
+
+**What's built**:
+
+- `PaystackService.verifyTransaction` now captures Paystack's own
+  `authorization.reusable` flag off a successful charge — when true, the
+  `authorization_code` (a real, chargeable-with-no-cardholder-present
+  token) is persisted on the `PackageSubscription` row alongside the
+  exact `payerEmail` Paystack associated with it. A new
+  `PaystackService.chargeAuthorization` (`POST /transaction/
+  charge_authorization`) is the actual real charge — same amount/
+  currency mismatch rigor `verifyDeposit`'s own Paystack branch already
+  applies.
+- Requesting `autoRenew: true` at subscribe time is refused outright for
+  any provider but Paystack (`PackagesService.subscribe`); once activated,
+  if Paystack's own charge turns out not to be reusable (some cards
+  aren't), the requested `autoRenew` is silently downgraded to `false`
+  rather than left pointing at a token that doesn't work — the UI's own
+  "no reusable card on file" message covers exactly this case.
+- `PackagesService.chargeRenewal` — the one real method both the manual
+  and scheduled paths share (same "the cron and the manual trigger run
+  the identical code" shape `ReportsSchedulerService.sendDueDigests`
+  already establishes for the digest cron): charges the saved
+  authorization at the package's *current* catalog price (not the
+  original row's historical amount — a package's own price can change
+  between cycles), creates a new `PackageSubscription` row chained via
+  `renewedFromId`, and flips `autoRenew` off the row being renewed either
+  way — on success because the new row is now the chain's own head, on
+  failure because this scaffold deliberately has no retry/dunning logic:
+  a declined card just ends the chain and notifies the account
+  (`InAppNotificationsService`, surfaced in the existing notification
+  bell) to resubscribe manually.
+- `PackagesSchedulerService` — a real `@nestjs/schedule` `@Cron` (daily),
+  not a fake toggle, calling `PackagesService.processAutoRenewals`: finds
+  every `autoRenew: true`, Paystack, still-`active` subscription due
+  within 24 hours and renews each one, so a boost never has a real gap
+  between cycles. No webhook receiver — same deliberate choice
+  `PaystackService`'s own header comment already explains for deposits
+  (this scaffold runs on localhost with no public callback URL), so
+  renewal is polling/cron-driven exactly like every other gateway check
+  in this codebase, not push-based.
+- Two new self-service routes: `PATCH /packages/subscriptions/:id/
+  auto-renew` — the real "cancel my subscription" action. Deliberately
+  never touches the current row's own `status`/`expiresAt`: "cancel"
+  means "stop future charges," not "revoke what's already been paid
+  for," so an existing boost still runs out naturally. `POST /packages/
+  subscriptions/:id/renew-now` — charges the same saved card the cron
+  would, on demand; both a genuinely useful "renew early" button and, not
+  incidentally, a way to prove the exact cron code path works without
+  waiting a day.
+- Frontend: an "Auto-renew" checkbox on the subscribe form (only shown
+  once Paystack is picked), the current-boost summary card shows
+  "Auto-renews on {date} — charged to the card on file" instead of a
+  plain expiry when active, with real "Turn off/on auto-renew" and
+  "Renew now" buttons, and the subscription history shows an
+  "auto-renews" badge plus "renewed automatically" on any row that
+  chains from a prior one.
+- **Verified live, the full real chain**: subscribed via a real Paystack
+  test-mode checkout with Auto-renew checked — confirmed the callback
+  verify captured a real `authorization_code` and activated `autoRenew:
+  true`. Clicked "Renew now" — a real `charge_authorization` call
+  succeeded, created a second row chained via `renewedFromId`, flipped
+  `autoRenew` off the first row, and posted a real "Boost renewed"
+  notification (confirmed in the notification bell). Then, rather than
+  waiting a day, ran `PackagesService.processAutoRenewals` directly
+  through a real Nest application context (not a reimplementation) after
+  pulling a row's `expiresAt` to 12 hours out — it correctly found the
+  one due subscription and produced a third chained row the same way,
+  proving the exact method the daily cron calls.
+
+**Not done — explicit scope, not oversight**:
+
+- No retry/dunning on a declined renewal — one attempt, then the chain
+  ends and the account is notified to resubscribe by hand.
+- Flutterwave/PayPal/Stripe can't auto-renew — only Paystack's API gives
+  this scaffold a clean "charge a saved token with no cardholder
+  present" call; a manual subscription (or any other gateway) simply
+  isn't eligible, same as before this pass.
+- No way to change *which* card backs an existing auto-renewing
+  subscription — turning auto-renew off and subscribing again with a new
+  card is the only path.
 
 ## Not built yet
 

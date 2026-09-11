@@ -93,13 +93,7 @@ export default function PackagesPage() {
       {callbackNotice && <div className="potg-card" style={{ padding: 10, marginBottom: 16, fontSize: 12 }}>{callbackNotice}</div>}
 
       {isCurrentlyActive(activeBoost) && (
-        <div className="potg-card" style={{ padding: 16, marginBottom: 20, background: "var(--potg-teal-bg, rgba(20,166,155,0.08))" }}>
-          <p className="potg-muted" style={{ margin: "0 0 4px", fontSize: 12 }}>Your current boost</p>
-          <div style={{ fontWeight: 700, fontSize: 16 }}>★ {activeBoost.package.title}</div>
-          <p className="potg-muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
-            Active until {new Date(activeBoost.expiresAt!).toLocaleDateString()}
-          </p>
-        </div>
+        <ActiveBoostCard boost={activeBoost} onChanged={load} />
       )}
 
       {!catalog && !error && <p className="potg-muted">Loading packages…</p>}
@@ -127,11 +121,19 @@ export default function PackagesPage() {
                 <p className="potg-muted" style={{ fontSize: 12, margin: "2px 0 0" }}>
                   {formatMoney(sub.amount, sub.currency)} via {sub.provider} · {new Date(sub.createdAt).toLocaleDateString()}
                   {sub.expiresAt && ` · expires ${new Date(sub.expiresAt).toLocaleDateString()}`}
+                  {sub.renewedFromId && " · renewed automatically"}
                 </p>
               </div>
-              <span className="potg-badge">
-                {sub.status === "active" ? (sub.expiresAt && new Date(sub.expiresAt).getTime() > Date.now() ? "active" : "expired") : sub.status}
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {isCurrentlyActive(sub) && sub.autoRenew && (
+                  <span className="potg-badge" style={{ background: "#e6f7f5", borderColor: "var(--potg-teal-light)", color: "var(--potg-teal)" }}>
+                    auto-renews
+                  </span>
+                )}
+                <span className="potg-badge">
+                  {sub.status === "active" ? (isCurrentlyActive(sub) ? "active" : "expired") : sub.status}
+                </span>
+              </div>
             </div>
           ))}
         </div>
@@ -140,9 +142,74 @@ export default function PackagesPage() {
   );
 }
 
+function ActiveBoostCard({ boost, onChanged }: { boost: PackageSubscription; onChanged: () => void }) {
+  const auth = useAuth();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"toggle" | "renew" | null>(null);
+
+  const canToggleOn = !!boost.authorizationCode;
+
+  async function onToggleAutoRenew() {
+    setError(null);
+    setBusy("toggle");
+    try {
+      await auth.api.setPackageAutoRenew(boost.id, !boost.autoRenew);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update auto-renew.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onRenewNow() {
+    setError(null);
+    setBusy("renew");
+    try {
+      await auth.api.renewPackageNow(boost.id);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't renew that subscription right now.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 16, marginBottom: 20, background: "var(--potg-teal-bg, rgba(20,166,155,0.08))" }}>
+      <p className="potg-muted" style={{ margin: "0 0 4px", fontSize: 12 }}>Your current boost</p>
+      <div style={{ fontWeight: 700, fontSize: 16 }}>★ {boost.package.title}</div>
+      <p className="potg-muted" style={{ margin: "4px 0 8px", fontSize: 12 }}>
+        {boost.autoRenew
+          ? `Auto-renews on ${new Date(boost.expiresAt!).toLocaleDateString()} — charged to the card on file`
+          : `Active until ${new Date(boost.expiresAt!).toLocaleDateString()}`}
+      </p>
+      {error && <div className="potg-error" style={{ fontSize: 11, marginBottom: 6 }}>{error}</div>}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {canToggleOn && (
+          <button className="potg-btn potg-btn-secondary" style={{ fontSize: 11, padding: "4px 9px" }} onClick={onToggleAutoRenew} disabled={busy !== null}>
+            {busy === "toggle" ? "…" : boost.autoRenew ? "Turn off auto-renew" : "Turn on auto-renew"}
+          </button>
+        )}
+        {canToggleOn && (
+          <button className="potg-btn potg-btn-secondary" style={{ fontSize: 11, padding: "4px 9px" }} onClick={onRenewNow} disabled={busy !== null}>
+            {busy === "renew" ? "…" : "Renew now"}
+          </button>
+        )}
+      </div>
+      {!canToggleOn && (
+        <p className="potg-muted" style={{ fontSize: 11, margin: "6px 0 0" }}>
+          This subscription has no reusable card on file — subscribe with Paystack and check "Auto-renew" to enable it.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function PackageCard({ pkg, canSubscribe, onSubscribed }: { pkg: VisibilityPackage; canSubscribe: boolean; onSubscribed: () => void }) {
   const auth = useAuth();
   const [provider, setProvider] = useState("manual");
+  const [autoRenew, setAutoRenew] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -152,7 +219,7 @@ function PackageCard({ pkg, canSubscribe, onSubscribed }: { pkg: VisibilityPacka
     setError(null);
     setBusy(true);
     try {
-      const result = await auth.api.subscribeToPackage({ packageId: pkg.id, provider });
+      const result = await auth.api.subscribeToPackage({ packageId: pkg.id, provider, autoRenew: provider === "paystack" ? autoRenew : undefined });
       if (result.authorizationUrl) {
         setPendingId(result.subscription.id);
         window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
@@ -208,6 +275,12 @@ function PackageCard({ pkg, canSubscribe, onSubscribed }: { pkg: VisibilityPacka
             <option value="paypal">PayPal (real test payment)</option>
             <option value="stripe">Stripe (real once configured)</option>
           </select>
+          {provider === "paystack" && (
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
+              <input type="checkbox" checked={autoRenew} onChange={(e) => setAutoRenew(e.target.checked)} />
+              Auto-renew — charge this card again each {pkg.billingPeriod === "annual" ? "year" : "month"}
+            </label>
+          )}
           <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
             {busy ? "…" : "Subscribe"}
           </button>

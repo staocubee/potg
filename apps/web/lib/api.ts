@@ -340,6 +340,15 @@ export type PackageSubscription = {
   startedAt?: string | null;
   expiresAt?: string | null;
   createdAt: string;
+  // Phase 2 — real auto-renewal, Paystack only. authorizationCode is
+  // never sent to the frontend as a value to act on (it's an internal
+  // charge token) but its presence/absence isn't sensitive — the API
+  // includes it as-is; the web app only ever checks it via
+  // canAutoRenew below, never displays it.
+  autoRenew: boolean;
+  authorizationCode?: string | null;
+  payerEmail?: string | null;
+  renewedFromId?: string | null;
   package: VisibilityPackage;
 };
 
@@ -2347,7 +2356,7 @@ export class ApiClient {
   getMyActiveBoost() {
     return request<PackageSubscription | null>("/packages/me/active", { token: this.token, accountId: this.accountId });
   }
-  subscribeToPackage(input: { packageId: string; provider?: string }) {
+  subscribeToPackage(input: { packageId: string; provider?: string; autoRenew?: boolean }) {
     return request<{ subscription: PackageSubscription; authorizationUrl?: string }>("/packages/subscribe", {
       method: "POST",
       body: input,
@@ -2360,6 +2369,25 @@ export class ApiClient {
       `/packages/subscriptions/${subscriptionId}/verify`,
       { method: "POST", token: this.token, accountId: this.accountId },
     );
+  }
+  // Phase 2 — real auto-renewal (Paystack only). setPackageAutoRenew is
+  // the "cancel my subscription" action (see PackagesService.setAutoRenew);
+  // renewPackageNow charges the same real saved card the daily cron would,
+  // on demand.
+  setPackageAutoRenew(subscriptionId: string, autoRenew: boolean) {
+    return request<PackageSubscription>(`/packages/subscriptions/${subscriptionId}/auto-renew`, {
+      method: "PATCH",
+      body: { autoRenew },
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  renewPackageNow(subscriptionId: string) {
+    return request<PackageSubscription>(`/packages/subscriptions/${subscriptionId}/renew-now`, {
+      method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
   }
   getPortfolioOverview() {
     return request<PortfolioOverview>("/reports/portfolio-overview", { token: this.token, accountId: this.accountId });
