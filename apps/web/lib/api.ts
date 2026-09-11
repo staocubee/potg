@@ -1186,6 +1186,41 @@ export type PlatformAdminActionEntry = {
   createdAt: string;
 };
 
+// Module 24's "Platform Admin Reports" — see
+// PlatformAdminService.getPlatformReports's own comment for what each
+// figure does and doesn't count.
+export type PlatformReports = {
+  generatedAt: string;
+  activeUsers: number;
+  activeProperties: number;
+  marketplaceGmvByCurrency: { currency: string; total: number }[];
+  escrowVolume: {
+    totalDepositedByCurrency: { currency: string; total: number }[];
+    currentBalanceByCurrency: { currency: string; total: number }[];
+  };
+  vendorPerformance: {
+    totalAssigned: number;
+    totalCompleted: number;
+    completionRate: number;
+    avgRating: number | null;
+    topVendors: { vendorId: string; businessName: string; assigned: number; completed: number; avgRating: number | null }[];
+  };
+  disputeRate: {
+    rate: number;
+    totalDisputes: number;
+    disputableCount: number;
+    byStatus: { status: string; count: number }[];
+  };
+  verificationBacklog: {
+    vendors: number;
+    suppliers: number;
+    listings: number;
+    documents: number;
+    identity: number;
+    total: number;
+  };
+};
+
 export type ComplianceItem = {
   id: string;
   jurisdiction: string;
@@ -2581,6 +2616,9 @@ export class ApiClient {
   }
   getPlatformAdminAuditLog() {
     return request<PlatformAdminActionEntry[]>("/platform-admin/audit-log", { token: this.token, accountId: this.accountId });
+  }
+  getPlatformReports() {
+    return request<PlatformReports>("/platform-admin/reports", { token: this.token, accountId: this.accountId });
   }
   findOpenDisputesForArbitration() {
     return request<Dispute[]>("/payments/disputes/open", { token: this.token, accountId: this.accountId });

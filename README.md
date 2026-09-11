@@ -6065,6 +6065,79 @@ didn't. This closes that.
   photo at all, same as before; this adds the capability, it doesn't
   mandate using it.
 
+## Module 24: Platform Admin Reports (this pass)
+
+The one category a code-level audit of Module 24 found completely
+unbuilt: `ReportsService` is account-scoped by design (`getPortfolioOverview
+(accountId)`, "never a second, independent query path" per its own
+`METRIC_REGISTRY` comment), so none of the 7 named platform-wide reports
+could ever have lived there. They belong next to `PlatformAdminService`'s
+own existing platform-wide work (the account directory, suspend/
+reinstate, the audit log) instead — same module, same
+`account:read_all` gate, same "genuinely platform-wide, no accountId
+scoping anywhere" shape that module's own comment already describes.
+
+**What's built** — `PlatformAdminService.getPlatformReports()`
+(`GET /platform-admin/reports`), seven real numbers:
+
+- **Active users** / **Active properties** — real counts (`User.status
+  === 'active'`, `Property.count()`).
+- **Marketplace GMV** — delivered orders + paid-out milestones
+  (`Payout.grossAmount`, not the vendor's net), grouped by currency.
+  Deliberately excludes property-listing sales: nothing on
+  `PropertyListing` records an actual closing price (`askingPrice` is an
+  ask, not a confirmed sale, and no `Payment`/`Payout` ties to a listing
+  sale in this schema) — including one would mean inventing a number.
+- **Escrow volume** — two real, different figures rather than one
+  ambiguous one: lifetime deposits (every completed `Payment`, ever) and
+  the current balance snapshot across every `EscrowAccount`, both by
+  currency.
+- **Vendor performance (platform-wide)** — the exact same jobsAssigned/
+  jobsCompleted/avgRating definition `ReportsService`'s own account-scoped
+  version already uses, just with no account filter: every
+  `ProjectVendorAssignment` and `VendorReview` on the platform, plus a
+  top-10 leaderboard by jobs completed.
+- **Dispute rate** — disputes raised as a fraction of everything a
+  dispute can actually be raised against (every `Project` + every
+  `Order`, any status), not gated on success the way GMV is. That
+  distinction is real, not cosmetic: querying this database directly
+  showed 10 of 13 real disputes are project-level with no specific
+  order/payout/milestone attached at all, so a "completed transactions
+  only" denominator (the first version built, then corrected) would have
+  undercounted the real disputes it excluded and produced a nonsense
+  >100% rate with no explanation. The corrected version can still read
+  above 100% on a small, test-heavy demo dataset (confirmed live: 260%,
+  13 disputes against just 1 project + 4 orders, from this session's own
+  repeated dispute-flow testing) — that's an honest reflection of the
+  data, not a bug, which is why the raw counts are always shown alongside
+  the percentage rather than the percentage alone.
+- **Verification backlog** — every item platform-wide currently waiting
+  on a `platform_reviewer` decision, broken out by type (vendors,
+  suppliers, listings, documents, identity checks) rather than one
+  opaque total, since a reviewer needs to know *what* to go look at.
+- Frontend: a new "Platform reports" section on `/admin`, above the
+  existing account directory, using the same `StatTile`/card conventions
+  the rest of the app already uses — not a new design language for one
+  screen.
+- **Verified live**: loaded `/admin` as the seeded `platform_admin`
+  account and confirmed every figure against this database's own real
+  state — 16 active users, 6 properties, real GMV/escrow numbers, a
+  vendor leaderboard, and (after catching and fixing the dispute-rate
+  definition bug above) a dispute rate whose arithmetic checks out exactly
+  against a direct database query.
+
+**Not done — explicit scope, not oversight**:
+
+- No time-windowed trend (this month vs. last, a rolling chart) — every
+  figure is a live, all-time snapshot. This scaffold doesn't have enough
+  real historical volume yet for a trend line to mean anything.
+- No CSV export for this report the way the account-scoped portfolio
+  overview already has one — a real, low-risk follow-up, not part of
+  closing the "these reports don't exist at all" gap.
+- Marketplace GMV still doesn't include property-listing sales, for the
+  real schema reason above — closing that means adding a recorded sale
+  price to `PropertyListing` first, a separate, earlier gap.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

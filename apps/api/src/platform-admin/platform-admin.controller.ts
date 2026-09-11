@@ -54,4 +54,13 @@ export class PlatformAdminController {
   getAuditLog() {
     return this.admin.getAuditLog();
   }
+
+  // Module 24's "Platform Admin Reports" — see PlatformAdminService.
+  // getPlatformReports's own comment for why these live here rather than
+  // in the (deliberately account-scoped) Reports module.
+  @RequirePermissions('account:read_all')
+  @Get('reports')
+  getPlatformReports() {
+    return this.admin.getPlatformReports();
+  }
 }

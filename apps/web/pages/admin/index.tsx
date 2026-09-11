@@ -1,10 +1,134 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { ApiError, PlatformAccountSummary, PlatformAdminActionEntry } from "../../lib/api";
+import { ApiError, PlatformAccountSummary, PlatformAdminActionEntry, PlatformReports } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 function statusColor(status: string) {
   return status === "suspended" ? "var(--potg-danger)" : "var(--potg-success, #1a7f37)";
+}
+
+function formatMoney(value: number, currency: string) {
+  return `${currency} ${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+function StatTile({ label, value, sub }: { label: string; value: React.ReactNode; sub?: string }) {
+  return (
+    <div className="potg-card" style={{ padding: 14, flex: 1, minWidth: 140 }}>
+      <p className="potg-muted" style={{ margin: "0 0 4px", fontSize: 11 }}>{label}</p>
+      <div style={{ fontWeight: 700, fontSize: 18 }}>{value}</div>
+      {sub && <p className="potg-muted" style={{ margin: "2px 0 0", fontSize: 10.5 }}>{sub}</p>}
+    </div>
+  );
+}
+
+// Module 24's "Platform Admin Reports" — seven real, platform-wide
+// numbers, not one per named report. See
+// PlatformAdminService.getPlatformReports's own comment for exactly what
+// each figure counts (and, for GMV/escrow, what it deliberately doesn't).
+function PlatformReportsSection() {
+  const auth = useAuth();
+  const [reports, setReports] = useState<PlatformReports | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!auth.currentAccountId) return;
+    auth.api
+      .getPlatformReports()
+      .then(setReports)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load platform reports."));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  if (error) return <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>;
+  if (!reports) return <p className="potg-muted">Loading platform reports…</p>;
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <h3 style={{ fontSize: 14, margin: "0 0 10px" }}>Platform reports</h3>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+        <StatTile label="Active users" value={reports.activeUsers} />
+        <StatTile label="Active properties" value={reports.activeProperties} />
+        <StatTile
+          label="Marketplace GMV"
+          value={
+            reports.marketplaceGmvByCurrency.length === 0
+              ? "—"
+              : reports.marketplaceGmvByCurrency.map((g) => formatMoney(g.total, g.currency)).join(" · ")
+          }
+          sub="Delivered orders + paid-out milestones only"
+        />
+        <StatTile
+          label="Dispute rate"
+          value={`${(reports.disputeRate.rate * 100).toFixed(1)}%`}
+          sub={`${reports.disputeRate.totalDisputes} dispute(s) / ${reports.disputeRate.disputableCount} project(s)+order(s)`}
+        />
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+        <div className="potg-card" style={{ padding: 14, flex: 1, minWidth: 220 }}>
+          <p className="potg-muted" style={{ margin: "0 0 6px", fontSize: 11 }}>Escrow volume</p>
+          <div style={{ fontSize: 12 }}>
+            <div className="potg-muted">Deposited (lifetime)</div>
+            {reports.escrowVolume.totalDepositedByCurrency.length === 0 ? (
+              <div>—</div>
+            ) : (
+              reports.escrowVolume.totalDepositedByCurrency.map((d) => <div key={d.currency}>{formatMoney(d.total, d.currency)}</div>)
+            )}
+            <div className="potg-muted" style={{ marginTop: 6 }}>Current balance</div>
+            {reports.escrowVolume.currentBalanceByCurrency.length === 0 ? (
+              <div>—</div>
+            ) : (
+              reports.escrowVolume.currentBalanceByCurrency.map((d) => <div key={d.currency}>{formatMoney(d.total, d.currency)}</div>)
+            )}
+          </div>
+        </div>
+
+        <div className="potg-card" style={{ padding: 14, flex: 1, minWidth: 220 }}>
+          <p className="potg-muted" style={{ margin: "0 0 6px", fontSize: 11 }}>Vendor performance (platform-wide)</p>
+          <div style={{ fontSize: 12 }}>
+            <div>{reports.vendorPerformance.totalCompleted}/{reports.vendorPerformance.totalAssigned} jobs completed ({(reports.vendorPerformance.completionRate * 100).toFixed(0)}%)</div>
+            <div>{reports.vendorPerformance.avgRating != null ? `${reports.vendorPerformance.avgRating.toFixed(1)} avg rating` : "No ratings yet"}</div>
+          </div>
+        </div>
+
+        <div
+          className="potg-card"
+          style={{
+            padding: 14,
+            flex: 1,
+            minWidth: 220,
+            background: reports.verificationBacklog.total > 0 ? "var(--potg-warn-bg)" : undefined,
+            borderColor: reports.verificationBacklog.total > 0 ? "var(--potg-warn-border)" : undefined,
+          }}
+        >
+          <p className="potg-muted" style={{ margin: "0 0 6px", fontSize: 11 }}>Verification backlog</p>
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>{reports.verificationBacklog.total} pending</div>
+          <div style={{ fontSize: 11 }} className="potg-muted">
+            {reports.verificationBacklog.vendors} vendor(s) · {reports.verificationBacklog.suppliers} supplier(s) ·{" "}
+            {reports.verificationBacklog.listings} listing(s) · {reports.verificationBacklog.documents} document(s) ·{" "}
+            {reports.verificationBacklog.identity} identity check(s)
+          </div>
+        </div>
+      </div>
+
+      {reports.vendorPerformance.topVendors.length > 0 && (
+        <div className="potg-card" style={{ padding: 14 }}>
+          <p className="potg-muted" style={{ margin: "0 0 8px", fontSize: 11 }}>Top vendors by jobs completed</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {reports.vendorPerformance.topVendors.map((v) => (
+              <div key={v.vendorId} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                <span>{v.businessName}</span>
+                <span className="potg-muted">
+                  {v.completed}/{v.assigned} completed{v.avgRating != null ? ` · ${v.avgRating.toFixed(1)}★` : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // Module 16-24's "admin operations" bucket, scoped to its one genuinely
@@ -61,6 +185,8 @@ export default function AdminPage() {
         longer act as itself on any route until reinstated — its other members' own accounts, if any, are
         unaffected.
       </p>
+      <PlatformReportsSection />
+
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
       {!accounts && !error && <p className="potg-muted">Loading…</p>}
 
