@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useAuth } from "../lib/auth";
 import { ApiError, InvitePreview } from "../lib/api";
 import AuthLayout from "../components/AuthLayout";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 
 export default function RegisterPage() {
   const auth = useAuth();
@@ -66,6 +67,27 @@ export default function RegisterPage() {
       router.push(inviteToken ? "/properties" : "/accounts/new");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't create your account — please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Same one call login.tsx's own Google button uses — see
+  // AuthService.googleAuth's own comment. Reached from the *register*
+  // page, so an invite token in the URL comes along too, same as the
+  // password form above; a Google sign-in that turns out to already have
+  // an account (existing email, or already used Google before) just logs
+  // that account in rather than treating it as an error.
+  async function onGoogleCredential(idToken: string) {
+    setError(null);
+    setBusy(true);
+    try {
+      const result = await auth.api.googleAuth(idToken, inviteToken);
+      const user = await auth.api.me();
+      auth.setSignedIn(user);
+      router.push(result.isNewUser ? (inviteToken ? "/properties" : "/accounts/new") : "/");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't sign up with Google — try again.");
     } finally {
       setBusy(false);
     }
@@ -151,6 +173,7 @@ export default function RegisterPage() {
           {busy ? "Creating…" : invite ? "Create account & join" : "Create account"}
         </button>
       </form>
+      <GoogleSignInButton onCredential={onGoogleCredential} />
       <p className="potg-muted" style={{ marginTop: 18, fontSize: 13 }}>
         Already have an account? <Link href="/login" style={{ color: "var(--potg-teal)", fontWeight: 600 }}>Sign in</Link>
       </p>

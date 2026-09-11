@@ -5846,6 +5846,98 @@ payouts) — plus the actual "cancel my subscription" action, a self-serve
   subscription — turning auto-renew off and subscribing again with a new
   card is the only path.
 
+## Google Sign-In (SSO) — real, for both register and login (this pass)
+
+The user asked directly whether social/SSO sign-in was available — it
+wasn't (auth was exclusively hand-rolled email+password, no passport, no
+OAuth dependency anywhere in the repo), so this closes that gap with a
+real Google Identity Services integration rather than a styled button
+that goes nowhere.
+
+**What's built**:
+
+- One backend call handles both "register" and "log in" —
+  `AuthService.googleAuth`, reached via `POST /auth/google`. There's no
+  separate "sign up with Google" step the way password auth needs one:
+  Google already proves the email is real, so the same call either logs
+  in a returning user or creates one on the spot. The response's
+  `isNewUser` is what tells the frontend which just happened, the same
+  way register.tsx/login.tsx already route differently after a
+  successful password auth.
+- Real verification, not a shortcut — `google-auth-library`'s
+  `OAuth2Client.verifyIdToken` checks the ID token Google Identity
+  Services' own browser widget produced against Google's actual public
+  keys and this server's own `GOOGLE_OAUTH_CLIENT_ID` as `audience`,
+  the same "never trust what the client claims, verify with the real
+  provider" rule every payment gateway integration in this codebase
+  already follows. An email Google itself reports as unverified is
+  refused outright.
+- `User.passwordHash` is now nullable and `User.googleId` (unique) is
+  new — a Google-only account genuinely has no password to hash.
+  `AuthService.login` refuses a password attempt against a null hash
+  with a clear message instead of crashing `bcrypt.compare` on it, and
+  points at "Forgot password" as a real way to add one later — that flow
+  needed zero changes, since `resetPassword` already unconditionally
+  overwrites this column regardless of its prior value.
+- Account linking, not account collision — a verified Google email that
+  matches an *existing* password account's email links `googleId` onto
+  that same row rather than refusing ("email already registered") or
+  silently failing (email is `@unique`, a duplicate isn't possible
+  either way). That account now has two real ways in. A returning
+  Google user is looked up by `googleId` first, falling back to email
+  only for that one-time link.
+- Same invite-token handling register() already has — `googleAuth`
+  accepts an optional `inviteToken` and, only on creating a brand-new
+  user, validates and consumes it via a `validateInvite` helper
+  extracted out of `register()` itself (previously duplicated inline,
+  now one shared check both call). An invited person who lands on
+  `/register?inviteToken=...` and clicks "Continue with Google" joins
+  the inviting account exactly like finishing the password form would.
+- Frontend: `components/GoogleSignInButton.tsx` loads Google's own
+  `accounts.google.com/gsi/client` script and renders the real Google
+  widget — on both `/login` and `/register`, wired to the same
+  `googleAuth` client call, each page routing the result the same place
+  its own password flow already goes (`/accounts/new` for a brand-new
+  user, `/properties` for one who joined via invite, otherwise the
+  normal signed-in destination). Renders nothing at all — no broken or
+  disabled-looking placeholder — when
+  `NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID` is unset; password sign-in/
+  register keep working unaffected either way.
+- **Verified live**: confirmed `/login` and `/register` render cleanly
+  with no Google button and no console errors while unconfigured (this
+  environment has no real Google Cloud OAuth Client ID — same external-
+  credential gap the Maps/OpenAI features had before the user supplied
+  real keys), confirmed `POST /auth/google` returns a clear "Google
+  sign-in is not configured" 400 (through the app's own CSRF-protected
+  request path, not a raw unauthenticated call), and confirmed the
+  existing password login flow is completely unaffected (real sign-in,
+  201, redirected to the portfolio). Then verified every piece of
+  `googleAuth`'s own logic for real — new-user creation, returning-user
+  recognition (no duplicate row), the login() rejection message on a
+  Google-only account, email-based auto-linking onto an existing
+  password account (which keeps its password working too), unverified-
+  email refusal, and real invite-token consumption (a fresh Google user
+  actually joined the invited account, the invite flipped to
+  "accepted") — all run through the real Nest application (not a
+  reimplementation), with only the one unavoidable external call
+  (Google's own token-verification network request) stubbed, since that
+  specifically requires a live Google account and a real registered
+  OAuth client this environment doesn't have.
+
+**Not done — explicit scope, not oversight**:
+
+- No real end-to-end browser test of the actual Google consent screen —
+  needs a real `GOOGLE_OAUTH_CLIENT_ID` from
+  https://console.cloud.google.com/apis/credentials with
+  `http://localhost:3000` as an authorized JavaScript origin (see
+  `apps/api/.env.example`'s own comment on this feature). Everything
+  short of that literal external handshake is verified live, per above.
+- No other social providers (Apple, Facebook, GitHub) — Google only,
+  matching what was actually asked for.
+- No way to unlink a Google account from a password account, or remove a
+  password once one exists — both credentials just keep working side by
+  side once linked.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

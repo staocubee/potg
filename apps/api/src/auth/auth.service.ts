@@ -1,5 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import { OAuth2Client } from 'google-auth-library';
 import * as bcrypt from 'bcryptjs';
 import { randomBytes, randomUUID, createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -25,11 +27,42 @@ const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
+  private readonly googleClient: OAuth2Client;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly email: EmailService,
-  ) {}
+    private readonly config: ConfigService,
+  ) {
+    // Built once regardless of whether GOOGLE_OAUTH_CLIENT_ID is actually
+    // set — google-auth-library only uses the id at verify time (passed
+    // again as `audience` below), so an empty-string client doesn't throw
+    // here; the explicit check at the top of googleAuth is what actually
+    // refuses the request cleanly when it's unset.
+    this.googleClient = new OAuth2Client(this.config.get<string>('GOOGLE_OAUTH_CLIENT_ID', ''));
+  }
+
+  // Shared by register() (email+password) and googleAuth() (Google) — one
+  // validate-then-return, not two copies of the same sha256+status+expiry+
+  // email-match checks. Doesn't consume the invite itself (both callers
+  // do that inside their own transaction, once the User row they need for
+  // AccountMember.userId actually exists) — just proves it's usable.
+  // AccountsService.acceptInvite has a similar validate-then-consume shape
+  // for the already-registered case (InvitesController) — kept separate
+  // rather than shared because that path already has a signed-in user and
+  // this one is still creating one.
+  private async validateInvite(inviteToken: string, email: string): Promise<{ id: string; accountId: string; roleId: string }> {
+    const tokenHash = createHash('sha256').update(inviteToken).digest('hex');
+    const found = await this.prisma.accountInvite.findUnique({ where: { tokenHash } });
+    if (!found || found.status !== 'pending' || found.expiresAt < new Date()) {
+      throw new BadRequestException('This invite is invalid or has expired');
+    }
+    if (found.email.toLowerCase() !== email.toLowerCase()) {
+      throw new BadRequestException('This invite was sent to a different email address');
+    }
+    return found;
+  }
 
   async register(input: RegisterDto) {
     const existing = await this.prisma.user.findUnique({ where: { email: input.email } });
@@ -40,21 +73,9 @@ export class AuthService {
     // Validated before the User is created, not after: a bad/expired/
     // mismatched invite token should fail registration cleanly rather than
     // leaving a signed-up user whose invite silently didn't take.
-    // AccountsService.acceptInvite has the same validate-then-consume
-    // shape for the already-registered case (InvitesController) — kept
-    // separate rather than shared because that path already has a
-    // signed-in user and this one is still creating one.
     let invite: { id: string; accountId: string; roleId: string } | null = null;
     if (input.inviteToken) {
-      const tokenHash = createHash('sha256').update(input.inviteToken).digest('hex');
-      const found = await this.prisma.accountInvite.findUnique({ where: { tokenHash } });
-      if (!found || found.status !== 'pending' || found.expiresAt < new Date()) {
-        throw new BadRequestException('This invite is invalid or has expired');
-      }
-      if (found.email.toLowerCase() !== input.email.toLowerCase()) {
-        throw new BadRequestException('This invite was sent to a different email address');
-      }
-      invite = found;
+      invite = await this.validateInvite(input.inviteToken, input.email);
     }
 
     const passwordHash = await bcrypt.hash(input.password, 10);
@@ -80,9 +101,87 @@ export class AuthService {
   async login(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) throw new UnauthorizedException('Invalid email or password');
+    // A Google-only account (see User.passwordHash's own schema comment)
+    // has nothing to compare against — bcrypt.compare would throw on a
+    // null second argument rather than fail cleanly, so this is checked
+    // explicitly instead of just letting that happen.
+    if (!user.passwordHash) {
+      throw new UnauthorizedException(
+        'This account signs in with Google — use "Continue with Google", or use "Forgot password" to set one.',
+      );
+    }
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) throw new UnauthorizedException('Invalid email or password');
     return this.issueTokenPair(user.id, user.email);
+  }
+
+  // Real Google Sign-In (this pass) — one endpoint for both "register" and
+  // "log in" (see README's own comment on this feature for why: Google
+  // already proves the email, so there's no separate "create an account"
+  // step the way password auth needs one). idToken is the JWT Google
+  // Identity Services' own browser widget produces; verified here against
+  // Google's own public keys via google-auth-library — never decoded and
+  // trusted directly, the same "don't trust what the client claims"
+  // reasoning every gateway verify() in this codebase already follows.
+  async googleAuth(idToken: string, inviteToken?: string) {
+    const clientId = this.config.get<string>('GOOGLE_OAUTH_CLIENT_ID', '');
+    if (!clientId) {
+      throw new BadRequestException('Google sign-in is not configured on this server — set GOOGLE_OAUTH_CLIENT_ID');
+    }
+
+    let payload: { sub: string; email?: string; email_verified?: boolean; name?: string } | undefined;
+    try {
+      const ticket = await this.googleClient.verifyIdToken({ idToken, audience: clientId });
+      payload = ticket.getPayload();
+    } catch {
+      throw new UnauthorizedException('Invalid Google sign-in token');
+    }
+    if (!payload?.email) {
+      throw new UnauthorizedException("Google didn't return an email for this account");
+    }
+    // Google only ever sets this false for an address it hasn't itself
+    // confirmed the account holder controls (e.g. a G Suite domain admin
+    // added it without the user verifying) — refusing here is what makes
+    // the auto-link below (email match, no extra proof) safe.
+    if (!payload.email_verified) {
+      throw new UnauthorizedException("This Google account's email isn't verified");
+    }
+
+    const googleId = payload.sub;
+    const email = payload.email;
+
+    let user = await this.prisma.user.findUnique({ where: { googleId } });
+    let isNewUser = false;
+
+    if (!user) {
+      const existingByEmail = await this.prisma.user.findUnique({ where: { email } });
+      if (existingByEmail) {
+        // Same person, a second way in — link rather than refuse or
+        // create a duplicate row for the same email (email is @unique,
+        // so a duplicate isn't even possible; this is the deliberate
+        // choice of *which* outcome, not a workaround for a constraint).
+        user = await this.prisma.user.update({ where: { id: existingByEmail.id }, data: { googleId } });
+      } else {
+        // Brand new — same optional invite-consumption register() does,
+        // only reachable here because no User with this email existed a
+        // moment ago (an existing account's stale invite link is simply
+        // ignored, same as register()'s own ConflictException path never
+        // reaches its own invite check for an already-registered email).
+        const invite = inviteToken ? await this.validateInvite(inviteToken, email) : null;
+        user = await this.prisma.user.create({
+          data: { name: payload.name ?? email.split('@')[0], email, googleId },
+        });
+        if (invite) {
+          await this.prisma.$transaction([
+            this.prisma.accountMember.create({ data: { accountId: invite.accountId, userId: user.id, roleId: invite.roleId } }),
+            this.prisma.accountInvite.update({ where: { id: invite.id }, data: { status: 'accepted', acceptedAt: new Date() } }),
+          ]);
+        }
+        isNewUser = true;
+      }
+    }
+
+    return { ...(await this.issueTokenPair(user.id, user.email)), isNewUser };
   }
 
   // Called from POST /auth/refresh, unauthenticated (the refresh token

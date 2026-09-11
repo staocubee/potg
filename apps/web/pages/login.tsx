@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useAuth } from "../lib/auth";
 import { ApiError } from "../lib/api";
 import AuthLayout from "../components/AuthLayout";
+import GoogleSignInButton from "../components/GoogleSignInButton";
 
 export default function LoginPage() {
   const auth = useAuth();
@@ -31,6 +32,26 @@ export default function LoginPage() {
       router.push(redirect);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't sign in — check your details and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Same call whether this browser has signed in with this Google account
+  // before or not — see AuthService.googleAuth's own comment. A brand new
+  // Google sign-in reached from the *login* page still needs the "create
+  // your first account" step, same as a brand new password registration
+  // does — isNewUser is what tells these two apart.
+  async function onGoogleCredential(idToken: string) {
+    setError(null);
+    setBusy(true);
+    try {
+      const result = await auth.api.googleAuth(idToken);
+      const user = await auth.api.me();
+      auth.setSignedIn(user);
+      router.push(result.isNewUser ? "/accounts/new" : redirect);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't sign in with Google — try again.");
     } finally {
       setBusy(false);
     }
@@ -76,6 +97,7 @@ export default function LoginPage() {
           {busy ? "Signing in…" : "Sign in"}
         </button>
       </form>
+      <GoogleSignInButton onCredential={onGoogleCredential} />
       <p className="potg-muted" style={{ marginTop: 18, fontSize: 13 }}>
         New here? <Link href="/register" style={{ color: "var(--potg-teal)", fontWeight: 600 }}>Create an account</Link>
       </p>

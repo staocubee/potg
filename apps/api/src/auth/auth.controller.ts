@@ -4,6 +4,7 @@ import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { GoogleAuthDto } from './dto/google-auth.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -33,6 +34,20 @@ export class AuthController {
   @Post('login')
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const { accessToken, refreshToken, ...rest } = await this.auth.login(dto.email, dto.password);
+    setAuthCookies(res, { accessToken, refreshToken });
+    return rest;
+  }
+
+  // One endpoint for both "register" and "log in" via Google — see
+  // AuthService.googleAuth's own comment for why a single call can mean
+  // either depending on whether this email/googleId has signed in before.
+  // Same 5/min cap as login: this is a credential-verification endpoint
+  // too, even though the credential is a Google-issued token rather than
+  // a password.
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @Post('google')
+  async google(@Body() dto: GoogleAuthDto, @Res({ passthrough: true }) res: Response) {
+    const { accessToken, refreshToken, ...rest } = await this.auth.googleAuth(dto.idToken, dto.inviteToken);
     setAuthCookies(res, { accessToken, refreshToken });
     return rest;
   }

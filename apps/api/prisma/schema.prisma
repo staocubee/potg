@@ -114,7 +114,25 @@ model User {
   name         String
   email        String   @unique
   phone        String?
-  passwordHash String
+  // Nullable — real Google Sign-In (this pass): a user who only ever
+  // signs in via Google has no password of their own to hash.
+  // AuthService.login refuses a password attempt against a null hash with
+  // a clear "use Google, or set one via Forgot password" message rather
+  // than crashing bcrypt.compare on a null second argument — and Forgot
+  // password genuinely works here unchanged, since resetPassword() always
+  // just overwrites this column regardless of its prior value, letting a
+  // Google-only user pick up a real password later if they want a second
+  // way in.
+  passwordHash String?
+  // Google's own stable per-account subject id ("sub" in the verified ID
+  // token) — the primary lookup key for a returning Google sign-in
+  // (AuthService.googleAuth checks this before falling back to email).
+  // Null for every account that has never used Google. A verified Google
+  // email matching an *existing* password-only account's email links
+  // this in-place rather than creating a second User row for the same
+  // person — safe because Google only ever reports `email_verified: true`
+  // for an address it has itself confirmed the account holder controls.
+  googleId     String?  @unique
   status       String   @default("active")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

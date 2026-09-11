@@ -1412,6 +1412,14 @@ export class ApiClient {
   login(email: string, password: string) {
     return request<Record<string, never>>("/auth/login", { method: "POST", body: { email, password } });
   }
+  // One endpoint for both register and login via Google — see
+  // AuthService.googleAuth's own comment. isNewUser tells the caller
+  // whether to route to /accounts/new (brand new) or wherever a normal
+  // sign-in goes (returning), same as register()/login()'s own post-auth
+  // routing already differs.
+  googleAuth(idToken: string, inviteToken?: string) {
+    return request<{ isNewUser: boolean }>("/auth/google", { method: "POST", body: { idToken, inviteToken } });
+  }
   logout() {
     return request<{ message: string }>("/auth/logout", { method: "POST" });
   }
