@@ -271,7 +271,7 @@ export class AiService {
       }
       const projectId = aiRequest.moduleContext.split(':')[1];
       const [description] = (output.draftBody as { items: string[] }).items;
-      await this.projects.addUpdate(projectId, userId, { description });
+      await this.projects.addUpdate(projectId, userId, aiRequest.accountId, { description });
     }
 
     if (aiRequest.actionType === 'generate_listing_description') {

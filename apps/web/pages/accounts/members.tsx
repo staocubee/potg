@@ -12,6 +12,13 @@ const INVITABLE_ROLES = [
   { key: "viewer", label: "Viewer — read-only" },
   { key: "family_admin", label: "Family admin" },
   { key: "company_admin", label: "Company admin" },
+  // Section 7's named operational roles — narrower than the two admin
+  // roles above, each scoped to one slice of day-to-day work rather than
+  // full account control (none can manage members, approve payments, or
+  // manage branches).
+  { key: "property_manager", label: "Property manager" },
+  { key: "facility_manager", label: "Facility manager" },
+  { key: "project_manager", label: "Project manager" },
 ];
 
 export default function AccountMembersPage() {

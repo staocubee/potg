@@ -4,6 +4,7 @@ import { CreateProjectDto } from './dto/create-project.dto';
 import { AddMilestoneDto } from './dto/add-milestone.dto';
 import { AddProjectUpdateDto } from './dto/add-project-update.dto';
 import { RequestQuoteDto } from './dto/request-quote.dto';
+import { UpdateProjectStageDto } from './dto/update-project-stage.dto';
 import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
 
 // Matches the wireframe's RenovationProject artboard exactly — a project
@@ -81,6 +82,20 @@ export class ProjectsService {
     });
   }
 
+  // The gap the Reports & Permissions audit flagged: ProjectStage.status
+  // was set once at creation (create() above) and never writable again —
+  // no endpoint anywhere let the "Scope -> Quote -> Materials -> Work ->
+  // Handover" sequence actually advance. Reachable by the owning account
+  // (project:update_progress) or, via @AllowAssignedVendor() on the
+  // controller route, by a vendor genuinely hired onto this project — the
+  // person actually doing the work is usually the one who knows a stage
+  // just finished.
+  async updateStage(projectId: string, stageId: string, dto: UpdateProjectStageDto) {
+    const stage = await this.prisma.projectStage.findFirst({ where: { id: stageId, projectId } });
+    if (!stage) throw new NotFoundException('Stage not found on this project');
+    return this.prisma.projectStage.update({ where: { id: stageId }, data: { status: dto.status } });
+  }
+
   addMilestone(projectId: string, dto: AddMilestoneDto) {
     return this.prisma.projectMilestone.create({
       data: {
@@ -93,14 +108,20 @@ export class ProjectsService {
     });
   }
 
-  // Module 19 Phase 1's "Project updates" trigger — every route that
-  // reaches this (the owner-side POST, and the AI accept-chain for
-  // draft_project_status_update) is owner-authored: project:write is
-  // never granted to the vendor role, so there's no "which side posted
-  // it" ambiguity here the way a two-sided feature like disputes has —
-  // an update always notifies every vendor assigned to the project, never
-  // the owner's own account.
-  async addUpdate(projectId: string, submittedByUserId: string, dto: AddProjectUpdateDto) {
+  // Module 19 Phase 1's "Project updates" trigger. Originally owner-only
+  // (project:write was never granted to the vendor role, so there was no
+  // "which side posted it" ambiguity — every update notified every vendor
+  // assigned to the project). Now reachable by an assigned vendor too, via
+  // project:update_progress + @AllowAssignedVendor() on the controller
+  // route, so notification direction has to be decided by who's actually
+  // posting: the owning account notifies its assigned vendors as before;
+  // an assigned vendor instead notifies the owning account.
+  async addUpdate(
+    projectId: string,
+    submittedByUserId: string,
+    submittedByAccountId: string,
+    dto: AddProjectUpdateDto,
+  ) {
     if (dto.milestoneId) {
       const milestone = await this.prisma.projectMilestone.findFirst({
         where: { id: dto.milestoneId, projectId },
@@ -116,17 +137,31 @@ export class ProjectsService {
         mediaUrls: dto.mediaUrls ?? [],
       },
     });
-    const [project, assignments] = await Promise.all([
-      this.prisma.project.findUnique({ where: { id: projectId }, select: { title: true } }),
-      this.prisma.projectVendorAssignment.findMany({ where: { projectId }, select: { vendor: { select: { accountId: true } } } }),
-    ]);
-    for (const assignment of assignments) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { title: true, accountId: true },
+    });
+    if (submittedByAccountId === project?.accountId) {
+      const assignments = await this.prisma.projectVendorAssignment.findMany({
+        where: { projectId },
+        select: { vendor: { select: { accountId: true } } },
+      });
+      for (const assignment of assignments) {
+        this.notifications.notify(
+          assignment.vendor.accountId,
+          'project_update',
+          `New update on ${project?.title ?? 'a project'}`,
+          dto.description,
+          `/vendors/me`,
+        );
+      }
+    } else if (project) {
       this.notifications.notify(
-        assignment.vendor.accountId,
+        project.accountId,
         'project_update',
-        `New update on ${project?.title ?? 'a project'}`,
+        `New update on ${project.title}`,
         dto.description,
-        `/vendors/me`,
+        `/projects/${projectId}`,
       );
     }
     return update;

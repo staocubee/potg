@@ -37,6 +37,7 @@ export default function ProjectDetailPage() {
   const [milestoneActionId, setMilestoneActionId] = useState<string | null>(null);
   const [completing, setCompleting] = useState(false);
   const [callbackNotice, setCallbackNotice] = useState<string | null>(null);
+  const [stageUpdatingId, setStageUpdatingId] = useState<string | null>(null);
 
   function load() {
     if (!id || !auth.currentAccountId) return;
@@ -45,7 +46,12 @@ export default function ProjectDetailPage() {
       .getProject(id)
       .then((p) => {
         setProject(p);
-        return Promise.all([
+        // A vendor genuinely assigned to this project can now reach it
+        // (see PermissionsGuard's @AllowAssignedVendor()), but it doesn't
+        // hold payment:read/payout:read/dispute:read the way the owning
+        // account does — allSettled so one 403 doesn't blank the whole
+        // page for a role this view was never gated behind before.
+        return Promise.allSettled([
           auth.api.getProperty(p.propertyId),
           auth.api.getEscrow(id),
           auth.api.findProjectPayouts(id),
@@ -53,12 +59,13 @@ export default function ProjectDetailPage() {
           auth.api.findDisputes(id),
         ]);
       })
-      .then(([p, e, po, r, d]) => {
-        setProperty(p);
-        setEscrow(e);
-        setPayouts(po);
-        setReceipts(r);
-        setDisputes(d);
+      .then((results) => {
+        const [p, e, po, r, d] = results;
+        if (p.status === "fulfilled") setProperty(p.value);
+        if (e.status === "fulfilled") setEscrow(e.value);
+        if (po.status === "fulfilled") setPayouts(po.value);
+        if (r.status === "fulfilled") setReceipts(r.value);
+        if (d.status === "fulfilled") setDisputes(d.value);
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this project."));
   }
@@ -74,6 +81,20 @@ export default function ProjectDetailPage() {
       setError(err instanceof ApiError ? err.message : "Couldn't approve that milestone.");
     } finally {
       setMilestoneActionId(null);
+    }
+  }
+
+  async function onUpdateStage(stageId: string, status: "not_started" | "in_progress" | "completed") {
+    if (!id) return;
+    setStageUpdatingId(stageId);
+    setError(null);
+    try {
+      await auth.api.updateProjectStage(id, stageId, status);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update that stage.");
+    } finally {
+      setStageUpdatingId(null);
     }
   }
 
@@ -223,6 +244,24 @@ export default function ProjectDetailPage() {
             {project.stages && (
               <div style={{ marginTop: 18 }}>
                 <ProjectStageBar stages={project.stages} />
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
+                  {[...project.stages].sort((a, b) => a.sortOrder - b.sortOrder).map((stage) => (
+                    <label key={stage.id} style={{ fontSize: 11, display: "flex", flexDirection: "column", gap: 2 }}>
+                      <span className="potg-muted">{stage.name}</span>
+                      <select
+                        className="potg-input"
+                        style={{ fontSize: 11, padding: "2px 4px" }}
+                        value={stage.status}
+                        disabled={stageUpdatingId === stage.id}
+                        onChange={(e) => onUpdateStage(stage.id, e.target.value as "not_started" | "in_progress" | "completed")}
+                      >
+                        <option value="not_started">Not started</option>
+                        <option value="in_progress">In progress</option>
+                        <option value="completed">Completed</option>
+                      </select>
+                    </label>
+                  ))}
+                </div>
               </div>
             )}
             {project.assignments && project.assignments.length > 0 && (

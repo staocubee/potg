@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
+import { ALLOW_ASSIGNED_VENDOR_KEY } from '../decorators/allow-assigned-vendor.decorator';
 import { PrismaService } from '../../prisma/prisma.service';
 
 // RBAC baseline + ABAC tenant isolation in one guard, per Section 8:
@@ -54,17 +55,28 @@ export class PermissionsGuard implements CanActivate {
       }
     }
 
-    // Same pattern for :projectId (Modules 7/9). This only covers the
-    // project-owner's own routes (create milestones/updates, request or
-    // accept a quote) — a vendor acting on a project it doesn't own (e.g.
-    // submitting a quote) goes through a route that doesn't key on
-    // :projectId, so this check never has to allow "someone else's project"
-    // through. See ProjectsModule/VendorsModule for which is which.
+    // Same pattern for :projectId (Modules 7/9), plus a real ABAC
+    // extension: a route marked @AllowAssignedVendor() also lets through
+    // an account that isn't the project's owner, provided it's a Vendor
+    // with an actual ProjectVendorAssignment on this exact project — a
+    // vendor hired onto project A still 404s on project B. Every other
+    // :projectId route (create milestones, request/accept a quote,
+    // complete the project) stays owner-account-only, unchanged.
     const projectId = req.params?.projectId;
     if (projectId) {
       const project = await this.prisma.project.findUnique({ where: { id: projectId } });
-      if (!project || project.accountId !== accountMember.accountId) {
-        throw new NotFoundException('Project not found');
+      if (!project) throw new NotFoundException('Project not found');
+      if (project.accountId !== accountMember.accountId) {
+        const allowAssignedVendor = this.reflector.getAllAndOverride<boolean>(ALLOW_ASSIGNED_VENDOR_KEY, [
+          context.getHandler(),
+          context.getClass(),
+        ]);
+        const assignment = allowAssignedVendor
+          ? await this.prisma.projectVendorAssignment.findFirst({
+              where: { projectId, vendor: { accountId: accountMember.accountId } },
+            })
+          : null;
+        if (!assignment) throw new NotFoundException('Project not found');
       }
     }
 

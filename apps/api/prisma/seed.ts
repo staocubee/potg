@@ -34,6 +34,13 @@ const PERMISSIONS = [
   { key: 'vendor:verify', label: "Set a vendor's platform verification status (neutral reviewer only — never granted to the vendor role itself)" },
   { key: 'project:read', label: 'View projects' },
   { key: 'project:write', label: 'Create or edit projects' },
+  // Deliberately narrower than project:write — advancing a project stage
+  // or posting a progress update, not creating/completing the project or
+  // touching its money. Granted to every owner-tier role AND the vendor
+  // role, so an account genuinely hired onto a project (via
+  // ProjectVendorAssignment, checked by @AllowAssignedVendor() alongside
+  // this) can track its own work without gaining project:write.
+  { key: 'project:update_progress', label: 'Update a project stage or post a progress update' },
   { key: 'milestone:write', label: 'Add project milestones' },
   { key: 'quote:read', label: 'View vendor quotes' },
   { key: 'quote:write', label: 'Request, submit, or accept vendor quotes' },
@@ -124,6 +131,7 @@ const ROLES: Record<string, string[]> = {
     'vendor:read',
     'project:read',
     'project:write',
+    'project:update_progress',
     'milestone:write',
     'quote:read',
     'quote:write',
@@ -168,6 +176,7 @@ const ROLES: Record<string, string[]> = {
     'vendor:read',
     'project:read',
     'project:write',
+    'project:update_progress',
     'milestone:write',
     'quote:read',
     'quote:write',
@@ -212,6 +221,7 @@ const ROLES: Record<string, string[]> = {
     'vendor:read',
     'project:read',
     'project:write',
+    'project:update_progress',
     'milestone:write',
     'quote:read',
     'quote:write',
@@ -242,12 +252,17 @@ const ROLES: Record<string, string[]> = {
   // see what it's been paid — it never gets project:write, milestone:write,
   // or payment:approve, those stay the property owner's own actions (a
   // vendor releasing its own escrow funds would defeat the point of escrow).
+  // project:update_progress IS granted — see that permission's own
+  // comment — but only ever reaches a project this vendor is actually
+  // assigned to, via PermissionsGuard's @AllowAssignedVendor() ABAC check,
+  // not RBAC alone.
   vendor: [
     'document:read',
     'ai:act',
     'vendor:read',
     'vendor:write',
     'project:read',
+    'project:update_progress',
     'quote:read',
     'quote:write',
     'payout:read',
@@ -348,6 +363,67 @@ const ROLES: Record<string, string[]> = {
     'rental:read',
     'package:read',
     'branch:read',
+  ],
+  // Section 7's three named operational roles this scaffold didn't have
+  // yet — each a narrower, job-scoped slice of the owner-tier roles above
+  // rather than full account control. None gets account:manage_members,
+  // payment:write/approve, or branch:write — those stay the owner/admin's
+  // own actions. Invitable the same way viewer/family_admin/company_admin
+  // are (see apps/web/pages/accounts/members.tsx's INVITABLE_ROLES).
+  //
+  // Day-to-day operation of the property record itself: inspections,
+  // leases, maintenance, documents — everything a property_owner/
+  // family_admin/company_admin can do to a property except manage members,
+  // touch project money, or administer branches.
+  property_manager: [
+    'property:read',
+    'property:write',
+    'inspection:read',
+    'inspection:write',
+    'lease:read',
+    'lease:write',
+    'maintenance:read',
+    'maintenance:write',
+    'document:read',
+    'document:write',
+    'vendor:read',
+    'project:read',
+    'ai:act',
+    'branch:read',
+  ],
+  // Narrower still than property_manager — the upkeep/vendor-coordination
+  // slice of the job (maintenance, inspections, which vendor is doing the
+  // work) without the lease or property-record editing rights a full
+  // property manager has.
+  facility_manager: [
+    'property:read',
+    'maintenance:read',
+    'maintenance:write',
+    'inspection:read',
+    'inspection:write',
+    'vendor:read',
+    'document:read',
+    'branch:read',
+    'ai:act',
+  ],
+  // Runs renovation/construction projects day-to-day — quoting, hiring,
+  // tracking progress, disputing a vendor's work — but never
+  // payment:write/approve (releasing this account's own escrow money stays
+  // the owner/admin's own action) and never account:manage_members.
+  project_manager: [
+    'property:read',
+    'project:read',
+    'project:write',
+    'project:update_progress',
+    'milestone:write',
+    'quote:read',
+    'quote:write',
+    'vendor:read',
+    'document:read',
+    'payment:read',
+    'dispute:read',
+    'dispute:write',
+    'ai:act',
   ],
   // Module 6's actual "neutral reviewer" — a role deliberately never
   // granted to the vendor or supplier roles above, so a vendor/supplier

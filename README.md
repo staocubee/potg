@@ -6277,8 +6277,100 @@ one small, real schema addition (`MaintenanceRequest.cost`).
 - Project progress is report-builder rows only (numbers and
   percentages) — no chart/visual rendering was added.
 - The Reports & Permissions audit separately found no endpoint anywhere
-  updates a `ProjectStage`'s own status — that gap is still open and
-  wasn't part of this pass.
+  updates a `ProjectStage`'s own status. Closed in a later pass — see
+  "New operational roles, ProjectStage progress, and vendor-assignment
+  ABAC" below.
+
+## New operational roles, ProjectStage progress, and vendor-assignment ABAC (this pass)
+
+The last three gaps the Reports & Permissions audit flagged as needing
+real product decisions, not more report code: named roles narrower than
+the owner-tier admin roles, a way to actually advance a project's
+stages, and a real access rule for the vendor a project is hired out
+to (not just the owning account).
+
+**What's built**:
+
+- **Three new roles** — `property_manager`, `facility_manager`,
+  `project_manager` (Section 7's named operational roles). Each a
+  job-scoped slice of `property_owner`/`family_admin`/`company_admin`'s
+  permissions rather than full account control: none gets
+  `account:manage_members`, `payment:write`/`approve`, or
+  `branch:write`. Invitable the same way `viewer`/`family_admin`/
+  `company_admin` already are — no backend change needed beyond the
+  role/permission seed data, since `POST /accounts/:accountId/members`
+  already accepts any seeded `roleKey` generically.
+- **`project:update_progress`** (new permission) — deliberately
+  narrower than `project:write`: advancing a project stage or posting a
+  progress update, not creating/completing the project or touching its
+  money. Granted to every owner-tier role, `project_manager`, and —
+  unlike `project:write`, which is never granted to it — the `vendor`
+  role too.
+- **`PATCH /projects/:projectId/stages/:stageId`** (new endpoint) — the
+  actual gap: `ProjectStage.status` was set once at creation and never
+  writable again anywhere in the codebase. A matching stage-by-stage
+  status editor was added to the project detail page, next to the
+  existing read-only stage bar.
+- **Real vendor-assignment ABAC** — a new `@AllowAssignedVendor()`
+  decorator plus a `PermissionsGuard` extension: a route so marked lets
+  an account through its `:projectId` ownership check not just when it
+  *owns* the project, but also when it's a `Vendor` with a real
+  `ProjectVendorAssignment` on that exact project — checked against the
+  database, not inferred from the `vendor` role alone. Applied to
+  `GET /projects/:projectId` (a hired vendor can now see the full
+  project — stages, milestones, updates — not just its own quote),
+  the new stage endpoint, and `POST /projects/:projectId/updates`
+  (a vendor can now post its own progress update, not just the owner).
+  Every other `:projectId` route (create milestones, request/accept a
+  quote, complete the project) is untouched — still owner-account-only.
+- `addUpdate`'s notification logic now routes by who actually posted:
+  the owning account still notifies every assigned vendor as before;
+  an assigned vendor instead notifies the owning account — needed once
+  posting stopped being one-directional.
+- The project detail page's secondary loads (escrow, payouts, receipts,
+  disputes) switched from `Promise.all` to `Promise.allSettled`, since
+  a vendor can now legitimately reach this page without holding
+  `payment:read`/`payout:read`/`dispute:read` on it — one 403 no longer
+  blanks the whole page in an error banner.
+
+**Verified live, with a real contrasting pair, not just the happy
+path**: as the owning account, set the demo project's "Quote" stage to
+`in_progress` through the new editor — persisted (confirmed via the
+`PATCH` response). Switched account context to the demo project's
+actually-assigned vendor (Lekki Renovations Co.) — the project page,
+previously a hard 404 for this account, loaded in full; set "Materials"
+to `in_progress` as the vendor — persisted; posted a real progress
+update as the vendor — the owning account received a real
+`project_update` notification linking back to the project, confirmed
+via `GET /notifications`. Then created a second real project on the
+same owning account with no vendor assignment and confirmed the same
+vendor account gets a real 404 on both `GET /projects/:id` and
+`POST /projects/:id/updates` for it — proving the ABAC checks the
+specific assignment, not just "any vendor, any project." Also invited a
+real member as `project_manager` through the members page — the invite
+was created with that role's real `roleId`, and the seed script's own
+`findUniqueOrThrow` on every permission key in each new role's list
+(which would have crashed the seed on a typo) already proves the
+RBAC wiring is referentially correct.
+
+**Not done — explicit scope, not oversight**:
+
+- `Finance Approver`, the fourth named role the audit flagged, wasn't
+  built this pass — nothing in this schema distinguishes "can approve a
+  payment" from "can release it" the way that role implies; `payment:
+  approve` already does both at once.
+- No UI gates the stage-editor dropdown or the "+ Post" update button
+  behind a permission check — both render unconditionally and rely on
+  the server's 403, the same pattern every other action button on this
+  page already uses (e.g. "Mark complete").
+- A vendor's own escrow/payout/receipt/dispute cards on the project
+  page still render their pre-existing "nothing yet" empty state when
+  the real reason is a 403, not an empty table — a real UX gap, not
+  dangerous (no data leaks, the vendor just can't tell "empty" from
+  "not allowed to see").
+- `@AllowAssignedVendor()` was only added to the three routes a vendor
+  has a real reason to reach — it wasn't swept across every
+  `:projectId` route.
 
 ## Not built yet
 

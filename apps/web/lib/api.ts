@@ -2170,6 +2170,14 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  updateProjectStage(projectId: string, stageId: string, status: "not_started" | "in_progress" | "completed") {
+    return request<ProjectStage>(`/projects/${projectId}/stages/${stageId}`, {
+      method: "PATCH",
+      body: { status },
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   requestQuote(projectId: string, vendorId: string) {
     return request<VendorQuote>(`/projects/${projectId}/quotes/request`, {
       method: "POST",
