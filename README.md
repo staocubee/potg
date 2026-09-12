@@ -4917,7 +4917,10 @@ something it can't.
   and four of the nine named features (inspection reminders, rent
   reminders, vendor messages as a real two-way thread, approval
   reminders) that would each need either a new scheduled check or a new
-  "messages" entity this phase didn't build.
+  "messages" entity this phase didn't build. Rent reminders (and lease
+  renewal reminders alongside them) were closed in a later pass — see
+  "Proactive rent and lease reminders" above; inspection reminders,
+  vendor messages, and approval reminders remain open.
 
 ## Module 20: AI Property Assistant — Phase 1 (this pass)
 
@@ -6075,10 +6078,14 @@ scoping anywhere" shape that module's own comment already describes.
   === 'active'`, `Property.count()`).
 - **Marketplace GMV** — delivered orders + paid-out milestones
   (`Payout.grossAmount`, not the vendor's net), grouped by currency.
-  Deliberately excludes property-listing sales: nothing on
-  `PropertyListing` records an actual closing price (`askingPrice` is an
-  ask, not a confirmed sale, and no `Payment`/`Payout` ties to a listing
-  sale in this schema) — including one would mean inventing a number.
+  Excludes property-listing sales: at the time this was written, nothing
+  on `PropertyListing` recorded an actual closing price, so including
+  one would have meant inventing a number. That's no longer strictly
+  true — the marketplace purchase-to-portfolio pass (see that section
+  above) added `ListingSale.amount`, a real, recorded closing price — but
+  this metric was never revisited to pull it in, so GMV still excludes
+  listing sales today, just for a narrower reason than before (see the
+  "Not done" bullet below).
 - **Escrow volume** — two real, different figures rather than one
   ambiguous one: lifetime deposits (every completed `Payment`, ever) and
   the current balance snapshot across every `EscrowAccount`, both by
@@ -6125,9 +6132,12 @@ scoping anywhere" shape that module's own comment already describes.
 - No CSV export for this report the way the account-scoped portfolio
   overview already has one — a real, low-risk follow-up, not part of
   closing the "these reports don't exist at all" gap.
-- Marketplace GMV still doesn't include property-listing sales, for the
-  real schema reason above — closing that means adding a recorded sale
-  price to `PropertyListing` first, a separate, earlier gap.
+- Marketplace GMV still doesn't include property-listing sales. The
+  original reason (no recorded sale price existed anywhere) is gone —
+  `ListingSale.amount` is real now — but nothing in
+  `PlatformAdminService`'s own GMV query was ever updated to reference
+  it, so this is now a real, narrower, still-open gap: pull in
+  `ListingSale.amount` for completed sales, not schema work.
 
 ## Module 24: Branch, Investment, Listing, and Inquiry reports (this pass)
 
@@ -7081,9 +7091,17 @@ blueprint, or explicitly cut from it:
   and Notifications — Phase 1" above: Email already had a real provider;
   this pass added the one other channel achievable with no new paid
   infrastructure (in-app notifications), wired to five real, event-driven
-  triggers across four different modules. SMS/WhatsApp/push/voice,
-  notification preferences, message templates, delivery logs, and four
-  of the nine named features are explicitly deferred. Module 20 (AI
+  triggers across four different modules — later passes grew that to
+  nine real triggers (marketplace offer countered/rejected/accepted,
+  material-order receipt confirmation, package renewal/renewal-failure,
+  and proactive rent-overdue/lease-ending-soon reminders — see "The
+  marketplace purchase-to-portfolio flow," "Buyer receipt confirmation
+  on material orders," and "Proactive rent and lease reminders" above),
+  closing rent reminders off this pass's own deferred list. SMS/WhatsApp/
+  push/voice, notification preferences, message templates, delivery
+  logs, and three of the remaining named features (inspection reminders,
+  vendor messages as a real two-way thread, approval reminders) are
+  still explicitly deferred. Module 20 (AI
   Property Assistant) and Module 21 (Diaspora Property Management) now
   have real, user-supplied scope too — see "Module 20: AI Property
   Assistant — Phase 1" and "Module 21: Diaspora Property Management —
@@ -7113,8 +7131,14 @@ blueprint, or explicitly cut from it:
   `GET /reports/metrics` returns. Branch/facility/asset-utilization/
   compliance reports, a maintenance *cost* report, portfolio-wide
   project-progress/investment rollups, and listing performance/inquiry
-  conversion are explicitly deferred — see that section for why each one
-  specifically. There is genuinely no module left in the 6/14/16-24
+  conversion were explicitly deferred at the time — see that section for
+  why each one specifically. **All of them shipped in later passes** —
+  see "Module 24: Platform Admin Reports," "Module 24: Branch,
+  Investment, Listing, and Inquiry reports," and "Module 24: Asset
+  utilization, Compliance, Maintenance cost, and Project progress
+  reports" above: every one of the 17 originally-named reports now
+  exists, plus a bonus 7-metric platform-admin suite outside the
+  original 17. There is genuinely no module left in the 6/14/16-24
   bucket without real, user-supplied scope now. Module 6's risk-flag coverage is
   complete now across every entity type that has one — see "Risk flags
   for projects and leases" and
@@ -7256,9 +7280,11 @@ blueprint, or explicitly cut from it:
   gateway", and "Stripe: the fourth gateway, now live too" above.
   Paystack, Flutterwave, and PayPal all process real deposits and
   payouts, each verified live against its own real API (Paystack's own
-  payout still blocked on external account activation at the OTP step;
-  Flutterwave and PayPal both verified further, including a real payout
-  attempt). Stripe is deposit-only by design, not by omission — see
+  account-activation block has since resolved — see "Rechecked later
+  the same session" above — and the payout is now blocked one step
+  later, on this specific test account's own ₦0 Paystack balance rather
+  than activation; Flutterwave and PayPal both verified further,
+  including a real payout attempt). Stripe is deposit-only by design, not by omission — see
   StripeService's own comment for why a payout path would need Stripe
   Connect, a materially different product, rather than being something
   this file could "complete in advance" — but its deposit side is fully
