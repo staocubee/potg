@@ -49,25 +49,34 @@ export default function PaymentsOverviewPage() {
   const [overview, setOverview] = useState<PaymentsOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const isPlatformReviewer = auth.currentAccount?.role === "platform_reviewer";
+  const canArbitrateDisputes = auth.hasPermission("dispute:arbitrate");
+  const canReadPayments = auth.hasPermission("payment:read");
 
   useEffect(() => {
-    if (!auth.currentAccountId || isPlatformReviewer) return;
+    if (!auth.currentAccountId || !canReadPayments) return;
     setError(null);
     auth.api
       .getPaymentsOverview()
       .then(setOverview)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load your payments overview."));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.currentAccountId, isPlatformReviewer]);
+  }, [auth.currentAccountId, canReadPayments]);
 
   // The platform reviewer has no projects/escrow of its own — payment:read
   // is never in its role, so getPaymentsOverview would just 403. This
   // account only ever sees the arbitration queue.
-  if (isPlatformReviewer) {
+  if (canArbitrateDisputes) {
     return (
       <AppShell title="Dispute arbitration">
         <DisputeArbitrationQueue />
+      </AppShell>
+    );
+  }
+
+  if (!canReadPayments) {
+    return (
+      <AppShell title="Payments">
+        <p className="potg-muted">You don't have permission to view payments.</p>
       </AppShell>
     );
   }
@@ -137,7 +146,7 @@ export default function PaymentsOverviewPage() {
 }
 
 // Module 6's neutral-reviewer path for disputes — only ever rendered for
-// the platform_reviewer role (see isPlatformReviewer above), which never
+// dispute:arbitrate holders (see canArbitrateDisputes above), which never
 // gets dispute:write, so it can't be the account that raised whatever
 // it's arbitrating here.
 function DisputeArbitrationQueue() {
@@ -260,30 +269,34 @@ function ArbitrationRow({ dispute, onChanged }: { dispute: Dispute; onChanged: (
         style={{ marginTop: 8 }}
       />
       <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-        <button
-          className="potg-btn potg-btn-primary"
-          style={{ padding: "4px 9px", fontSize: 11 }}
-          disabled={busy !== null}
-          onClick={() => onDecide("resolved")}
-        >
-          {busy === "resolved" ? "…" : "Resolve in favor of the claim"}
-        </button>
-        <button
-          className="potg-btn potg-btn-danger"
-          style={{ padding: "4px 9px", fontSize: 11 }}
-          disabled={busy !== null}
-          onClick={() => onDecide("rejected")}
-        >
-          {busy === "rejected" ? "…" : "Reject the claim"}
-        </button>
-        <button
-          className="potg-btn potg-btn-secondary"
-          style={{ padding: "4px 9px", fontSize: 11 }}
-          disabled={busy !== null}
-          onClick={() => onDecide("under_review")}
-        >
-          {busy === "under_review" ? "…" : "Request more evidence"}
-        </button>
+        {auth.hasPermission("dispute:arbitrate") && (
+          <>
+            <button
+              className="potg-btn potg-btn-primary"
+              style={{ padding: "4px 9px", fontSize: 11 }}
+              disabled={busy !== null}
+              onClick={() => onDecide("resolved")}
+            >
+              {busy === "resolved" ? "…" : "Resolve in favor of the claim"}
+            </button>
+            <button
+              className="potg-btn potg-btn-danger"
+              style={{ padding: "4px 9px", fontSize: 11 }}
+              disabled={busy !== null}
+              onClick={() => onDecide("rejected")}
+            >
+              {busy === "rejected" ? "…" : "Reject the claim"}
+            </button>
+            <button
+              className="potg-btn potg-btn-secondary"
+              style={{ padding: "4px 9px", fontSize: 11 }}
+              disabled={busy !== null}
+              onClick={() => onDecide("under_review")}
+            >
+              {busy === "under_review" ? "…" : "Request more evidence"}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

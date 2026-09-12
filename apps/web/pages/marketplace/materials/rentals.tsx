@@ -94,7 +94,7 @@ function RentalBookingRow({ booking, onChanged }: { booking: RentalBooking; onCh
         <span className="potg-badge">{booking.status}</span>
       </div>
       {error && <div className="potg-error" style={{ marginTop: 8 }}>{error}</div>}
-      {canCancel && (
+      {canCancel && auth.hasPermission("rental:write") && (
         <div style={{ marginTop: 8 }}>
           <button className="potg-btn potg-btn-danger" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy} onClick={onCancel}>
             {busy ? "…" : "Cancel booking"}

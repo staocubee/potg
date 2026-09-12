@@ -50,9 +50,11 @@ export default function PropertyMarketplacePage() {
           <Link href="/marketplace/me" className="potg-btn potg-btn-secondary">
             My listings & offers
           </Link>
-          <Link href="/marketplace/new" className="potg-btn potg-btn-primary">
-            + List a property
-          </Link>
+          {auth.hasPermission("listing:write") && (
+            <Link href="/marketplace/new" className="potg-btn potg-btn-primary">
+              + List a property
+            </Link>
+          )}
         </div>
       }
     >

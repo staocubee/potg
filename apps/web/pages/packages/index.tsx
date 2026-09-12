@@ -186,12 +186,12 @@ function ActiveBoostCard({ boost, onChanged }: { boost: PackageSubscription; onC
       </p>
       {error && <div className="potg-error" style={{ fontSize: 11, marginBottom: 6 }}>{error}</div>}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {canToggleOn && (
+        {canToggleOn && auth.hasPermission("package:write") && (
           <button className="potg-btn potg-btn-secondary" style={{ fontSize: 11, padding: "4px 9px" }} onClick={onToggleAutoRenew} disabled={busy !== null}>
             {busy === "toggle" ? "…" : boost.autoRenew ? "Turn off auto-renew" : "Turn on auto-renew"}
           </button>
         )}
-        {canToggleOn && (
+        {canToggleOn && auth.hasPermission("package:write") && (
           <button className="potg-btn potg-btn-secondary" style={{ fontSize: 11, padding: "4px 9px" }} onClick={onRenewNow} disabled={busy !== null}>
             {busy === "renew" ? "…" : "Renew now"}
           </button>
@@ -265,7 +265,7 @@ function PackageCard({ pkg, canSubscribe, onSubscribed }: { pkg: VisibilityPacka
 
       {!canSubscribe && <p className="potg-muted" style={{ fontSize: 11, margin: 0 }}>Your role can't subscribe — ask an account owner or admin.</p>}
 
-      {canSubscribe && !pendingId && (
+      {canSubscribe && auth.hasPermission("package:write") && !pendingId && (
         <form onSubmit={onSubscribe} style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
           {error && <div className="potg-error" style={{ fontSize: 11 }}>{error}</div>}
           <select className="potg-input" value={provider} onChange={(e) => setProvider(e.target.value)} style={{ fontSize: 12 }}>
@@ -294,9 +294,11 @@ function PackageCard({ pkg, canSubscribe, onSubscribed }: { pkg: VisibilityPacka
             Complete the payment in the {provider} tab that just opened, then come back and verify it here.
           </p>
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="potg-btn potg-btn-primary" onClick={onVerify} disabled={busy} style={{ fontSize: 12 }}>
-              {busy ? "Checking…" : "I've paid — verify"}
-            </button>
+            {auth.hasPermission("package:write") && (
+              <button className="potg-btn potg-btn-primary" onClick={onVerify} disabled={busy} style={{ fontSize: 12 }}>
+                {busy ? "Checking…" : "I've paid — verify"}
+              </button>
+            )}
             <button className="potg-btn potg-btn-secondary" onClick={() => setPendingId(null)} disabled={busy} style={{ fontSize: 12 }}>
               Cancel
             </button>

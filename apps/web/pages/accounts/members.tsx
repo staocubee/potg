@@ -27,6 +27,7 @@ export default function AccountMembersPage() {
   const [members, setMembers] = useState<AccountMemberSummary[] | null>(null);
   const [invites, setInvites] = useState<AccountInviteSummary[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [forbidden, setForbidden] = useState(false);
 
   function load() {
     if (!auth.currentAccountId) return;
@@ -37,7 +38,13 @@ export default function AccountMembersPage() {
         setMembers(res.members);
         setInvites(res.invites);
       })
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load members."));
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 403) {
+          setForbidden(true);
+        } else {
+          setError(err instanceof ApiError ? err.message : "Couldn't load members.");
+        }
+      });
   }
 
   useEffect(() => {
@@ -45,13 +52,25 @@ export default function AccountMembersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.currentAccountId]);
 
+  if (forbidden) {
+    return (
+      <AppShell title="Members">
+        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
+          <p className="potg-muted" style={{ margin: 0 }}>
+            You don't have permission to manage members on this account.
+          </p>
+        </div>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell title="Members">
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
 
       <IdentityVerificationCard />
 
-      <InviteForm onDone={load} />
+      {auth.hasPermission("account:manage_members") && <InviteForm onDone={load} />}
 
       <div className="potg-card" style={{ padding: 18, marginBottom: 16 }}>
         <h3 style={{ fontSize: 14, marginBottom: 10 }}>Members</h3>
@@ -143,12 +162,16 @@ function PendingInviteRow({ invite, onChanged }: { invite: AccountInviteSummary;
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span className="potg-badge">{invite.role.name}</span>
-          <button className="potg-btn potg-btn-secondary" disabled={busy !== null} onClick={onResend} style={{ fontSize: 12, padding: "4px 8px" }}>
-            {busy === "resend" ? "…" : "Resend"}
-          </button>
-          <button className="potg-btn potg-btn-danger" disabled={busy !== null} onClick={onRevoke} style={{ fontSize: 12, padding: "4px 8px" }}>
-            {busy === "revoke" ? "…" : "Revoke"}
-          </button>
+          {auth.hasPermission("account:manage_members") && (
+            <button className="potg-btn potg-btn-secondary" disabled={busy !== null} onClick={onResend} style={{ fontSize: 12, padding: "4px 8px" }}>
+              {busy === "resend" ? "…" : "Resend"}
+            </button>
+          )}
+          {auth.hasPermission("account:manage_members") && (
+            <button className="potg-btn potg-btn-danger" disabled={busy !== null} onClick={onRevoke} style={{ fontSize: 12, padding: "4px 8px" }}>
+              {busy === "revoke" ? "…" : "Revoke"}
+            </button>
+          )}
         </div>
       </div>
       {error && <div className="potg-error" style={{ fontSize: 11 }}>{error}</div>}

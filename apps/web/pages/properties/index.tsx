@@ -112,9 +112,11 @@ export default function PortfolioPage() {
       actions={
         <>
           {auth.currentAccountId && <Link href={`/go/${auth.currentAccountId}`} target="_blank" className="potg-btn potg-btn-secondary">View my public page ↗</Link>}
-          <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
-            {showForm ? "Cancel" : "+ Add property"}
-          </button>
+          {auth.hasPermission("property:write") && (
+            <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
+              {showForm ? "Cancel" : "+ Add property"}
+            </button>
+          )}
         </>
       }
       aiPanel={auth.currentAccountId ? <AskAiPanel moduleContext={`account:${auth.currentAccountId}`} heading="Portfolio AI" /> : undefined}
@@ -158,12 +160,16 @@ export default function PortfolioPage() {
             Clear search
           </button>
         )}
-        <button type="button" className="potg-btn potg-btn-secondary" onClick={runReindex}>
-          Reindex for search
-        </button>
-        <button type="button" className="potg-btn potg-btn-secondary" onClick={runRegeocode}>
-          Locate for Live View
-        </button>
+        {auth.hasPermission("property:write") && (
+          <button type="button" className="potg-btn potg-btn-secondary" onClick={runReindex}>
+            Reindex for search
+          </button>
+        )}
+        {auth.hasPermission("property:write") && (
+          <button type="button" className="potg-btn potg-btn-secondary" onClick={runRegeocode}>
+            Locate for Live View
+          </button>
+        )}
       </form>
       {searchError && <div className="potg-error" style={{ marginBottom: 16 }}>{searchError}</div>}
       {geocodeStatus && (
@@ -344,7 +350,7 @@ function AddPropertyForm({ onCreated }: { onCreated: (p: Property) => void }) {
         </div>
       </div>
       <div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !auth.hasPermission("property:write")}>
           {busy ? "Adding…" : "Add property"}
         </button>
       </div>
@@ -471,9 +477,11 @@ function AnnouncementsCard({ properties }: { properties: Property[] }) {
     <div className="potg-card" style={{ padding: 18, marginBottom: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <h3 style={{ fontSize: 14, margin: 0 }}>Announcements to your tenants</h3>
-        <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? "Cancel" : "+ New announcement"}
-        </button>
+        {auth.hasPermission("property:write") && (
+          <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "Cancel" : "+ New announcement"}
+          </button>
+        )}
       </div>
       {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
       {showForm && (
@@ -511,13 +519,15 @@ function AnnouncementsCard({ properties }: { properties: Property[] }) {
                     {a.property ? a.property.name : "All properties"} · {new Date(a.createdAt).toLocaleDateString()}
                   </p>
                 </div>
-                <button
-                  className="potg-btn potg-btn-secondary"
-                  style={{ padding: "3px 8px", fontSize: 11, flexShrink: 0, marginLeft: 10 }}
-                  onClick={() => onDelete(a.id)}
-                >
-                  Delete
-                </button>
+                {auth.hasPermission("property:write") && (
+                  <button
+                    className="potg-btn potg-btn-secondary"
+                    style={{ padding: "3px 8px", fontSize: 11, flexShrink: 0, marginLeft: 10 }}
+                    onClick={() => onDelete(a.id)}
+                  >
+                    Delete
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -571,7 +581,11 @@ function NewAnnouncementForm({ properties, onCreated }: { properties: Property[]
         ))}
       </select>
       <div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !title.trim() || !body.trim()}>
+        <button
+          className="potg-btn potg-btn-primary"
+          type="submit"
+          disabled={busy || !title.trim() || !body.trim() || !auth.hasPermission("property:write")}
+        >
           {busy ? "Posting…" : "Post announcement"}
         </button>
       </div>

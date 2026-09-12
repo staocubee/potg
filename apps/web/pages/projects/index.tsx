@@ -44,7 +44,11 @@ export default function ProjectsPage() {
     <AppShell
       title="Projects"
       actions={
-        <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)} disabled={properties.length === 0}>
+        <button
+          className="potg-btn potg-btn-secondary"
+          onClick={() => setShowForm((v) => !v)}
+          disabled={properties.length === 0 || !auth.hasPermission("project:write")}
+        >
           {showForm ? "Cancel" : "+ New project"}
         </button>
       }
@@ -179,7 +183,7 @@ function NewProjectForm({ properties, onCreated }: { properties: Property[]; onC
         <input className="potg-input" type="number" min={0} value={budget} onChange={(e) => setBudget(e.target.value)} />
       </div>
       <div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !auth.hasPermission("project:write")}>
           {busy ? "Creating…" : "Create project"}
         </button>
       </div>

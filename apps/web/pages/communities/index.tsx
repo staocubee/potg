@@ -36,9 +36,11 @@ export default function CommunitiesPage() {
     <AppShell
       title="Communities"
       actions={
-        <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? "Cancel" : "+ Add community"}
-        </button>
+        auth.hasPermission("community:write") && (
+          <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "Cancel" : "+ Add community"}
+          </button>
+        )
       }
     >
       <p className="potg-muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 16 }}>
@@ -154,11 +156,13 @@ function AddCommunityForm({ onCreated }: { onCreated: (c: Community) => void }) 
           <input className="potg-input" required value={country} onChange={(e) => setCountry(e.target.value)} />
         </div>
       </div>
-      <div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
-          {busy ? "Adding…" : "Add community"}
-        </button>
-      </div>
+      {auth.hasPermission("community:write") && (
+        <div>
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+            {busy ? "Adding…" : "Add community"}
+          </button>
+        </div>
+      )}
     </form>
   );
 }

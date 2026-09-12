@@ -70,12 +70,16 @@ export default function BranchDetailPage() {
           <Link href="/branches" className="potg-btn potg-btn-secondary">
             ← Branches
           </Link>
-          <button className="potg-btn potg-btn-secondary" onClick={() => setEditing((v) => !v)}>
-            {editing ? "Cancel" : "Edit"}
-          </button>
-          <button className="potg-btn potg-btn-danger" onClick={onDelete} disabled={busy}>
-            {busy ? "…" : "Remove branch"}
-          </button>
+          {auth.hasPermission("branch:write") && (
+            <button className="potg-btn potg-btn-secondary" onClick={() => setEditing((v) => !v)}>
+              {editing ? "Cancel" : "Edit"}
+            </button>
+          )}
+          {auth.hasPermission("branch:write") && (
+            <button className="potg-btn potg-btn-danger" onClick={onDelete} disabled={busy}>
+              {busy ? "…" : "Remove branch"}
+            </button>
+          )}
         </div>
       }
     >
@@ -175,11 +179,13 @@ function EditBranchForm({ branch, onSaved }: { branch: Branch; onSaved: (b: Bran
           <input className="potg-input" value={country} onChange={(e) => setCountry(e.target.value)} />
         </div>
       </div>
-      <div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
-          {busy ? "Saving…" : "Save changes"}
-        </button>
-      </div>
+      {auth.hasPermission("branch:write") && (
+        <div>
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+            {busy ? "Saving…" : "Save changes"}
+          </button>
+        </div>
+      )}
     </form>
   );
 }

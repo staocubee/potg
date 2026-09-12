@@ -79,9 +79,11 @@ export default function CommunityDetailPage() {
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <h3 style={{ fontSize: 14, margin: 0 }}>Residents ({community.residents?.length ?? 0})</h3>
-              <button className="potg-btn potg-btn-secondary" onClick={() => setShowResidentForm((v) => !v)}>
-                {showResidentForm ? "Cancel" : "+ Add resident"}
-              </button>
+              {auth.hasPermission("community:write") && (
+                <button className="potg-btn potg-btn-secondary" onClick={() => setShowResidentForm((v) => !v)}>
+                  {showResidentForm ? "Cancel" : "+ Add resident"}
+                </button>
+              )}
             </div>
             {showResidentForm && id && (
               <AddResidentForm
@@ -108,9 +110,11 @@ export default function CommunityDetailPage() {
                         </div>
                       )}
                     </div>
-                    <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => onRemoveResident(r.id)}>
-                      Remove
-                    </button>
+                    {auth.hasPermission("community:write") && (
+                      <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => onRemoveResident(r.id)}>
+                        Remove
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -120,9 +124,11 @@ export default function CommunityDetailPage() {
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <h3 style={{ fontSize: 14, margin: 0 }}>Announcements</h3>
-              <button className="potg-btn potg-btn-secondary" onClick={() => setShowAnnouncementForm((v) => !v)}>
-                {showAnnouncementForm ? "Cancel" : "+ New announcement"}
-              </button>
+              {auth.hasPermission("community:write") && (
+                <button className="potg-btn potg-btn-secondary" onClick={() => setShowAnnouncementForm((v) => !v)}>
+                  {showAnnouncementForm ? "Cancel" : "+ New announcement"}
+                </button>
+              )}
             </div>
             {showAnnouncementForm && id && (
               <AddAnnouncementForm
@@ -148,13 +154,15 @@ export default function CommunityDetailPage() {
                           {new Date(a.createdAt).toLocaleDateString()}
                         </p>
                       </div>
-                      <button
-                        className="potg-btn potg-btn-secondary"
-                        style={{ padding: "3px 8px", fontSize: 11, flexShrink: 0, marginLeft: 10 }}
-                        onClick={() => onDeleteAnnouncement(a.id)}
-                      >
-                        Delete
-                      </button>
+                      {auth.hasPermission("community:write") && (
+                        <button
+                          className="potg-btn potg-btn-secondary"
+                          style={{ padding: "3px 8px", fontSize: 11, flexShrink: 0, marginLeft: 10 }}
+                          onClick={() => onDeleteAnnouncement(a.id)}
+                        >
+                          Delete
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -216,11 +224,13 @@ function AddResidentForm({ communityId, onCreated }: { communityId: string; onCr
         <input className="potg-input" placeholder="Email (optional)" value={email} onChange={(e) => setEmail(e.target.value)} />
         <input className="potg-input" placeholder="Phone (optional)" value={phone} onChange={(e) => setPhone(e.target.value)} />
       </div>
-      <div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !name.trim() || !unitNumber.trim()}>
-          {busy ? "Adding…" : "Add resident"}
-        </button>
-      </div>
+      {auth.hasPermission("community:write") && (
+        <div>
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !name.trim() || !unitNumber.trim()}>
+            {busy ? "Adding…" : "Add resident"}
+          </button>
+        </div>
+      )}
     </form>
   );
 }
@@ -254,11 +264,13 @@ function AddAnnouncementForm({ communityId, onCreated }: { communityId: string; 
       {error && <div className="potg-error">{error}</div>}
       <input className="potg-input" required autoFocus placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
       <textarea className="potg-input" rows={2} required placeholder="Message" value={body} onChange={(e) => setBody(e.target.value)} />
-      <div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !title.trim() || !body.trim()}>
-          {busy ? "Posting…" : "Post announcement"}
-        </button>
-      </div>
+      {auth.hasPermission("community:write") && (
+        <div>
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !title.trim() || !body.trim()}>
+            {busy ? "Posting…" : "Post announcement"}
+          </button>
+        </div>
+      )}
     </form>
   );
 }

@@ -97,9 +97,11 @@ export default function SupplierDashboardPage() {
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <h3 style={{ fontSize: 14, margin: 0 }}>Your products</h3>
-              <button className="potg-btn potg-btn-secondary" onClick={() => setShowProductForm((v) => !v)}>
-                {showProductForm ? "Cancel" : "+ Add product"}
-              </button>
+              {auth.hasPermission("product:write") && (
+                <button className="potg-btn potg-btn-secondary" onClick={() => setShowProductForm((v) => !v)}>
+                  {showProductForm ? "Cancel" : "+ Add product"}
+                </button>
+              )}
             </div>
             {showProductForm && (
               <AddProductForm
@@ -241,7 +243,12 @@ function SupplierVerificationEvidenceCard() {
           onChange={(e) => setNote(e.target.value)}
         />
         <input className="potg-input" style={{ fontSize: 12 }} type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-        <button className="potg-btn potg-btn-secondary" style={{ padding: "4px 9px", fontSize: 11 }} disabled={busy || !note.trim()} onClick={onSubmit}>
+        <button
+          className="potg-btn potg-btn-secondary"
+          style={{ padding: "4px 9px", fontSize: 11 }}
+          disabled={busy || !note.trim() || !auth.hasPermission("supplier:write")}
+          onClick={onSubmit}
+        >
           {busy ? "…" : "Submit"}
         </button>
       </div>
@@ -296,7 +303,7 @@ function CreateSupplierProfileForm({ onCreated }: { onCreated: (s: Supplier) => 
         <input className="potg-input" value={locationCoverage} onChange={(e) => setLocationCoverage(e.target.value)} />
       </div>
       <div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !auth.hasPermission("supplier:write")}>
           {busy ? "Creating…" : "Create supplier profile"}
         </button>
       </div>
@@ -377,7 +384,7 @@ function AddProductForm({ onCreated }: { onCreated: (p: Product) => void }) {
         />
       )}
       <div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !auth.hasPermission("product:write")}>
           {busy ? "Adding…" : "Add product"}
         </button>
       </div>
@@ -442,7 +449,7 @@ function ProductRow({ product, onUpdated }: { product: Product; onUpdated: (p: P
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <input className="potg-input" style={{ width: 90 }} type="number" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} />
             <input className="potg-input" style={{ width: 70 }} type="number" value={stockQuantity} onChange={(e) => setStockQuantity(e.target.value)} />
-            <button className="potg-btn potg-btn-primary" onClick={onSave} disabled={busy}>
+            <button className="potg-btn potg-btn-primary" onClick={onSave} disabled={busy || !auth.hasPermission("product:write")}>
               {busy ? "…" : "Save"}
             </button>
             <button className="potg-btn potg-btn-secondary" onClick={() => setEditing(false)}>
@@ -504,7 +511,7 @@ function SupplierRentalBookingRow({ booking, onChanged }: { booking: RentalBooki
         <span className="potg-badge">{booking.status}</span>
       </div>
       {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
-      {isActionable && (
+      {isActionable && auth.hasPermission("rental:write") && (
         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
           {booking.status === "requested" && (
             <button
@@ -607,10 +614,12 @@ function SupplierReviewReplyRow({ review, onReplied }: { review: SupplierReview;
       )}
       {!replying && !flagging && (
         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-          <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setReplying(true)}>
-            {review.response ? "Edit reply" : "Reply"}
-          </button>
-          {review.moderationStatus === "published" && (
+          {auth.hasPermission("review:respond") && (
+            <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setReplying(true)}>
+              {review.response ? "Edit reply" : "Reply"}
+            </button>
+          )}
+          {review.moderationStatus === "published" && auth.hasPermission("review:flag") && (
             <button className="potg-btn potg-btn-danger" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setFlagging(true)}>
               Flag
             </button>
@@ -622,7 +631,7 @@ function SupplierReviewReplyRow({ review, onReplied }: { review: SupplierReview;
           {error && <div className="potg-error">{error}</div>}
           <textarea className="potg-input" rows={2} value={response} onChange={(e) => setResponse(e.target.value)} />
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
+            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !auth.hasPermission("review:respond")} style={{ padding: "4px 9px", fontSize: 11 }}>
               {busy ? "Posting…" : "Post reply"}
             </button>
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setReplying(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
@@ -643,7 +652,7 @@ function SupplierReviewReplyRow({ review, onReplied }: { review: SupplierReview;
             onChange={(e) => setFlagReason(e.target.value)}
           />
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="potg-btn potg-btn-danger" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
+            <button className="potg-btn potg-btn-danger" type="submit" disabled={busy || !auth.hasPermission("review:flag")} style={{ padding: "4px 9px", fontSize: 11 }}>
               {busy ? "Flagging…" : "Submit flag"}
             </button>
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setFlagging(false)} style={{ padding: "4px 9px", fontSize: 11 }}>

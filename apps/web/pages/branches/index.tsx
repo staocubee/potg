@@ -33,9 +33,11 @@ export default function BranchesPage() {
     <AppShell
       title="Branches"
       actions={
-        <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? "Cancel" : "+ Add branch"}
-        </button>
+        auth.hasPermission("branch:write") && (
+          <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "Cancel" : "+ Add branch"}
+          </button>
+        )
       }
     >
       <p className="potg-muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 16 }}>

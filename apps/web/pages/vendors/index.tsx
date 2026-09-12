@@ -41,7 +41,7 @@ export default function VendorMarketplacePage() {
   }, [auth.currentAccountId, category, q]);
 
   const isVendorAccount = auth.currentAccount?.accountType === "VENDOR";
-  const isPlatformReviewer = auth.currentAccount?.role === "platform_reviewer";
+  const canModerateReviews = auth.hasPermission("review:moderate");
 
   return (
     <AppShell
@@ -60,7 +60,7 @@ export default function VendorMarketplacePage() {
           neither) — so this is the one page reachable by this role where a
           combined queue for both makes sense, shown alongside (not instead
           of) the vendor list this role already browses to verify vendors. */}
-      {isPlatformReviewer && <ReviewModerationQueue />}
+      {canModerateReviews && <ReviewModerationQueue />}
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
         <label className="potg-label" style={{ margin: 0 }}>
@@ -140,7 +140,7 @@ type FlaggedReview =
 // Closes the "no report/flag mechanism" gap the README flagged — the
 // neutral-reviewer queue VendorsService.findFlaggedReviews and
 // MaterialsService.findFlaggedOrderReviews feed. Only ever rendered for
-// platform_reviewer (see isPlatformReviewer above), which never gets
+// review:moderate holders (see canModerateReviews above), which never gets
 // review:write/respond/flag, so it can't be the reviewer, the reviewed
 // party, or whoever flagged whatever it's moderating here.
 function ReviewModerationQueue() {
@@ -241,12 +241,16 @@ function ModerationRow({ item, onChanged }: { item: FlaggedReview; onChanged: ()
         style={{ marginTop: 8 }}
       />
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-        <button className="potg-btn potg-btn-danger" disabled={busy !== null} onClick={() => onDecide("hidden")}>
-          {busy === "hidden" ? "…" : "Hide review"}
-        </button>
-        <button className="potg-btn potg-btn-secondary" disabled={busy !== null} onClick={() => onDecide("published")}>
-          {busy === "published" ? "…" : "Dismiss flag"}
-        </button>
+        {auth.hasPermission("review:moderate") && (
+          <button className="potg-btn potg-btn-danger" disabled={busy !== null} onClick={() => onDecide("hidden")}>
+            {busy === "hidden" ? "…" : "Hide review"}
+          </button>
+        )}
+        {auth.hasPermission("review:moderate") && (
+          <button className="potg-btn potg-btn-secondary" disabled={busy !== null} onClick={() => onDecide("published")}>
+            {busy === "published" ? "…" : "Dismiss flag"}
+          </button>
+        )}
       </div>
     </div>
   );

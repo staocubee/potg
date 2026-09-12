@@ -78,7 +78,8 @@ export default function SupplierDetailPage() {
   }
 
   const isSupplierAccount = auth.currentAccount?.accountType === "SUPPLIER";
-  const isPlatformReviewer = auth.currentAccount?.role === "platform_reviewer";
+  // Was role === "platform_reviewer" — gated on the real permission instead.
+  const canVerifySuppliers = auth.hasPermission("supplier:verify");
   const cartItems = Object.entries(cart).filter(([, qty]) => qty > 0);
 
   return (
@@ -139,7 +140,7 @@ export default function SupplierDetailPage() {
             )}
           </div>
 
-          {isPlatformReviewer && id && (
+          {canVerifySuppliers && id && (
             <PlatformReviewPanel
               supplierId={id}
               status={supplier.verificationStatus}
@@ -168,7 +169,7 @@ export default function SupplierDetailPage() {
                         {p.isRentable && p.rentalPricePerDay && ` · ${formatMoney(p.rentalPricePerDay, p.currency)}/day to rent`}
                       </div>
                     </div>
-                    {!isSupplierAccount && (
+                    {!isSupplierAccount && auth.hasPermission("order:write") && (
                       <input
                         className="potg-input"
                         type="number"
@@ -182,7 +183,7 @@ export default function SupplierDetailPage() {
                       />
                     )}
                   </div>
-                  {!isSupplierAccount && p.isRentable && p.stockQuantity > 0 && <RentProductWidget product={p} />}
+                  {!isSupplierAccount && auth.hasPermission("rental:write") && p.isRentable && p.stockQuantity > 0 && <RentProductWidget product={p} />}
                 </div>
               ))}
             </div>
@@ -290,9 +291,11 @@ function OrderWidget({
           <label className="potg-label">Delivery address (optional)</label>
           <input className="potg-input" value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} />
         </div>
-        <button className="potg-btn potg-btn-primary" onClick={onSubmit} disabled={busy}>
-          {busy ? "Placing order…" : "Place order"}
-        </button>
+        {auth.hasPermission("order:write") && (
+          <button className="potg-btn potg-btn-primary" onClick={onSubmit} disabled={busy}>
+            {busy ? "Placing order…" : "Place order"}
+          </button>
+        )}
       </div>
     </div>
   );

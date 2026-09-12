@@ -48,6 +48,10 @@ export default function VendorDashboardPage() {
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Tells "you can't see this" (403/404 on the underlying route) apart
+  // from a genuinely empty section — mirrors projects/[id].tsx's own
+  // forbidden state for the same reason.
+  const [forbidden, setForbidden] = useState({ quotes: false, payouts: false, disputes: false });
 
   function load() {
     if (!auth.currentAccountId) return;
@@ -66,9 +70,14 @@ export default function VendorDashboardPage() {
           // (profile, license, bank details) loaded and rendered fine.
           return Promise.allSettled([auth.api.myQuotes(), auth.api.myPayouts(), auth.api.myDisputes()]).then(
             ([q, p, d]) => {
+              const isForbidden = (result: PromiseSettledResult<unknown>) =>
+                result.status === "rejected" &&
+                result.reason instanceof ApiError &&
+                (result.reason.status === 403 || result.reason.status === 404);
               if (q.status === "fulfilled") setQuotes(q.value);
               if (p.status === "fulfilled") setPayouts(p.value);
               if (d.status === "fulfilled") setDisputes(d.value);
+              setForbidden({ quotes: isForbidden(q), payouts: isForbidden(p), disputes: isForbidden(d) });
             },
           );
         }
@@ -107,7 +116,7 @@ export default function VendorDashboardPage() {
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
       {vendor === undefined && !error && <p className="potg-muted">Loading…</p>}
 
-      {vendor === null && (
+      {vendor === null && auth.hasPermission("vendor:write") && (
         <CreateVendorProfileForm
           onCreated={() => load()}
         />
@@ -161,7 +170,8 @@ export default function VendorDashboardPage() {
 
           <div className="potg-card" style={{ padding: 18 }}>
             <h3 style={{ fontSize: 14, marginBottom: 10 }}>Quote requests & submissions</h3>
-            {quotes.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No quote requests yet.</p>}
+            {forbidden.quotes && <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view quote requests here.</p>}
+            {!forbidden.quotes && quotes.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No quote requests yet.</p>}
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {quotes.map((q) => (
                 <QuoteRow key={q.id} quote={q} onSubmitted={load} />
@@ -170,12 +180,13 @@ export default function VendorDashboardPage() {
           </div>
 
           <div className="potg-card" style={{ padding: 18 }}>
-            <DisputesSection disputes={disputes} knownProjects={knownProjects} onChanged={load} />
+            <DisputesSection disputes={disputes} knownProjects={knownProjects} forbidden={forbidden.disputes} onChanged={load} />
           </div>
 
           <div className="potg-card" style={{ padding: 18 }}>
             <h3 style={{ fontSize: 14, marginBottom: 10 }}>Payouts</h3>
-            {payouts.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>Nothing paid out yet.</p>}
+            {forbidden.payouts && <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view payouts here.</p>}
+            {!forbidden.payouts && payouts.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>Nothing paid out yet.</p>}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {payouts.map((p) => (
                 <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
@@ -289,7 +300,7 @@ function QuoteRow({ quote, onSubmitted }: { quote: VendorQuote; onSubmitted: () 
           <span className="potg-badge">{quote.status}</span>
         </div>
       </div>
-      {quote.status === "requested" && (
+      {quote.status === "requested" && auth.hasPermission("quote:write") && (
         <form onSubmit={onSubmit} style={{ display: "flex", gap: 6, marginTop: 8 }}>
           {error && <div className="potg-error" style={{ flexBasis: "100%" }}>{error}</div>}
           <input className="potg-input" type="number" min={0} required placeholder="Your quote" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ maxWidth: 140 }} />
@@ -374,10 +385,12 @@ function VendorReviewReplyRow({ review, onReplied }: { review: VendorReview; onR
       )}
       {!replying && !flagging && (
         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-          <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setReplying(true)}>
-            {review.response ? "Edit reply" : "Reply"}
-          </button>
-          {review.moderationStatus === "published" && (
+          {auth.hasPermission("review:respond") && (
+            <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setReplying(true)}>
+              {review.response ? "Edit reply" : "Reply"}
+            </button>
+          )}
+          {review.moderationStatus === "published" && auth.hasPermission("review:flag") && (
             <button className="potg-btn potg-btn-danger" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setFlagging(true)}>
               Flag
             </button>
@@ -389,9 +402,11 @@ function VendorReviewReplyRow({ review, onReplied }: { review: VendorReview; onR
           {error && <div className="potg-error">{error}</div>}
           <textarea className="potg-input" rows={2} value={response} onChange={(e) => setResponse(e.target.value)} />
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
-              {busy ? "Posting…" : "Post reply"}
-            </button>
+            {auth.hasPermission("review:respond") && (
+              <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
+                {busy ? "Posting…" : "Post reply"}
+              </button>
+            )}
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setReplying(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
               Cancel
             </button>
@@ -410,9 +425,11 @@ function VendorReviewReplyRow({ review, onReplied }: { review: VendorReview; onR
             onChange={(e) => setFlagReason(e.target.value)}
           />
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="potg-btn potg-btn-danger" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
-              {busy ? "Flagging…" : "Submit flag"}
-            </button>
+            {auth.hasPermission("review:flag") && (
+              <button className="potg-btn potg-btn-danger" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
+                {busy ? "Flagging…" : "Submit flag"}
+              </button>
+            )}
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setFlagging(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
               Cancel
             </button>
@@ -432,20 +449,25 @@ function VendorReviewReplyRow({ review, onReplied }: { review: VendorReview; onR
 function DisputesSection({
   disputes,
   knownProjects,
+  forbidden,
   onChanged,
 }: {
   disputes: Dispute[];
   knownProjects: { id: string; title: string }[];
+  forbidden: boolean;
   onChanged: () => void;
 }) {
+  const auth = useAuth();
   const [showForm, setShowForm] = useState(false);
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <h3 style={{ fontSize: 14 }}>Disputes</h3>
-        <button className="potg-btn potg-btn-secondary" style={{ padding: "4px 9px", fontSize: 11 }} onClick={() => setShowForm((v) => !v)}>
-          {showForm ? "Cancel" : "+ Raise dispute"}
-        </button>
+        {auth.hasPermission("dispute:write") && (
+          <button className="potg-btn potg-btn-secondary" style={{ padding: "4px 9px", fontSize: 11 }} onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "Cancel" : "+ Raise dispute"}
+          </button>
+        )}
       </div>
       {showForm && (
         <RaiseVendorDisputeForm
@@ -456,7 +478,8 @@ function DisputesSection({
           }}
         />
       )}
-      {disputes.length === 0 && !showForm && <p className="potg-muted" style={{ fontSize: 12 }}>No disputes.</p>}
+      {forbidden && <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view disputes here.</p>}
+      {!forbidden && disputes.length === 0 && !showForm && <p className="potg-muted" style={{ fontSize: 12 }}>No disputes.</p>}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {disputes.map((d) => (
           <VendorDisputeRow key={d.id} dispute={d} onResolved={onChanged} />
@@ -517,9 +540,11 @@ function RaiseVendorDisputeForm({
         ))}
       </select>
       <input className="potg-input" required placeholder="What's the issue?" value={reason} onChange={(e) => setReason(e.target.value)} />
-      <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ alignSelf: "flex-start" }}>
-        {busy ? "Raising…" : "Raise dispute"}
-      </button>
+      {auth.hasPermission("dispute:write") && (
+        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ alignSelf: "flex-start" }}>
+          {busy ? "Raising…" : "Raise dispute"}
+        </button>
+      )}
     </form>
   );
 }
@@ -542,7 +567,11 @@ function VendorDisputeRow({ dispute, onResolved }: { dispute: Dispute; onResolve
   const [evidenceBusy, setEvidenceBusy] = useState(false);
 
   const open = dispute.status === "open" || dispute.status === "under_review";
-  const canResolve = dispute.raisedByAccountId !== auth.currentAccountId;
+  // Kept separate — "you raised this" and "you lack permission" are
+  // different reasons and get different messages, same split
+  // pages/projects/[id].tsx's own DisputeRow uses.
+  const otherPartyRaisedIt = dispute.raisedByAccountId !== auth.currentAccountId;
+  const canResolve = otherPartyRaisedIt && auth.hasPermission("dispute:write");
 
   async function onResolve(status: "resolved" | "rejected") {
     setBusy(status);
@@ -601,9 +630,14 @@ function VendorDisputeRow({ dispute, onResolved }: { dispute: Dispute; onResolve
       <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
         raised {new Date(dispute.createdAt).toLocaleDateString()}
       </div>
-      {open && !canResolve && (
+      {open && !otherPartyRaisedIt && (
         <div className="potg-muted" style={{ fontSize: 11, marginTop: 6 }}>
           You raised this dispute — the other party needs to resolve it.
+        </div>
+      )}
+      {open && otherPartyRaisedIt && !canResolve && (
+        <div className="potg-muted" style={{ fontSize: 11, marginTop: 6 }}>
+          You don't have permission to resolve disputes here.
         </div>
       )}
       {open && canResolve && !resolving && (
@@ -654,7 +688,7 @@ function VendorDisputeRow({ dispute, onResolved }: { dispute: Dispute; onResolve
               ))}
             </div>
           )}
-          {open && !addingEvidence && (
+          {open && !addingEvidence && auth.hasPermission("dispute:write") && (
             <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setAddingEvidence(true)}>
               + Add evidence
             </button>
@@ -677,9 +711,11 @@ function VendorDisputeRow({ dispute, onResolved }: { dispute: Dispute; onResolve
                 onChange={(e) => setEvidenceFileUrl(e.target.value)}
               />
               <div style={{ display: "flex", gap: 6 }}>
-                <button className="potg-btn potg-btn-primary" type="submit" disabled={evidenceBusy} style={{ padding: "3px 8px", fontSize: 11 }}>
-                  {evidenceBusy ? "…" : "Submit"}
-                </button>
+                {auth.hasPermission("dispute:write") && (
+                  <button className="potg-btn potg-btn-primary" type="submit" disabled={evidenceBusy} style={{ padding: "3px 8px", fontSize: 11 }}>
+                    {evidenceBusy ? "…" : "Submit"}
+                  </button>
+                )}
                 <button
                   className="potg-btn potg-btn-secondary"
                   type="button"
@@ -836,9 +872,11 @@ function BankDetailsForm({ vendor, onUpdated }: { vendor: Vendor; onUpdated: () 
                 onChange={(e) => setAccountNumber(e.target.value)}
               />
               <div style={{ display: "flex", gap: 6 }}>
-                <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !banks} style={{ padding: "4px 9px", fontSize: 11 }}>
-                  {busy ? "Verifying…" : "Verify & save"}
-                </button>
+                {auth.hasPermission("vendor:write") && (
+                  <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !banks} style={{ padding: "4px 9px", fontSize: 11 }}>
+                    {busy ? "Verifying…" : "Verify & save"}
+                  </button>
+                )}
                 <button
                   className="potg-btn potg-btn-secondary"
                   type="button"
@@ -860,9 +898,11 @@ function BankDetailsForm({ vendor, onUpdated }: { vendor: Vendor; onUpdated: () 
                 onChange={(e) => setPaypalEmail(e.target.value)}
               />
               <div style={{ display: "flex", gap: 6 }}>
-                <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
-                  {busy ? "Saving…" : "Save"}
-                </button>
+                {auth.hasPermission("vendor:write") && (
+                  <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
+                    {busy ? "Saving…" : "Save"}
+                  </button>
+                )}
                 <button
                   className="potg-btn potg-btn-secondary"
                   type="button"
@@ -958,9 +998,11 @@ function VendorVerificationEvidenceCard() {
           onChange={(e) => setNote(e.target.value)}
         />
         <input className="potg-input" style={{ fontSize: 12 }} type="file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-        <button className="potg-btn potg-btn-secondary" style={{ padding: "4px 9px", fontSize: 11 }} disabled={busy || !note.trim()} onClick={onSubmit}>
-          {busy ? "…" : "Submit"}
-        </button>
+        {auth.hasPermission("vendor:write") && (
+          <button className="potg-btn potg-btn-secondary" style={{ padding: "4px 9px", fontSize: 11 }} disabled={busy || !note.trim()} onClick={onSubmit}>
+            {busy ? "…" : "Submit"}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -1057,9 +1099,11 @@ function LicenseForm({ vendor, onUpdated }: { vendor: Vendor; onUpdated: () => v
             onChange={(e) => setLicenseExpiresAt(e.target.value)}
           />
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
-              {busy ? "Saving…" : "Save"}
-            </button>
+            {auth.hasPermission("vendor:write") && (
+              <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
+                {busy ? "Saving…" : "Save"}
+              </button>
+            )}
             <button
               className="potg-btn potg-btn-secondary"
               type="button"

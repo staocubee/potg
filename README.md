@@ -6472,8 +6472,9 @@ every button still renders exactly as it always did.
   updating this page's gating to match could drift out of sync with the
   server again.
 - This gating pass covered the project detail page only — the page
-  named in the earlier audit. Other pages (properties, vendors,
-  reports, ...) still render their action buttons unconditionally.
+  named in the earlier audit. Every other page was swept in a later
+  pass — see "Sweeping UI-side permission gating across the rest of the
+  app" below.
 
 ## Exposing a member's own PropertyAccessGrant (this pass)
 
@@ -6531,6 +6532,95 @@ through the server, not just past the button.
 - No UI anywhere lets a grant holder see their own grant outside of its
   effect on this one button — there's no "your access to this property"
   screen, just the one gate this pass needed.
+
+## Sweeping UI-side permission gating across the rest of the app (this pass)
+
+The project detail page's own gating pass explicitly scoped itself to
+just that one page. This pass applied the identical discipline — every
+action button wrapped in `auth.hasPermission(...)`, an added
+`isOwningAccount`/`isOwner`/`isSupplier` check wherever the underlying
+route is ALSO restricted to a specific account and isn't
+`@AllowAssignedVendor()`-covered, and role-name/account-type checks
+(`role === "platform_reviewer"`, `.accountType === "VENDOR"`) replaced
+or supplemented with the real permission — across every other page in
+`apps/web/pages` with a real mutating action: `properties/[id].tsx`,
+`properties/index.tsx`, `projects/index.tsx`, `documents/index.tsx`,
+`communities/index.tsx` + `[id].tsx`, `branches/index.tsx` + `[id].tsx`,
+`vendors/index.tsx` + `[id].tsx` + `me.tsx`, `tenant/index.tsx`,
+`admin/index.tsx`, `payments/index.tsx`, `packages/index.tsx`,
+`accounts/members.tsx`, and the full marketplace surface
+(`marketplace/index.tsx`, `new.tsx`, `[id].tsx`, `me.tsx`, and
+`materials/[id].tsx` + `me.tsx` + `orders/[id].tsx` + `rentals.tsx`) and
+`reports/index.tsx` — 25 files in total.
+
+**What's built**: every button/form on those pages that calls a
+`@RequirePermissions`-gated controller route now checks the matching
+`auth.hasPermission(key)` before rendering (a few pages that already
+disabled a button on an unrelated condition, like "zero properties yet"
+or "already subscribed," added the permission check alongside that
+existing `disabled` logic rather than switching to hide/show). Several
+pages also got the same `Promise.allSettled` + "you don't have
+permission to view ___" treatment `projects/[id].tsx` pioneered, for
+whichever of their own secondary data-fetches could otherwise 403/404
+and silently render a false "nothing here": `properties/[id].tsx`'s
+main load (valuations/inspections/leases/maintenance/vendors/
+visualizations all load independently now), `vendors/me.tsx`'s
+quotes/payouts/disputes, and `marketplace/[id].tsx`'s owner-only
+inquiries/offers fetch (which used two different permissions,
+`listing:write` and `offer:read`, under one `.catch(() => undefined)`
+that swallowed either 403 into the same false-empty message).
+
+**Two real bugs this same pass caught live, not just in review** (the
+same "permission alone doesn't prove the route is reachable" class of
+bug the project detail page's own pass found and fixed):
+- `documents/index.tsx` and `payments/index.tsx` each have a top-level
+  branch deciding which of two role-specific views to render (a normal
+  view vs. an arbitration/moderation queue), gated on two independent
+  permissions. Neither page had a third branch for "holds neither" —
+  so an account like `vendor` (which holds `document:read` but not
+  `payment:read`, and neither `dispute:arbitrate` nor
+  `document:arbitrate`) hit `payments/index.tsx` and got stuck on
+  "Loading your payments overview…" forever, since the fetch itself was
+  now correctly gated behind the permission it lacked but nothing ever
+  told the user why. Fixed by adding the missing third branch to both:
+  "You don't have permission to view ___."
+- `documents/index.tsx`'s `load()` also ran a `Promise.all` between
+  `listDocuments()` (gated on `document:read`) and `listProperties()`
+  (gated on `property:read`, used only to label a document's property
+  in the list) — a real, pre-existing bug this pass exposed rather than
+  caused: the `vendor` role has `document:read` but not `property:read`,
+  so the whole page crashed on a raw `"Missing permission(s):
+  property:read"` error the moment a vendor could reach it at all (this
+  gating pass is what let vendor reach this page's real branch for the
+  first time — previously the only branch check was a role-name
+  `isPlatformReviewer`, which never applied to vendor either, so the
+  same crash was already latent). Fixed by decoupling the two fetches:
+  `listProperties()` failing now just means every document shows
+  "Unknown property" instead of its real property name, not a dead page.
+
+**Verified live**: logged in as a real, freshly-registered account with
+the `viewer` role (no write permissions on anything) and confirmed the
+demo property's full detail page — documents, projects, valuations,
+inspections, leases, maintenance, the works — rendered completely with
+every write/edit/report/resolve/record-payment button correctly absent,
+nothing crashed by a missing permission on any one section. Switched to
+the demo vendor account (`document:read`, `payout:read`, `dispute:read/
+write`, but no `payment:read`, `property:read`, or either arbitrate
+permission) and confirmed: `/payments` now shows "You don't have
+permission to view payments" instead of loading forever; `/documents`
+loads its real (empty) document list instead of crashing on the
+`property:read` 403, with "+ Upload document" correctly absent.
+
+**Not done — explicit scope, not oversight**:
+
+- This was a mechanical sweep applying an established pattern, not a
+  fresh audit of every route's own ABAC shape — a route added later
+  without a matching gate on its page's button would silently drift out
+  of sync with the server again, same caveat the project detail page's
+  own pass already noted.
+- No automated test enforces "every `@RequirePermissions` route has a
+  matching `hasPermission` check somewhere in the frontend" — this is
+  still a manual discipline, not a lint rule.
 
 ## Not built yet
 

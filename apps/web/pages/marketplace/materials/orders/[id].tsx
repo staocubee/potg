@@ -88,7 +88,7 @@ export default function OrderDetailPage() {
               <span className="potg-badge">{order.status.replace(/_/g, " ")}</span>
             </div>
 
-            {isSupplier && order.status !== "cancelled" && order.status !== "delivered" && (
+            {isSupplier && auth.hasPermission("order:write") && order.status !== "cancelled" && order.status !== "delivered" && (
               <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
                 {ORDER_STATUSES.filter((s) => s !== order.status).map((s) => (
                   <button key={s} className="potg-btn potg-btn-secondary" onClick={() => onUpdateStatus(s)} disabled={statusBusy}>
@@ -116,9 +116,11 @@ export default function OrderDetailPage() {
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <h3 style={{ fontSize: 14, margin: 0 }}>Disputes</h3>
-              <button className="potg-btn potg-btn-secondary" onClick={() => setShowDisputeForm((v) => !v)}>
-                {showDisputeForm ? "Cancel" : "+ Raise dispute"}
-              </button>
+              {auth.hasPermission("dispute:write") && (
+                <button className="potg-btn potg-btn-secondary" onClick={() => setShowDisputeForm((v) => !v)}>
+                  {showDisputeForm ? "Cancel" : "+ Raise dispute"}
+                </button>
+              )}
             </div>
             {showDisputeForm && (
               <RaiseOrderDisputeForm
@@ -139,7 +141,7 @@ export default function OrderDetailPage() {
             </div>
           </div>
 
-          {isSupplier ? (
+          {isSupplier && auth.hasPermission("order:write") ? (
             <DeliveryEditor orderId={order.id} delivery={order.delivery} onUpdated={load} />
           ) : (
             order.delivery && (
@@ -168,7 +170,7 @@ export default function OrderDetailPage() {
               {order.review ? (
                 <OrderReviewRow orderId={order.id} review={order.review} onChanged={load} />
               ) : (
-                <LeaveOrderReviewForm orderId={order.id} onReviewed={load} />
+                auth.hasPermission("review:write") && <LeaveOrderReviewForm orderId={order.id} onReviewed={load} />
               )}
             </div>
           )}
@@ -268,7 +270,7 @@ function OrderReviewRow({ orderId, review, onChanged }: { orderId: string; revie
         </select>
         <textarea className="potg-input" rows={2} value={comment} onChange={(e) => setComment(e.target.value)} />
         <div style={{ display: "flex", gap: 6 }}>
-          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null}>
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null || !auth.hasPermission("review:write")}>
             {busy === "save" ? "Saving…" : "Save"}
           </button>
           <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setEditing(false)}>
@@ -295,14 +297,16 @@ function OrderReviewRow({ orderId, review, onChanged }: { orderId: string; revie
             </div>
           )}
         </div>
-        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-          <button className="potg-btn potg-btn-secondary" onClick={() => setEditing(true)} style={{ padding: "3px 8px", fontSize: 11 }}>
-            Edit
-          </button>
-          <button className="potg-btn potg-btn-danger" disabled={busy !== null} onClick={onDelete} style={{ padding: "3px 8px", fontSize: 11 }}>
-            {busy === "delete" ? "…" : "Delete"}
-          </button>
-        </div>
+        {auth.hasPermission("review:write") && (
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            <button className="potg-btn potg-btn-secondary" onClick={() => setEditing(true)} style={{ padding: "3px 8px", fontSize: 11 }}>
+              Edit
+            </button>
+            <button className="potg-btn potg-btn-danger" disabled={busy !== null} onClick={onDelete} style={{ padding: "3px 8px", fontSize: 11 }}>
+              {busy === "delete" ? "…" : "Delete"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -414,7 +418,7 @@ function RaiseOrderDisputeForm({ orderId, onCreated }: { orderId: string; onCrea
         ))}
       </select>
       <textarea className="potg-input" rows={2} required autoFocus placeholder="What's the issue?" value={reason} onChange={(e) => setReason(e.target.value)} />
-      <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+      <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !auth.hasPermission("dispute:write")}>
         {busy ? "Raising…" : "Raise dispute"}
       </button>
     </form>
@@ -444,7 +448,8 @@ function OrderDisputeRow({ orderId, dispute, onChanged }: { orderId: string; dis
   const [summarizing, setSummarizing] = useState(false);
 
   const open = dispute.status === "open" || dispute.status === "under_review";
-  const canResolve = dispute.raisedByAccountId !== auth.currentAccountId;
+  const otherPartyRaisedIt = dispute.raisedByAccountId !== auth.currentAccountId;
+  const canResolve = otherPartyRaisedIt && auth.hasPermission("dispute:write");
 
   async function onResolve(status: "resolved" | "rejected") {
     setBusy(status);
@@ -521,9 +526,14 @@ function OrderDisputeRow({ orderId, dispute, onChanged }: { orderId: string; dis
         {dispute.disputeType.replace(/_/g, " ")} · raised {new Date(dispute.createdAt).toLocaleDateString()}
       </div>
       {dispute.resolutionNotes && <div className="potg-muted" style={{ fontSize: 12, marginTop: 2 }}>{dispute.resolutionNotes}</div>}
-      {open && !canResolve && (
+      {open && !otherPartyRaisedIt && (
         <div className="potg-muted" style={{ fontSize: 11, marginTop: 6 }}>
           You raised this dispute — the other party needs to resolve it.
+        </div>
+      )}
+      {open && otherPartyRaisedIt && !canResolve && (
+        <div className="potg-muted" style={{ fontSize: 11, marginTop: 6 }}>
+          You don't have permission to resolve disputes on this order.
         </div>
       )}
       {open && canResolve && !resolving && (
@@ -587,12 +597,12 @@ function OrderDisputeRow({ orderId, dispute, onChanged }: { orderId: string; dis
               ))}
             </div>
           )}
-          {open && !addingEvidence && (
+          {open && !addingEvidence && auth.hasPermission("dispute:write") && (
             <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setAddingEvidence(true)}>
               + Add evidence
             </button>
           )}
-          {open && addingEvidence && (
+          {open && addingEvidence && auth.hasPermission("dispute:write") && (
             <form onSubmit={onSubmitEvidence} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <textarea
                 className="potg-input"

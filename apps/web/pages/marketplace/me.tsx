@@ -51,9 +51,11 @@ export default function MyListingsPage() {
     <AppShell
       title="My listings & offers"
       actions={
-        <Link href="/marketplace/new" className="potg-btn potg-btn-primary">
-          + List a property
-        </Link>
+        auth.hasPermission("listing:write") && (
+          <Link href="/marketplace/new" className="potg-btn potg-btn-primary">
+            + List a property
+          </Link>
+        )
       }
     >
       <Link href="/marketplace" className="potg-muted" style={{ fontSize: 13, display: "inline-block", marginBottom: 14 }}>
@@ -79,7 +81,7 @@ export default function MyListingsPage() {
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                 <span className="potg-badge">{l.status.replace(/_/g, " ")}</span>
-                {l.status === "draft" && (
+                {l.status === "draft" && auth.hasPermission("listing:write") && (
                   <button className="potg-btn potg-btn-secondary" onClick={() => onPublish(l.id)} disabled={publishingId === l.id}>
                     {publishingId === l.id ? "…" : "Publish"}
                   </button>

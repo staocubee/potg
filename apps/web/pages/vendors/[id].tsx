@@ -40,7 +40,7 @@ export default function VendorDetailPage() {
   }, [id, auth.currentAccountId]);
 
   const isVendorAccount = auth.currentAccount?.accountType === "VENDOR";
-  const isPlatformReviewer = auth.currentAccount?.role === "platform_reviewer";
+  const canVerifyVendors = auth.hasPermission("vendor:verify");
 
   return (
     <AppShell
@@ -114,7 +114,7 @@ export default function VendorDetailPage() {
             )}
           </div>
 
-          {isPlatformReviewer && id && (
+          {canVerifyVendors && id && (
             <PlatformReviewPanel
               vendorId={id}
               status={vendor.verificationStatus}
@@ -127,7 +127,7 @@ export default function VendorDetailPage() {
             />
           )}
 
-          {!isVendorAccount && id && (
+          {!isVendorAccount && auth.hasPermission("quote:write") && id && (
             <RequestQuoteForProject vendorId={id} vendorName={vendor.businessName} />
           )}
 
@@ -231,7 +231,7 @@ const VERIFICATION_STATUSES = ["not_verified", "pending", "verified"];
 const AUDIT_RATINGS = ["clean", "minor_concerns", "major_concerns"];
 
 // Module 6's neutral-reviewer action, on the vendor side — only rendered
-// for the platform_reviewer role (see isPlatformReviewer above), which is
+// for vendor:verify holders (see canVerifyVendors above), which is
 // never granted to a vendor's own account, so this can't be used to
 // self-verify. Mirrors the shape of the Documents page's Verify/Reject
 // controls without the client-side permission check that page's own note

@@ -171,9 +171,11 @@ export default function TenantLeasePage() {
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <h3 style={{ fontSize: 14 }}>Maintenance</h3>
-              <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
-                {showForm ? "Cancel" : "+ Report issue"}
-              </button>
+              {isTenantAccount && auth.hasPermission("maintenance:write") && (
+                <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
+                  {showForm ? "Cancel" : "+ Report issue"}
+                </button>
+              )}
             </div>
             {showForm && (
               <ReportTenantMaintenanceRequestForm
@@ -258,9 +260,11 @@ function ReportTenantMaintenanceRequestForm({ onCreated }: { onCreated: (m: Main
         ))}
       </select>
       <div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
-          {busy ? "Reporting…" : "Report issue"}
-        </button>
+        {auth.hasPermission("maintenance:write") && (
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+            {busy ? "Reporting…" : "Report issue"}
+          </button>
+        )}
       </div>
     </form>
   );

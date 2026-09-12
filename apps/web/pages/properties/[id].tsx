@@ -61,7 +61,10 @@ export default function PropertyDetailPage() {
   function load() {
     if (!id || !auth.currentAccountId) return;
     setError(null);
-    Promise.all([
+    // allSettled so a role missing e.g. lease:read/inspection:read only
+    // loses that one card instead of blanking the whole page — mirrors
+    // pages/projects/[id].tsx's own load().
+    Promise.allSettled([
       auth.api.getProperty(id),
       auth.api.listValuations(id),
       auth.api.listProjects(),
@@ -72,21 +75,20 @@ export default function PropertyDetailPage() {
       // a vendor for a project quote already gets (VendorsController#findAll).
       auth.api.listVendors(),
       auth.api.listVisualizations(id),
-    ])
-      .then(([p, v, allProjects, i, l, m, vd, viz]) => {
-        setProperty(p);
-        setValuations(v);
-        // No GET /properties/:id/projects endpoint — Project doesn't need
-        // its own query surface for this, filtering the account's already-
-        // small project list client-side is enough.
-        setProjects(allProjects.filter((proj) => proj.propertyId === id));
-        setInspections(i);
-        setLeases(l);
-        setMaintenanceRequests(m);
-        setVendors(vd);
-        setVisualizations(viz);
-      })
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this property."));
+    ]).then(([p, v, allProjects, i, l, m, vd, viz]) => {
+      if (p.status === "fulfilled") setProperty(p.value);
+      else setError(p.reason instanceof ApiError ? p.reason.message : "Couldn't load this property.");
+      if (v.status === "fulfilled") setValuations(v.value);
+      // No GET /properties/:id/projects endpoint — Project doesn't need
+      // its own query surface for this, filtering the account's already-
+      // small project list client-side is enough.
+      if (allProjects.status === "fulfilled") setProjects(allProjects.value.filter((proj) => proj.propertyId === id));
+      if (i.status === "fulfilled") setInspections(i.value);
+      if (l.status === "fulfilled") setLeases(l.value);
+      if (m.status === "fulfilled") setMaintenanceRequests(m.value);
+      if (vd.status === "fulfilled") setVendors(vd.value);
+      if (viz.status === "fulfilled") setVisualizations(viz.value);
+    });
   }
 
   useEffect(() => {
@@ -224,9 +226,11 @@ export default function PropertyDetailPage() {
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <h3 style={{ fontSize: 14 }}>Valuations</h3>
-              <button className="potg-btn potg-btn-secondary" onClick={() => setShowValuationForm((v) => !v)}>
-                {showValuationForm ? "Cancel" : "+ Add valuation"}
-              </button>
+              {auth.hasPermission("property:write") && (
+                <button className="potg-btn potg-btn-secondary" onClick={() => setShowValuationForm((v) => !v)}>
+                  {showValuationForm ? "Cancel" : "+ Add valuation"}
+                </button>
+              )}
             </div>
 
             {showValuationForm && id && (
@@ -278,9 +282,11 @@ export default function PropertyDetailPage() {
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <h3 style={{ fontSize: 14 }}>Inspections</h3>
-              <button className="potg-btn potg-btn-secondary" onClick={() => setShowInspectionForm((v) => !v)}>
-                {showInspectionForm ? "Cancel" : "+ Schedule inspection"}
-              </button>
+              {auth.hasPermission("inspection:write") && (
+                <button className="potg-btn potg-btn-secondary" onClick={() => setShowInspectionForm((v) => !v)}>
+                  {showInspectionForm ? "Cancel" : "+ Schedule inspection"}
+                </button>
+              )}
             </div>
 
             {showInspectionForm && id && (
@@ -309,9 +315,11 @@ export default function PropertyDetailPage() {
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <h3 style={{ fontSize: 14 }}>Leases</h3>
-              <button className="potg-btn potg-btn-secondary" onClick={() => setShowLeaseForm((v) => !v)}>
-                {showLeaseForm ? "Cancel" : "+ Add lease"}
-              </button>
+              {auth.hasPermission("lease:write") && (
+                <button className="potg-btn potg-btn-secondary" onClick={() => setShowLeaseForm((v) => !v)}>
+                  {showLeaseForm ? "Cancel" : "+ Add lease"}
+                </button>
+              )}
             </div>
 
             {showLeaseForm && id && (
@@ -333,9 +341,11 @@ export default function PropertyDetailPage() {
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <h3 style={{ fontSize: 14 }}>Maintenance</h3>
-              <button className="potg-btn potg-btn-secondary" onClick={() => setShowMaintenanceForm((v) => !v)}>
-                {showMaintenanceForm ? "Cancel" : "+ Report issue"}
-              </button>
+              {auth.hasPermission("maintenance:write") && (
+                <button className="potg-btn potg-btn-secondary" onClick={() => setShowMaintenanceForm((v) => !v)}>
+                  {showMaintenanceForm ? "Cancel" : "+ Report issue"}
+                </button>
+              )}
             </div>
 
             {showMaintenanceForm && id && (
@@ -508,9 +518,11 @@ function ComparableValuationCard({ propertyId, onSaved }: { propertyId: string; 
             Based on {best.comparableCount} comparable listing(s) — range{" "}
             {formatMoney(String(best.minAskingPrice), best.currency)} to {formatMoney(String(best.maxAskingPrice), best.currency)}
           </p>
-          <button className="potg-btn potg-btn-secondary" onClick={onSaveAsValuation} disabled={saving || saved}>
-            {saved ? "Saved as valuation" : saving ? "Saving…" : "Save as valuation"}
-          </button>
+          {auth.hasPermission("property:write") && (
+            <button className="potg-btn potg-btn-secondary" onClick={onSaveAsValuation} disabled={saving || saved}>
+              {saved ? "Saved as valuation" : saving ? "Saving…" : "Save as valuation"}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -737,7 +749,7 @@ function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUp
     <div className="potg-card" style={{ padding: 18 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <h3 style={{ fontSize: 14, margin: 0 }}>Property details</h3>
-        {!editing && (
+        {!editing && auth.hasPermission("property:write") && (
           <button className="potg-btn potg-btn-secondary" onClick={startEditing}>
             Edit details
           </button>
@@ -795,9 +807,11 @@ function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUp
             </select>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="potg-btn potg-btn-primary" disabled={busy} onClick={onSave}>
-              {busy ? "Saving…" : "Save"}
-            </button>
+            {auth.hasPermission("property:write") && (
+              <button className="potg-btn potg-btn-primary" disabled={busy} onClick={onSave}>
+                {busy ? "Saving…" : "Save"}
+              </button>
+            )}
             <button className="potg-btn potg-btn-secondary" disabled={busy} onClick={() => setEditing(false)}>
               Cancel
             </button>
@@ -925,9 +939,11 @@ function AccessGrantsCard({ propertyId }: { propertyId: string }) {
               </option>
             ))}
           </select>
-          <button className="potg-btn potg-btn-primary" disabled={busy || !selectedMemberId} onClick={onGrant}>
-            {busy ? "…" : "Grant payment approval"}
-          </button>
+          {auth.hasPermission("property:write") && (
+            <button className="potg-btn potg-btn-primary" disabled={busy || !selectedMemberId} onClick={onGrant}>
+              {busy ? "…" : "Grant payment approval"}
+            </button>
+          )}
         </div>
       )}
 
@@ -948,9 +964,11 @@ function AccessGrantsCard({ propertyId }: { propertyId: string }) {
                   </span>
                 )}
               </div>
-              <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy} onClick={() => onRevoke(g.id)}>
-                Revoke
-              </button>
+              {auth.hasPermission("property:write") && (
+                <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy} onClick={() => onRevoke(g.id)}>
+                  Revoke
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -1047,9 +1065,11 @@ function DevelopmentAgreementsCard({ propertyId }: { propertyId: string }) {
     <div className="potg-card" style={{ padding: 18 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
         <h3 style={{ fontSize: 14, margin: 0 }}>Development partners</h3>
-        <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? "Cancel" : "+ Invite a developer"}
-        </button>
+        {auth.hasPermission("property:write") && (
+          <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "Cancel" : "+ Invite a developer"}
+          </button>
+        )}
       </div>
       <p className="potg-muted" style={{ fontSize: 11, marginTop: 0, marginBottom: showForm ? 10 : 12 }}>
         Invite a developer to build on this property under an agreed deal — either a time-boxed ownership stake, or
@@ -1138,11 +1158,13 @@ function DevelopmentAgreementsCard({ propertyId }: { propertyId: string }) {
             value={terms}
             onChange={(e) => setTerms(e.target.value)}
           />
-          <div>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
-              {busy ? "Sending…" : "Send invite"}
-            </button>
-          </div>
+          {auth.hasPermission("property:write") && (
+            <div>
+              <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+                {busy ? "Sending…" : "Send invite"}
+              </button>
+            </div>
+          )}
         </form>
       )}
 
@@ -1167,7 +1189,7 @@ function DevelopmentAgreementsCard({ propertyId }: { propertyId: string }) {
                   : `${a.proceedsSharePercentage}% of sale proceeds`}
               </div>
               <div style={{ fontSize: 12, marginTop: 4 }}>{a.terms}</div>
-              {a.status === "pending" && (
+              {a.status === "pending" && auth.hasPermission("property:write") && (
                 <button
                   className="potg-btn potg-btn-secondary"
                   style={{ padding: "3px 8px", fontSize: 11, marginTop: 6 }}
@@ -1254,9 +1276,11 @@ function DeviceRegistryCard({ propertyId }: { propertyId: string }) {
     <div className="potg-card" style={{ padding: 18 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
         <h3 style={{ fontSize: 14, margin: 0 }}>Smart home &amp; IoT devices</h3>
-        <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? "Cancel" : "+ Register a device"}
-        </button>
+        {auth.hasPermission("property:write") && (
+          <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "Cancel" : "+ Register a device"}
+          </button>
+        )}
       </div>
       <p className="potg-muted" style={{ fontSize: 11, marginTop: 0, marginBottom: showForm ? 10 : 12 }}>
         A registry of devices you plan to connect — no live readings yet, since no device integration is wired up.
@@ -1286,11 +1310,13 @@ function DeviceRegistryCard({ propertyId }: { propertyId: string }) {
             value={provider}
             onChange={(e) => setProvider(e.target.value)}
           />
-          <div>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
-              {busy ? "Saving…" : "Register device"}
-            </button>
-          </div>
+          {auth.hasPermission("property:write") && (
+            <div>
+              <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+                {busy ? "Saving…" : "Register device"}
+              </button>
+            </div>
+          )}
         </form>
       )}
 
@@ -1312,9 +1338,11 @@ function DeviceRegistryCard({ propertyId }: { propertyId: string }) {
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span className="potg-badge">{d.status.replace(/_/g, " ")}</span>
-                <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy} onClick={() => onRemove(d.id)}>
-                  Remove
-                </button>
+                {auth.hasPermission("property:write") && (
+                  <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy} onClick={() => onRemove(d.id)}>
+                    Remove
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -1361,11 +1389,13 @@ function AddValuationForm({ propertyId, onCreated }: { propertyId: string; onCre
         />
         <input className="potg-input" placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
       </div>
-      <div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
-          {busy ? "Saving…" : "Save valuation"}
-        </button>
-      </div>
+      {auth.hasPermission("property:write") && (
+        <div>
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+            {busy ? "Saving…" : "Save valuation"}
+          </button>
+        </div>
+      )}
     </form>
   );
 }
@@ -1504,9 +1534,11 @@ function TourAssetsCard({ propertyId }: { propertyId: string }) {
     <div className="potg-card" style={{ padding: 18 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
         <h3 style={{ fontSize: 14, margin: 0 }}>360° tour</h3>
-        <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? "Cancel" : "+ Add a 360° photo"}
-        </button>
+        {auth.hasPermission("property:write") && (
+          <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "Cancel" : "+ Add a 360° photo"}
+          </button>
+        )}
       </div>
       <p className="potg-muted" style={{ fontSize: 11, marginTop: 0, marginBottom: showForm ? 10 : 12 }}>
         Add an equirectangular (360°) photo per room to build a remote walkthrough — drag any photo below to look
@@ -1531,11 +1563,13 @@ function TourAssetsCard({ propertyId }: { propertyId: string }) {
             value={label}
             onChange={(e) => setLabel(e.target.value)}
           />
-          <div>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
-              {busy ? "Adding…" : "Add to tour"}
-            </button>
-          </div>
+          {auth.hasPermission("property:write") && (
+            <div>
+              <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+                {busy ? "Adding…" : "Add to tour"}
+              </button>
+            </div>
+          )}
         </form>
       )}
 
@@ -1550,9 +1584,11 @@ function TourAssetsCard({ propertyId }: { propertyId: string }) {
             <div key={a.id}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
                 <span style={{ fontSize: 13, fontWeight: 600 }}>{a.label ?? "Untitled room"}</span>
-                <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy} onClick={() => onRemove(a.id)}>
-                  Remove
-                </button>
+                {auth.hasPermission("property:write") && (
+                  <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy} onClick={() => onRemove(a.id)}>
+                    Remove
+                  </button>
+                )}
               </div>
               <Panorama360Viewer mediaUrl={a.mediaUrl} />
             </div>
@@ -1627,9 +1663,11 @@ function RenovationVisualizerCard({
     <div className="potg-card" style={{ padding: 18 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <h3 style={{ fontSize: 14 }}>Renovation &amp; staging visualizer</h3>
-        <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? "Cancel" : "+ Visualize"}
-        </button>
+        {auth.hasPermission("property:write") && (
+          <button className="potg-btn potg-btn-secondary" onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "Cancel" : "+ Visualize"}
+          </button>
+        )}
       </div>
       <p className="potg-muted" style={{ fontSize: 11, marginTop: 0, marginBottom: showForm ? 10 : 0 }}>
         AI-generated, not a real render of your actual space — a draft to get a feel for an idea, not a contractor's
@@ -1688,11 +1726,13 @@ function RenovationVisualizerCard({
               ))}
             </select>
           )}
-          <div>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
-              {busy ? "Generating… (can take up to a minute)" : "Generate visualization"}
-            </button>
-          </div>
+          {auth.hasPermission("property:write") && (
+            <div>
+              <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+                {busy ? "Generating… (can take up to a minute)" : "Generate visualization"}
+              </button>
+            </div>
+          )}
         </form>
       )}
 
@@ -1953,11 +1993,13 @@ function ScheduleInspectionForm({
         setName={setInspectorName}
         namePlaceholder="Inspector name (optional)"
       />
-      <div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
-          {busy ? "Scheduling…" : "Schedule inspection"}
-        </button>
-      </div>
+      {auth.hasPermission("inspection:write") && (
+        <div>
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+            {busy ? "Scheduling…" : "Schedule inspection"}
+          </button>
+        </div>
+      )}
     </form>
   );
 }
@@ -2088,7 +2130,7 @@ function InspectionRow({
 
       {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
 
-      {inspection.status === "scheduled" && !completing && !editing && (
+      {inspection.status === "scheduled" && !completing && !editing && auth.hasPermission("inspection:write") && (
         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
           <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setCompleting(true)}>
             Complete
@@ -2131,9 +2173,11 @@ function InspectionRow({
             namePlaceholder="Inspector name (optional)"
           />
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
-              {busy === "edit" ? "Saving…" : "Save changes"}
-            </button>
+            {auth.hasPermission("inspection:write") && (
+              <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
+                {busy === "edit" ? "Saving…" : "Save changes"}
+              </button>
+            )}
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setEditing(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
               Cancel
             </button>
@@ -2180,9 +2224,11 @@ function InspectionRow({
           <PhotoPicker urls={findingPhotoUrls} onChange={setFindingPhotoUrls} label="+ Add photos to next finding" />
 
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
-              {busy === "complete" ? "Saving…" : "Complete inspection"}
-            </button>
+            {auth.hasPermission("inspection:write") && (
+              <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
+                {busy === "complete" ? "Saving…" : "Complete inspection"}
+              </button>
+            )}
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setCompleting(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
               Cancel
             </button>
@@ -2264,11 +2310,13 @@ function CreateLeaseForm({ propertyId, onCreated }: { propertyId: string; onCrea
           <input className="potg-input" type="number" min={0} value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} />
         </div>
       </div>
-      <div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
-          {busy ? "Saving…" : "Save lease"}
-        </button>
-      </div>
+      {auth.hasPermission("lease:write") && (
+        <div>
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+            {busy ? "Saving…" : "Save lease"}
+          </button>
+        </div>
+      )}
     </form>
   );
 }
@@ -2389,7 +2437,7 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
 
       {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
 
-      {lease.status === "active" && !recording && !editing && (
+      {lease.status === "active" && !recording && !editing && auth.hasPermission("lease:write") && (
         <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
           <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setRecording(true)}>
             Record rent payment
@@ -2421,9 +2469,11 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
             <input className="potg-input" type="date" required value={periodEnd} onChange={(e) => setPeriodEnd(e.target.value)} />
           </div>
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
-              {busy === "record" ? "Saving…" : "Save payment"}
-            </button>
+            {auth.hasPermission("lease:write") && (
+              <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
+                {busy === "record" ? "Saving…" : "Save payment"}
+              </button>
+            )}
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setRecording(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
               Cancel
             </button>
@@ -2473,9 +2523,11 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
             </div>
           </div>
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
-              {busy === "edit" ? "Saving…" : "Save changes"}
-            </button>
+            {auth.hasPermission("lease:write") && (
+              <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
+                {busy === "edit" ? "Saving…" : "Save changes"}
+              </button>
+            )}
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setEditing(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
               Cancel
             </button>
@@ -2560,11 +2612,13 @@ function ReportMaintenanceRequestForm({
         setName={setAssignedTo}
         namePlaceholder="Assign to (optional)"
       />
-      <div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
-          {busy ? "Reporting…" : "Report issue"}
-        </button>
-      </div>
+      {auth.hasPermission("maintenance:write") && (
+        <div>
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+            {busy ? "Reporting…" : "Report issue"}
+          </button>
+        </div>
+      )}
     </form>
   );
 }
@@ -2692,7 +2746,7 @@ function MaintenanceRequestRow({
 
       {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
 
-      {isOpen && !starting && !resolving && !editing && (
+      {isOpen && !starting && !resolving && !editing && auth.hasPermission("maintenance:write") && (
         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
           {request.status === "open" && (
             <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setStarting(true)}>
@@ -2722,9 +2776,11 @@ function MaintenanceRequestRow({
             namePlaceholder="Assign to (optional)"
           />
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
-              {busy === "start" ? "Starting…" : "Start"}
-            </button>
+            {auth.hasPermission("maintenance:write") && (
+              <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
+                {busy === "start" ? "Starting…" : "Start"}
+              </button>
+            )}
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setStarting(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
               Cancel
             </button>
@@ -2750,9 +2806,11 @@ function MaintenanceRequestRow({
             onChange={(e) => setResolutionCost(e.target.value)}
           />
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
-              {busy === "resolve" ? "Saving…" : "Mark resolved"}
-            </button>
+            {auth.hasPermission("maintenance:write") && (
+              <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
+                {busy === "resolve" ? "Saving…" : "Mark resolved"}
+              </button>
+            )}
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setResolving(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
               Cancel
             </button>
@@ -2779,9 +2837,11 @@ function MaintenanceRequestRow({
             ))}
           </select>
           <div style={{ display: "flex", gap: 6 }}>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
-              {busy === "edit" ? "Saving…" : "Save changes"}
-            </button>
+            {auth.hasPermission("maintenance:write") && (
+              <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
+                {busy === "edit" ? "Saving…" : "Save changes"}
+              </button>
+            )}
             <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setEditing(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
               Cancel
             </button>

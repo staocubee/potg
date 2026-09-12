@@ -25,6 +25,10 @@ export default function ListingDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [favorited, setFavorited] = useState(false);
+  // findInquiries needs listing:write, findOffers needs offer:read — an
+  // owner with only one of the two used to see a false "No ___ yet." for
+  // whichever one 403'd, since the old .catch swallowed either failure.
+  const [forbidden, setForbidden] = useState({ inquiries: false, offers: false });
 
   const isOwner = !!listing && listing.accountId === auth.currentAccountId;
 
@@ -47,12 +51,13 @@ export default function ListingDetailPage() {
 
   useEffect(() => {
     if (!id || !listing || !isOwner) return;
-    Promise.all([auth.api.findInquiries(id), auth.api.findOffers(id)])
-      .then(([inq, off]) => {
-        setInquiries(inq);
-        setOffers(off);
-      })
-      .catch(() => undefined);
+    Promise.allSettled([auth.api.findInquiries(id), auth.api.findOffers(id)]).then(([inq, off]) => {
+      const isForbidden = (result: PromiseSettledResult<unknown>) =>
+        result.status === "rejected" && result.reason instanceof ApiError && (result.reason.status === 403 || result.reason.status === 404);
+      if (inq.status === "fulfilled") setInquiries(inq.value);
+      if (off.status === "fulfilled") setOffers(off.value);
+      setForbidden({ inquiries: isForbidden(inq), offers: isForbidden(off) });
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, listing?.id, isOwner]);
 
@@ -138,7 +143,7 @@ export default function ListingDetailPage() {
             )}
 
             <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-              {isOwner && listing.status === "draft" && (
+              {isOwner && listing.status === "draft" && auth.hasPermission("listing:write") && (
                 <button className="potg-btn potg-btn-primary" onClick={onPublish} disabled={publishing}>
                   {publishing ? "…" : "Publish listing"}
                 </button>
@@ -153,7 +158,7 @@ export default function ListingDetailPage() {
 
           {!isOwner && listing.status === "active" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <MakeOfferForm listingId={listing.id} currency={listing.currency} />
+              {auth.hasPermission("offer:write") && <MakeOfferForm listingId={listing.id} currency={listing.currency} />}
               <InquiryForm listingId={listing.id} />
             </div>
           )}
@@ -162,7 +167,8 @@ export default function ListingDetailPage() {
             <>
               <div className="potg-card" style={{ padding: 18 }}>
                 <h3 style={{ fontSize: 14, marginBottom: 10 }}>Offers ({offers.length})</h3>
-                {offers.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No offers yet.</p>}
+                {forbidden.offers && <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view offers on this listing.</p>}
+                {!forbidden.offers && offers.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No offers yet.</p>}
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {offers.map((o) => (
                     <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 13 }}>
@@ -170,7 +176,7 @@ export default function ListingDetailPage() {
                         <div style={{ fontWeight: 700 }}>{formatMoney(o.amount, o.currency)}</div>
                         {o.message && <div className="potg-muted" style={{ fontSize: 12 }}>{o.message}</div>}
                       </div>
-                      {o.status === "submitted" || o.status === "countered" ? (
+                      {(o.status === "submitted" || o.status === "countered") && isOwner && auth.hasPermission("offer:write") ? (
                         <div style={{ display: "flex", gap: 6 }}>
                           <button className="potg-btn potg-btn-primary" onClick={() => onRespondToOffer(o.id, "accepted")}>
                             Accept
@@ -189,7 +195,8 @@ export default function ListingDetailPage() {
 
               <div className="potg-card" style={{ padding: 18 }}>
                 <h3 style={{ fontSize: 14, marginBottom: 10 }}>Inquiries ({inquiries.length})</h3>
-                {inquiries.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No inquiries yet.</p>}
+                {forbidden.inquiries && <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view inquiries on this listing.</p>}
+                {!forbidden.inquiries && inquiries.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No inquiries yet.</p>}
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {inquiries.map((i) => (
                     <div key={i.id} style={{ fontSize: 13 }}>

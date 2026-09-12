@@ -274,14 +274,16 @@ function AccountRow({ account, onChanged }: { account: PlatformAccountSummary; o
           value={reason}
           onChange={(e) => setReason(e.target.value)}
         />
-        <button
-          className={suspended ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-danger"}
-          style={{ padding: "4px 10px", fontSize: 11 }}
-          disabled={busy || !reason.trim()}
-          onClick={onAct}
-        >
-          {busy ? "…" : suspended ? "Reinstate" : "Suspend"}
-        </button>
+        {auth.hasPermission("account:suspend") && (
+          <button
+            className={suspended ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-danger"}
+            style={{ padding: "4px 10px", fontSize: 11 }}
+            disabled={busy || !reason.trim()}
+            onClick={onAct}
+          >
+            {busy ? "…" : suspended ? "Reinstate" : "Suspend"}
+          </button>
+        )}
       </div>
     </div>
   );

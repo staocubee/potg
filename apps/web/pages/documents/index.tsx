@@ -34,23 +34,30 @@ export default function DocumentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
-  const isPlatformReviewer = auth.currentAccount?.role === "platform_reviewer";
+  const canArbitrate = auth.hasPermission("document:arbitrate");
+  const canReadDocuments = auth.hasPermission("document:read");
 
   function load() {
-    if (!auth.currentAccountId || isPlatformReviewer) return;
+    if (!auth.currentAccountId || canArbitrate || !canReadDocuments) return;
     setError(null);
-    Promise.all([auth.api.listDocuments(), auth.api.listProperties()])
-      .then(([docs, props]) => {
-        setDocuments(docs);
-        setProperties(props);
-      })
+    auth.api
+      .listDocuments()
+      .then(setDocuments)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load your documents."));
+    // Only used to label a document's property in the list below — a role
+    // that has document:read but not property:read (e.g. a vendor) still
+    // gets its real documents, just with "Unknown property" instead of a
+    // resolved name, rather than the whole page failing on this 403.
+    auth.api
+      .listProperties()
+      .then(setProperties)
+      .catch(() => undefined);
   }
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.currentAccountId, isPlatformReviewer]);
+  }, [auth.currentAccountId, canArbitrate, canReadDocuments]);
 
   const propertyName = (id?: string | null) => (id ? properties.find((p) => p.id === id)?.name ?? "Unknown property" : null);
 
@@ -62,10 +69,18 @@ export default function DocumentsPage() {
   // The platform reviewer has no documents of its own — document:read is
   // never in its role, so listDocuments/listProperties would just 403.
   // This account only ever sees the arbitration queue.
-  if (isPlatformReviewer) {
+  if (canArbitrate) {
     return (
       <AppShell title="Document verification">
         <DocumentArbitrationQueue />
+      </AppShell>
+    );
+  }
+
+  if (!canReadDocuments) {
+    return (
+      <AppShell title="Documents">
+        <p className="potg-muted">You don't have permission to view documents.</p>
       </AppShell>
     );
   }
@@ -74,9 +89,11 @@ export default function DocumentsPage() {
     <AppShell
       title="Documents"
       actions={
-        <button className="potg-btn potg-btn-primary" onClick={() => setShowForm((v) => !v)}>
-          {showForm ? "Cancel" : "+ Upload document"}
-        </button>
+        auth.hasPermission("document:write") && (
+          <button className="potg-btn potg-btn-primary" onClick={() => setShowForm((v) => !v)}>
+            {showForm ? "Cancel" : "+ Upload document"}
+          </button>
+        )
       }
     >
       {filterPropertyId && (
@@ -280,21 +297,20 @@ function UploadDocumentForm({
         <label className="potg-label">Expiry date (optional)</label>
         <input className="potg-input" type="date" value={expiryDate} onChange={(e) => setExpiryDate(e.target.value)} />
       </div>
-      <div>
-        <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
-          {busy ? "Uploading…" : "Upload document"}
-        </button>
-      </div>
+      {auth.hasPermission("document:write") && (
+        <div>
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+            {busy ? "Uploading…" : "Upload document"}
+          </button>
+        </div>
+      )}
     </form>
   );
 }
 
 // Sets Document.verificationStatus — the "human/admin workflow" the AI
 // panel's verify_property_documents skill deliberately never does itself
-// (it only drafts a checklist). No client-side permission check: if the
-// signed-in member lacks document:verify the API 403s and the error
-// surfaces the same way every other permission-gated action on this page
-// already handles it, same pattern as approve/release on the project page.
+// (it only drafts a checklist).
 function VerifyDocumentControls({ document, onUpdated }: { document: AppDocument; onUpdated: (d: AppDocument) => void }) {
   const auth = useAuth();
   const [rejecting, setRejecting] = useState(false);
@@ -318,6 +334,10 @@ function VerifyDocumentControls({ document, onUpdated }: { document: AppDocument
   }
 
   if (document.verificationStatus === "verified" || document.verificationStatus === "rejected") {
+    return null;
+  }
+
+  if (!auth.hasPermission("document:verify")) {
     return null;
   }
 
@@ -409,9 +429,11 @@ function SubmitDocumentEvidenceForm({ documentId }: { documentId: string }) {
         </div>
       )}
       {!open ? (
-        <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setOpen(true)}>
-          Submit evidence
-        </button>
+        auth.hasPermission("document:write") && (
+          <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setOpen(true)}>
+            Submit evidence
+          </button>
+        )
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 4, maxWidth: 320 }}>
           {error && <div className="potg-error" style={{ fontSize: 11 }}>{error}</div>}
@@ -545,7 +567,7 @@ function DocumentArbitrationRow({ document, onChanged }: { document: AppDocument
         <span className="potg-badge">{document.verificationStatus.replace(/_/g, " ")}</span>
       </div>
       {error && <div className="potg-error" style={{ marginTop: 8 }}>{error}</div>}
-      {pendingAction ? (
+      {auth.hasPermission("document:arbitrate") && pendingAction && (
         <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
           <input
             className="potg-input"
@@ -571,7 +593,8 @@ function DocumentArbitrationRow({ document, onChanged }: { document: AppDocument
             </button>
           </div>
         </div>
-      ) : (
+      )}
+      {auth.hasPermission("document:arbitrate") && !pendingAction && (
         <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
           <button
             className="potg-btn potg-btn-primary"

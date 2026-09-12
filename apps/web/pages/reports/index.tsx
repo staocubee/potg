@@ -124,7 +124,8 @@ export default function ReportsPage() {
     <AppShell
       title="Reports"
       actions={
-        overview && (
+        overview &&
+        auth.hasPermission("property:read") && (
           <button className="potg-btn potg-btn-secondary" onClick={onExport} disabled={exporting}>
             {exporting ? "Exporting…" : "Export CSV"}
           </button>
@@ -460,7 +461,7 @@ function DigestSubscriptionCard({ frequency, onChanged }: { frequency: string; o
           <button
             key={f}
             className={f === frequency ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
-            disabled={saving}
+            disabled={saving || !auth.hasPermission("property:write")}
             onClick={() => onFrequencyChange(f)}
             style={{ padding: "4px 9px", fontSize: 11, textTransform: "capitalize" }}
           >
@@ -469,7 +470,7 @@ function DigestSubscriptionCard({ frequency, onChanged }: { frequency: string; o
         ))}
         <button
           className="potg-btn potg-btn-secondary"
-          disabled={sending}
+          disabled={sending || !auth.hasPermission("property:read")}
           onClick={onSendNow}
           style={{ padding: "4px 9px", fontSize: 11, marginLeft: "auto" }}
         >
@@ -653,7 +654,11 @@ function ReportBuilderCard() {
               value={name}
               onChange={(e) => setName(e.target.value)}
             />
-            <button className="potg-btn potg-btn-primary" onClick={onSave} disabled={saving || !name.trim() || selected.length === 0}>
+            <button
+              className="potg-btn potg-btn-primary"
+              onClick={onSave}
+              disabled={saving || !name.trim() || selected.length === 0 || !auth.hasPermission("property:write")}
+            >
               {saving ? "Saving…" : "Save report"}
             </button>
           </div>
@@ -676,16 +681,31 @@ function ReportBuilderCard() {
                   <span className="potg-muted" style={{ fontSize: 11 }}>({def.metrics.length} metric{def.metrics.length === 1 ? "" : "s"})</span>
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
-                  <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busyId === def.id} onClick={() => onRun(def)}>
+                  <button
+                    className="potg-btn potg-btn-secondary"
+                    style={{ padding: "3px 8px", fontSize: 11 }}
+                    disabled={busyId === def.id || !auth.hasPermission("property:read")}
+                    onClick={() => onRun(def)}
+                  >
                     Run
                   </button>
-                  <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busyId === def.id} onClick={() => onExport(def)}>
+                  <button
+                    className="potg-btn potg-btn-secondary"
+                    style={{ padding: "3px 8px", fontSize: 11 }}
+                    disabled={busyId === def.id || !auth.hasPermission("property:read")}
+                    onClick={() => onExport(def)}
+                  >
                     Export CSV
                   </button>
                   <button className="potg-btn potg-btn-ai" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busyId === def.id} onClick={() => onNarrate(def)}>
                     ✦ Narrate
                   </button>
-                  <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busyId === def.id} onClick={() => onDelete(def)}>
+                  <button
+                    className="potg-btn potg-btn-secondary"
+                    style={{ padding: "3px 8px", fontSize: 11 }}
+                    disabled={busyId === def.id || !auth.hasPermission("property:write")}
+                    onClick={() => onDelete(def)}
+                  >
                     Delete
                   </button>
                 </div>

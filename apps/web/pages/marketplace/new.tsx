@@ -111,11 +111,15 @@ export default function NewListingPage() {
               Leave this blank if you'd like — once the listing exists, its Ask AI panel can draft a description for you.
             </p>
           </div>
-          <div>
-            <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !propertyId}>
-              {busy ? "Creating…" : "Create listing (draft)"}
-            </button>
-          </div>
+          {auth.hasPermission("listing:write") ? (
+            <div>
+              <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !propertyId}>
+                {busy ? "Creating…" : "Create listing (draft)"}
+              </button>
+            </div>
+          ) : (
+            <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to create listings.</p>
+          )}
         </form>
       )}
     </AppShell>
