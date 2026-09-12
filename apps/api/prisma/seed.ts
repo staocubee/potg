@@ -55,6 +55,7 @@ const PERMISSIONS = [
   // Modules 5 & 10 — Property Marketplace & Materials Marketplace (Priority 5).
   { key: 'listing:read', label: 'Browse and search property listings' },
   { key: 'listing:write', label: 'Create, publish, and manage a property listing' },
+  { key: 'listing:verify', label: "Set a property listing's platform verification status (neutral reviewer only — never granted to the listing:write role itself)" },
   { key: 'offer:read', label: 'View offers on a listing' },
   { key: 'offer:write', label: 'Submit or respond to an offer' },
   { key: 'supplier:read', label: 'Browse supplier profiles' },
@@ -454,8 +455,10 @@ const ROLES: Record<string, string[]> = {
   // it never uploads — let alone owns — a document it might later verify.
   // Same shape extends to review:moderate: never granted review:write/
   // respond/flag, so it can never be the reviewer, the reviewed party, or
-  // the one who flagged a review it goes on to moderate. Reads only what
-  // it needs to review (vendor:read/supplier:read) plus
+  // the one who flagged a review it goes on to moderate; and to
+  // listing:verify, never granted listing:write, so it can never be the
+  // account that listed a property it goes on to verify. Reads only what
+  // it needs to review (vendor:read/supplier:read/listing:read) plus
   // :verify/:arbitrate/:moderate — nothing else, not even ai:act, since
   // this role's whole job is a handful of mechanical actions on other
   // accounts' data.
@@ -464,6 +467,8 @@ const ROLES: Record<string, string[]> = {
     'vendor:verify',
     'supplier:read',
     'supplier:verify',
+    'listing:read',
+    'listing:verify',
     'dispute:arbitrate',
     'document:arbitrate',
     'review:moderate',
@@ -1134,7 +1139,7 @@ async function main() {
   console.log(`  supplier:         ${supplier.id} — 3 products seeded, 1 order already placed and in transit`);
   console.log(`  conversation:     ${DEMO_CONVERSATION_ID} — GET /ai/conversations/${DEMO_CONVERSATION_ID} to see the tool-call pattern`);
   console.log(
-    `  platform account: ${platformAccount.id} (switch X-Account-Id to this to act as the neutral platform reviewer — vendor:verify/supplier:verify only)`,
+    `  platform account: ${platformAccount.id} (switch X-Account-Id to this to act as the neutral platform reviewer — vendor:verify/supplier:verify/listing:verify only)`,
   );
   console.log(
     `  platform-admin account: ${platformAdminAccount.id} (switch X-Account-Id to this to act as platform_admin — GET /platform-admin/accounts)`,

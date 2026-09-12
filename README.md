@@ -7192,14 +7192,79 @@ filter was active, not just city/type/search as before.
   reviewer `setVerificationStatus`-style endpoint, nothing ever sets
   `PropertyListing.verificationStatus` except at creation. The filter
   built in this pass works correctly against whatever value is already
-  there; it doesn't add a way to change that value. A real gap worth
-  its own pass, not this one.
+  there; it doesn't add a way to change that value. Closed in a later
+  pass — see "A real listing:verify action for the neutral reviewer"
+  below.
 - No currency-aware price filtering — `minPrice`/`maxPrice` compare
   `askingPrice` as a raw number regardless of the listing's own
   `currency`, an existing backend limitation this pass didn't touch.
 - No propertyType filter exposed in the UI, even though the backend
   already accepts one (same as price before this pass) — narrower scope
   than the full audit finding, left for a follow-up.
+
+## A real listing:verify action for the neutral reviewer (this pass)
+
+Surfaced while building the marketplace filters pass above: unlike
+`Vendor`, `Supplier`, and `Document` — each of which has a real neutral-
+reviewer `setVerificationStatus`-style endpoint — nothing anywhere ever
+set `PropertyListing.verificationStatus` off its own default. The
+platform-admin verification backlog has counted `submitted` listings
+since Module 24's own pass, but nothing could ever get a listing into
+that state, and nothing could ever act on it once there.
+
+**What's built**:
+
+- **`PropertyListing.verificationNotes`** (new column) — the same
+  "reviewer's note" field `Vendor`/`Supplier`/`Document` already carry,
+  closing that gap too, not just the missing action.
+- **`PATCH /listings/:listingId/verification`** (new route,
+  `ListingsService.setVerificationStatus`) — mirrors
+  `VendorsService.setVerificationStatus` exactly: no `:propertyId` param
+  for `PermissionsGuard`'s ABAC to key on, so it reaches any listing
+  platform-wide, gated on a new `listing:verify` permission instead.
+- **`listing:verify` granted only to `platform_reviewer`**, alongside a
+  new `listing:read` grant that role didn't have before (it couldn't
+  browse listings at all until now) — never granted to `listing:write`
+  roles, the same self-verification lockout `vendor:verify`/
+  `supplier:verify` already enforce.
+- **A real review panel on the listing detail page** — mirrors the
+  Vendor page's own "Platform review" panel (status buttons + a notes
+  field), visible only to `listing:verify` holders. A verified listing
+  now shows a real "✓ verified" badge on both the listing detail page
+  and the marketplace browse cards.
+
+**Verified live**: granted the seeded platform-reviewer account
+`listing:read`/`listing:verify` via the reseed. Over the real API,
+moved a real listing through `not_verified → submitted → verified` with
+a real note attached at each step, confirmed the note persisted on a
+fresh re-fetch, and confirmed the listing's own owning account gets a
+real 403 calling the same endpoint directly — the panel's own
+invisibility to that account isn't the only thing stopping it. Then,
+logged into the actual UI as the reviewer account: confirmed it could
+now browse the marketplace and open a listing it doesn't own (both were
+impossible before this pass, with no `listing:read` at all); used the
+real "Platform review" panel to flip the listing to `not_verified` and
+back to `verified`, confirming the "✓ verified" badge disappeared and
+reappeared on the listing header in sync with each click, and that the
+notes textarea was pre-populated with the note set moments earlier over
+the API. Switched back to the listing's own owning account and
+confirmed the panel doesn't render for it at all.
+
+**Not done — explicit scope, not oversight**:
+
+- No dedicated "pending review" queue endpoint — a reviewer finds a
+  listing to review the same way they'd find a vendor or supplier to
+  review: browse the public list and open one. A still-`draft` listing
+  (never published) isn't visible via the public browse either way, the
+  same as it isn't to anyone else — verification realistically applies
+  once a listing is live, not before.
+- No structured "submit for verification" channel from the listing
+  owner's side (the equivalent of `VendorVerificationEvidence`) — a
+  reviewer can act at any time, but an owner can't proactively request
+  review or attach supporting evidence the way a vendor can.
+- No trust-score or audit-trail equivalent — this closes the one-field
+  gate `vendor:verify`/`supplier:verify` provide, not the deeper
+  audit-history system built specifically for vendors.
 
 ## Not built yet
 

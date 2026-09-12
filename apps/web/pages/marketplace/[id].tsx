@@ -42,6 +42,7 @@ export default function ListingDetailPage() {
   const [counterAmount, setCounterAmount] = useState("");
 
   const isOwner = !!listing && listing.accountId === auth.currentAccountId;
+  const canVerifyListings = auth.hasPermission("listing:verify");
 
   function load() {
     if (!id || !auth.currentAccountId) return;
@@ -198,6 +199,14 @@ export default function ListingDetailPage() {
               </div>
               <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <span className="potg-badge">{listing.listingType.replace(/_/g, " ")}</span>
+                {listing.verificationStatus === "verified" && (
+                  <span
+                    className="potg-badge"
+                    style={{ background: "#e7f3ea", borderColor: "#b7ddc3", color: "#2f7a4f", marginLeft: 6 }}
+                  >
+                    ✓ verified
+                  </span>
+                )}
                 <div style={{ fontWeight: 700, fontSize: 18, marginTop: 8 }}>{formatMoney(listing.askingPrice, listing.currency)}</div>
                 <div className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
                   {listing.status.replace(/_/g, " ")} · {listing.viewCount} view{listing.viewCount === 1 ? "" : "s"}
@@ -227,6 +236,15 @@ export default function ListingDetailPage() {
               )}
             </div>
           </div>
+
+          {canVerifyListings && id && (
+            <PlatformReviewPanel
+              listingId={id}
+              status={listing.verificationStatus}
+              notes={listing.verificationNotes}
+              onChanged={load}
+            />
+          )}
 
           {sale && (
             <div className="potg-card" style={{ padding: 18 }}>
@@ -369,6 +387,77 @@ export default function ListingDetailPage() {
         </div>
       )}
     </AppShell>
+  );
+}
+
+const LISTING_VERIFICATION_STATUSES = ["not_verified", "submitted", "verified", "rejected"];
+
+// The audit's own finding, closed — mirrors the shape of the Vendor
+// page's own PlatformReviewPanel (minus the trust-audit section, which
+// has no listing equivalent). Only rendered for listing:verify holders
+// (see canVerifyListings above), which is never granted to a
+// listing:write role, so this can't be used to self-verify — the
+// panel's visibility already is the permission check.
+function PlatformReviewPanel({
+  listingId,
+  status,
+  notes,
+  onChanged,
+}: {
+  listingId: string;
+  status: string;
+  notes?: string | null;
+  onChanged: () => void;
+}) {
+  const auth = useAuth();
+  // Seeded from the listing's current note so re-opening this panel
+  // after a page reload doesn't start blank.
+  const [draftNotes, setDraftNotes] = useState(notes ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSetStatus(newStatus: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.setListingVerification(listingId, newStatus, draftNotes || undefined);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update verification status.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 18, border: "1px solid var(--potg-teal)" }}>
+      <h3 style={{ fontSize: 14, marginBottom: 4 }}>Platform review</h3>
+      <p className="potg-muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 10 }}>
+        Set this listing's platform verification status. Visible only to the platform reviewer role.
+      </p>
+      {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+      <textarea
+        className="potg-input"
+        rows={2}
+        placeholder='Notes — e.g. what "submitted" is waiting on, or the reason for a decision (optional)'
+        value={draftNotes}
+        onChange={(e) => setDraftNotes(e.target.value)}
+        style={{ marginBottom: 8 }}
+      />
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {LISTING_VERIFICATION_STATUSES.map((s) => (
+          <button
+            key={s}
+            className={s === status ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
+            disabled={busy}
+            onClick={() => onSetStatus(s)}
+            style={{ padding: "4px 9px", fontSize: 11, textTransform: "capitalize" }}
+          >
+            {s.replace(/_/g, " ")}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

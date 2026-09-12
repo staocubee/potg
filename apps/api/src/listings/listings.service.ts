@@ -6,6 +6,7 @@ import { CreateOfferDto } from './dto/create-offer.dto';
 import { RespondOfferDto } from './dto/respond-offer.dto';
 import { RespondToCounterDto } from './dto/respond-to-counter.dto';
 import { SearchListingsQuery } from './dto/search-listings.dto';
+import { SetListingVerificationDto } from './dto/set-listing-verification.dto';
 import { rankingBoost } from '../common/search-ranking.util';
 import { getActiveBoostMap, applyVisibilityBoost } from '../packages/boost.util';
 import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
@@ -187,6 +188,22 @@ export class ListingsService {
       where: { listingId_accountId: { listingId, accountId } },
     });
     return { ...listing, isFavorited: favorite !== null };
+  }
+
+  // The audit's own finding: unlike Vendor/Supplier/Document, nothing
+  // anywhere ever set PropertyListing.verificationStatus off its own
+  // default — mirrors VendorsService.setVerificationStatus exactly. No
+  // :propertyId param for PermissionsGuard's ABAC to key on, so this
+  // reaches any listing platform-wide, same as GET /listings/:listingId
+  // already does for browsing — gated by listing:verify instead, which
+  // only platform_reviewer carries, never listing:write roles.
+  async setVerificationStatus(listingId: string, dto: SetListingVerificationDto) {
+    const listing = await this.prisma.propertyListing.findUnique({ where: { id: listingId } });
+    if (!listing) throw new NotFoundException('Listing not found');
+    return this.prisma.propertyListing.update({
+      where: { id: listingId },
+      data: { verificationStatus: dto.status, verificationNotes: dto.notes ?? null },
+    });
   }
 
   // Backs generate_listing_description's Accept chaining (AiService.

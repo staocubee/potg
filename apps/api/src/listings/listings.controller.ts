@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -11,6 +11,7 @@ import { CreateOfferDto } from './dto/create-offer.dto';
 import { RespondOfferDto } from './dto/respond-offer.dto';
 import { RespondToCounterDto } from './dto/respond-to-counter.dto';
 import { SearchListingsQuery } from './dto/search-listings.dto';
+import { SetListingVerificationDto } from './dto/set-listing-verification.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -58,6 +59,16 @@ export class ListingsController {
   @Get(':listingId')
   findOne(@Param('listingId') listingId: string, @CurrentAccountMember() member: AccountMemberCtx) {
     return this.listings.findOne(listingId, member.accountId);
+  }
+
+  // The audit's own finding, closed — see ListingsService.
+  // setVerificationStatus's own comment. listing:verify only ever goes
+  // to platform_reviewer (see seed.ts), never a listing:write role, so
+  // this can't be used to self-verify.
+  @RequirePermissions('listing:verify')
+  @Patch(':listingId/verification')
+  setVerificationStatus(@Param('listingId') listingId: string, @Body() dto: SetListingVerificationDto) {
+    return this.listings.setVerificationStatus(listingId, dto);
   }
 
   @RequirePermissions('listing:write')

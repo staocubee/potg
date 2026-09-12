@@ -1114,6 +1114,13 @@ model PropertyListing {
   photoUrls          String[] @default([])
   status             String   @default("draft") // draft | active | under_offer | sold | rented | withdrawn
   verificationStatus String   @default("not_verified") // not_verified | submitted | verified | rejected
+  // The gap the workflow audit found: unlike Vendor/Supplier/Document,
+  // this had no reviewer's-note field and — until ListingsService.
+  // setVerificationStatus — no action anywhere that ever set
+  // verificationStatus to anything but its own default. Same "what's
+  // needed to move off submitted, or the reason for the final call"
+  // shape those other three already use.
+  verificationNotes  String?
   viewCount          Int      @default(0)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt

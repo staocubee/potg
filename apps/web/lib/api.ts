@@ -1298,6 +1298,7 @@ export type Listing = {
   photoUrls: string[];
   status: "draft" | "active" | "under_offer" | "sold" | "rented" | "withdrawn" | string;
   verificationStatus: "not_verified" | "submitted" | "verified" | "rejected" | string;
+  verificationNotes?: string | null;
   viewCount: number;
   createdAt: string;
   updatedAt: string;
@@ -2844,6 +2845,14 @@ export class ApiClient {
   }
   getListing(listingId: string) {
     return request<Listing>(`/listings/${listingId}`, { token: this.token, accountId: this.accountId });
+  }
+  setListingVerification(listingId: string, status: string, notes?: string) {
+    return request<Listing>(`/listings/${listingId}/verification`, {
+      method: "PATCH",
+      body: { status, notes },
+      token: this.token,
+      accountId: this.accountId,
+    });
   }
   publishListing(listingId: string) {
     return request<Listing>(`/listings/${listingId}/publish`, { method: "POST", token: this.token, accountId: this.accountId });
