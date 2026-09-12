@@ -36,6 +36,10 @@ export default function ListingDetailPage() {
   const [sale, setSale] = useState<ListingSale | null>(null);
   const [saleError, setSaleError] = useState<string | null>(null);
   const [saleBusy, setSaleBusy] = useState(false);
+  // Which offer's inline "Counter" form is open, and what's typed into it —
+  // only one at a time, keyed by offer id rather than a boolean per-offer.
+  const [counteringId, setCounteringId] = useState<string | null>(null);
+  const [counterAmount, setCounterAmount] = useState("");
 
   const isOwner = !!listing && listing.accountId === auth.currentAccountId;
 
@@ -147,6 +151,23 @@ export default function ListingDetailPage() {
       if (status === "accepted") load();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't respond to that offer.");
+    }
+  }
+
+  async function onSubmitCounter(offerId: string) {
+    if (!id) return;
+    const parsed = Number(counterAmount);
+    if (!counterAmount || Number.isNaN(parsed) || parsed <= 0) {
+      setError("Enter a valid counter-offer amount.");
+      return;
+    }
+    try {
+      const updated = await auth.api.respondToOffer(id, offerId, { status: "countered", counterAmount: parsed });
+      setOffers((prev) => prev.map((o) => (o.id === offerId ? updated : o)));
+      setCounteringId(null);
+      setCounterAmount("");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't send that counter-offer.");
     }
   }
 
@@ -272,22 +293,55 @@ export default function ListingDetailPage() {
                 {!forbidden.offers && offers.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No offers yet.</p>}
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {offers.map((o) => (
-                    <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 13 }}>
-                      <div>
-                        <div style={{ fontWeight: 700 }}>{formatMoney(o.amount, o.currency)}</div>
-                        {o.message && <div className="potg-muted" style={{ fontSize: 12 }}>{o.message}</div>}
+                    <div key={o.id} style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 13 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                        <div>
+                          <div style={{ fontWeight: 700 }}>{formatMoney(o.amount, o.currency)}</div>
+                          {o.message && <div className="potg-muted" style={{ fontSize: 12 }}>{o.message}</div>}
+                        </div>
+                        {/* Once countered, it's the buyer's turn next — the seller
+                            just watches the badge until the buyer responds. */}
+                        {o.status === "submitted" && isOwner && auth.hasPermission("offer:write") ? (
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button className="potg-btn potg-btn-primary" onClick={() => onRespondToOffer(o.id, "accepted")}>
+                              Accept
+                            </button>
+                            <button
+                              className="potg-btn potg-btn-secondary"
+                              onClick={() => {
+                                setCounteringId(counteringId === o.id ? null : o.id);
+                                setCounterAmount("");
+                              }}
+                            >
+                              Counter
+                            </button>
+                            <button className="potg-btn potg-btn-secondary" onClick={() => onRespondToOffer(o.id, "rejected")}>
+                              Reject
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="potg-badge">{o.status.replace(/_/g, " ")}</span>
+                        )}
                       </div>
-                      {(o.status === "submitted" || o.status === "countered") && isOwner && auth.hasPermission("offer:write") ? (
-                        <div style={{ display: "flex", gap: 6 }}>
-                          <button className="potg-btn potg-btn-primary" onClick={() => onRespondToOffer(o.id, "accepted")}>
-                            Accept
+                      {counteringId === o.id && (
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            placeholder={`Counter amount (${o.currency})`}
+                            value={counterAmount}
+                            onChange={(e) => setCounterAmount(e.target.value)}
+                            className="potg-input"
+                            style={{ fontSize: 13, flex: 1 }}
+                          />
+                          <button className="potg-btn potg-btn-primary" onClick={() => onSubmitCounter(o.id)}>
+                            Send counter
                           </button>
-                          <button className="potg-btn potg-btn-secondary" onClick={() => onRespondToOffer(o.id, "rejected")}>
-                            Reject
+                          <button className="potg-btn potg-btn-secondary" onClick={() => setCounteringId(null)}>
+                            Cancel
                           </button>
                         </div>
-                      ) : (
-                        <span className="potg-badge">{o.status.replace(/_/g, " ")}</span>
                       )}
                     </div>
                   ))}

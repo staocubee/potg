@@ -47,6 +47,15 @@ export default function MyListingsPage() {
     }
   }
 
+  async function onRespondToCounter(listingId: string, offerId: string, status: "accepted" | "rejected") {
+    try {
+      const updated = await auth.api.respondToCounter(listingId, offerId, { status });
+      setOffers((prev) => prev?.map((o) => (o.id === offerId ? updated : o)) ?? null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't respond to that counter-offer.");
+    }
+  }
+
   return (
     <AppShell
       title="My listings & offers"
@@ -110,7 +119,24 @@ export default function MyListingsPage() {
                   Your offer: {formatMoney(o.amount, o.currency)}
                 </div>
               </div>
-              <span className="potg-badge">{o.status.replace(/_/g, " ")}</span>
+              {o.status === "countered" && o.listing && auth.hasPermission("offer:write") ? (
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  <button
+                    className="potg-btn potg-btn-primary"
+                    onClick={() => onRespondToCounter(o.listing!.id, o.id, "accepted")}
+                  >
+                    Accept counter
+                  </button>
+                  <button
+                    className="potg-btn potg-btn-secondary"
+                    onClick={() => onRespondToCounter(o.listing!.id, o.id, "rejected")}
+                  >
+                    Reject
+                  </button>
+                </div>
+              ) : (
+                <span className="potg-badge">{o.status.replace(/_/g, " ")}</span>
+              )}
             </div>
           ))}
         </div>

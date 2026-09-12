@@ -6822,7 +6822,8 @@ refused with "This sale is already completed."
 - No counter-offer UI (the audit's own earlier finding) — an owner can
   still only Accept or Reject from this page, even though
   `RespondOfferDto` has supported `countered` with a real re-priced
-  amount since before this pass.
+  amount since before this pass. Closed in a later pass — see
+  "Counter-offers on marketplace offers" below.
 - No real payment gateway integration for the deposit — same
   restraint as `LeaseRentPayment`, not an oversight; wiring a real
   charge would mean either loosening `Payment`'s `projectId`/
@@ -6837,6 +6838,81 @@ refused with "This sale is already completed."
   multi-owner/%-split model the audit flagged) as part of this flow —
   the transfer is a clean single-owner handoff via `Property.accountId`,
   deliberately not conflated with that separate gap.
+
+## Counter-offers on marketplace offers (this pass)
+
+The workflow audit's own earlier finding, left open by the purchase-
+to-portfolio pass: `RespondOfferDto` already let a seller set an offer
+to `countered` with a real re-priced amount, but nothing existed for
+the buyer to act on it — no endpoint, no UI, not even a notification.
+A countered offer was a dead end; the buyer's only way to find out was
+to keep manually re-checking `myOffers()`, and even then had no way to
+respond.
+
+**What's built**:
+
+- **`POST /listings/:listingId/offers/:offerId/respond-to-counter`**
+  (new route, new `RespondToCounterDto`) — the buyer's own half of the
+  negotiation. Deliberately narrower than the seller's
+  `RespondOfferDto`: accept or reject only, no re-countering — a
+  bounded, one-round counter-offer, not a full negotiation engine.
+  Checked against the offer belonging to the caller and currently
+  `countered` (a clear 400 naming the offer's actual status otherwise),
+  not against `requireOwnListing` — the buyer never owns the listing.
+- **A shared `acceptOfferIntoSale` helper** — the seller accepting a
+  fresh offer and the buyer accepting the seller's counter both end in
+  exactly the same place (a `ListingSale` created, both sides
+  notified), so that logic exists once, not twice. An `initiatedBy`
+  parameter picks who gets told "accepted" and which side of the deal
+  that notification names — never the account that just clicked the
+  button, always the other side.
+- **Notifications on every transition, not just acceptance** — a
+  countered or rejected offer used to notify no one; the seller
+  countering, the seller rejecting outright, and the buyer rejecting a
+  counter now all notify the other side, each with its own real
+  wording (`listing_offer_countered`, `listing_offer_rejected`,
+  `listing_counter_rejected`).
+- **Seller UI** (listing detail page): a "Counter" button next to
+  Accept/Reject on a `submitted` offer opens an inline amount input;
+  once countered, the buttons disappear in favor of a plain "countered"
+  badge — it's the buyer's turn next, so the seller has nothing left to
+  click until they respond.
+- **Buyer UI** (`/marketplace/me`): a `countered` offer now shows real
+  "Accept counter" / "Reject" buttons in place of a plain status badge.
+
+**Verified live** with the real seller (`demo-owner`) and the real
+second buyer account from the purchase-to-portfolio pass
+(`sale-verification-buyer@propertyonthego.test`): submitted a real
+offer, countered it at a genuinely different amount, confirmed the
+buyer's own offer list picked up the new amount and status, and
+confirmed a real `listing_offer_countered` notification arrived.
+Accepted the counter from the buyer's own UI and confirmed the
+resulting `ListingSale` was created at the *countered* amount (not the
+original offer), the listing detail page's existing document-
+checklist/deposit/complete flow was reachable exactly as before, and
+the seller received a real notification correctly worded "Your
+counter-offer ... was accepted" (not "your offer," which would have
+been wrong — the seller is the one who countered). Separately verified
+the reject-the-counter path (seller notified "The buyer declined your
+counter-offer") and, as a regression check, that a seller rejecting a
+fresh (never-countered) offer still notifies the buyer correctly.
+Caught and fixed one real bug in this pass: `respondToCounter`'s
+Prisma update didn't `include` the listing relation, so accepting or
+rejecting a counter from `/marketplace/me` silently dropped that
+offer's listing title/link from the page the instant the response
+replaced it in local state — fixed by including the same `{ id, title,
+status }` shape `myOffers()` itself already selects.
+
+**Not done — explicit scope, not oversight**:
+
+- Accept-or-reject only, no re-countering — a buyer who wants to
+  negotiate further has no in-app way to send a second counter back;
+  they'd have to reject and ask the seller to relist or start over.
+- No expiry on a `countered` offer — it sits there indefinitely until
+  the buyer responds, with no reminder nudging them to.
+- No history of prior amounts — once countered, the original offer
+  amount is overwritten in place; nothing records what the buyer
+  originally offered before the counter.
 
 ## Not built yet
 

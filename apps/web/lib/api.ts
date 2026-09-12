@@ -2843,6 +2843,14 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  respondToCounter(listingId: string, offerId: string, input: { status: "accepted" | "rejected" }) {
+    return request<ListingOffer>(`/listings/${listingId}/offers/${offerId}/respond-to-counter`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   getSale(listingId: string) {
     return request<ListingSale>(`/listings/${listingId}/sale`, { token: this.token, accountId: this.accountId });
   }

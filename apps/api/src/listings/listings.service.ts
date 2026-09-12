@@ -4,6 +4,7 @@ import { CreateListingDto } from './dto/create-listing.dto';
 import { CreateInquiryDto } from './dto/create-inquiry.dto';
 import { CreateOfferDto } from './dto/create-offer.dto';
 import { RespondOfferDto } from './dto/respond-offer.dto';
+import { RespondToCounterDto } from './dto/respond-to-counter.dto';
 import { SearchListingsQuery } from './dto/search-listings.dto';
 import { rankingBoost } from '../common/search-ranking.util';
 import { getActiveBoostMap, applyVisibilityBoost } from '../packages/boost.util';
@@ -275,34 +276,120 @@ export class ListingsService {
     });
 
     if (dto.status === 'accepted') {
-      await this.prisma.propertyListing.update({ where: { id: listingId }, data: { status: 'under_offer' } });
-      // The real gap the workflow audit found: acceptance used to stop
-      // right here. `upsert` (not `create`) guards against a double-
-      // accept on the same listing (respondToOffer itself doesn't
-      // prevent a second "accepted" call on a different offer) ever
-      // crashing on the unique listingId constraint — it just leaves the
-      // original sale's own buyer/amount as the real one.
-      const sale = await this.prisma.listingSale.upsert({
-        where: { listingId },
-        update: {},
-        create: {
-          listingId,
-          offerId,
-          buyerAccountId: offer.accountId,
-          sellerAccountId: accountId,
-          amount: updated.amount,
-          currency: updated.currency,
-        },
-      });
+      await this.acceptOfferIntoSale(listingId, offerId, offer.accountId, accountId, updated, listing.title, 'seller');
+    } else if (dto.status === 'countered') {
+      // The real gap the workflow audit found on the seller's own side —
+      // RespondOfferDto has supported this since before this pass, but
+      // nothing ever told the buyer it happened. See
+      // ListingsController.respondToCounter for the buyer's own half.
       this.notifications.notify(
         offer.accountId,
-        'listing_offer_accepted',
-        `Your offer on ${listing.title} was accepted`,
-        `Next: complete the document checklist and record your deposit to close the sale.`,
+        'listing_offer_countered',
+        `Countered: ${listing.title}`,
+        `The seller countered your offer at ${updated.currency} ${updated.amount}. Accept or reject it from your offers.`,
+        `/marketplace/me`,
+      );
+    } else if (dto.status === 'rejected') {
+      this.notifications.notify(
+        offer.accountId,
+        'listing_offer_rejected',
+        `Offer declined: ${listing.title}`,
+        `The seller declined your offer.`,
         `/marketplace/${listingId}`,
       );
     }
     return updated;
+  }
+
+  // The buyer's own half of the counter-offer loop — RespondOfferDto
+  // above is seller-only (gated by requireOwnListing), so a countered
+  // offer had no path forward at all for the account that has to act on
+  // it next. Deliberately narrower than the seller's own response: this
+  // pass is accept-or-walk-away, not a full back-and-forth (see
+  // RespondToCounterDto's own comment).
+  async respondToCounter(listingId: string, offerId: string, accountId: string, dto: RespondToCounterDto) {
+    const offer = await this.prisma.listingOffer.findFirst({ where: { id: offerId, listingId, accountId } });
+    if (!offer) throw new NotFoundException('Offer not found');
+    if (offer.status !== 'countered') {
+      throw new BadRequestException(`This offer isn't awaiting your response (status: "${offer.status}")`);
+    }
+    const listing = await this.prisma.propertyListing.findUniqueOrThrow({ where: { id: listingId } });
+
+    // Included the same shape myOffers() itself selects — the caller is
+    // this offer's own row on the buyer's "me" page (MyListingsPage),
+    // which links out through o.listing.id; without it here, accepting
+    // or rejecting would blank that link the instant this response
+    // replaces the row in local state.
+    const updated = await this.prisma.listingOffer.update({
+      where: { id: offerId },
+      data: { status: dto.status },
+      include: { listing: { select: { id: true, title: true, status: true } } },
+    });
+
+    if (dto.status === 'accepted') {
+      await this.acceptOfferIntoSale(listingId, offerId, accountId, listing.accountId, updated, listing.title, 'buyer');
+    } else {
+      this.notifications.notify(
+        listing.accountId,
+        'listing_counter_rejected',
+        `Counter-offer declined: ${listing.title}`,
+        `The buyer declined your counter-offer.`,
+        `/marketplace/${listingId}`,
+      );
+    }
+    return updated;
+  }
+
+  // Shared by both real "an offer just became accepted" paths above —
+  // the seller directly accepting a fresh offer, and a buyer accepting
+  // the seller's own counter — so the sale/notification logic exists
+  // exactly once rather than twice. `initiatedBy` decides who gets told
+  // "accepted" (never the account that just clicked the button — they
+  // already know) and which side of the transaction that message names.
+  private async acceptOfferIntoSale(
+    listingId: string,
+    offerId: string,
+    buyerAccountId: string,
+    sellerAccountId: string,
+    offer: { amount: unknown; currency: string },
+    listingTitle: string,
+    initiatedBy: 'seller' | 'buyer',
+  ) {
+    await this.prisma.propertyListing.update({ where: { id: listingId }, data: { status: 'under_offer' } });
+    // `upsert`, not `create` — guards against a double-accept on the same
+    // listing (neither respondToOffer nor respondToCounter itself
+    // prevents a second "accepted" call on a different offer) ever
+    // crashing on the unique listingId constraint; it just leaves the
+    // original sale's own buyer/amount as the real one.
+    await this.prisma.listingSale.upsert({
+      where: { listingId },
+      update: {},
+      create: {
+        listingId,
+        offerId,
+        buyerAccountId,
+        sellerAccountId,
+        amount: offer.amount as never,
+        currency: offer.currency,
+      },
+    });
+    if (initiatedBy === 'seller') {
+      this.notifications.notify(
+        buyerAccountId,
+        'listing_offer_accepted',
+        `Your offer on ${listingTitle} was accepted`,
+        `Next: complete the document checklist and record your deposit to close the sale.`,
+        `/marketplace/${listingId}`,
+      );
+    } else {
+      this.notifications.notify(
+        sellerAccountId,
+        'listing_offer_accepted',
+        `Your counter-offer on ${listingTitle} was accepted`,
+        `Next: complete the document checklist and record your deposit to close the sale.`,
+        `/marketplace/${listingId}`,
+      );
+    }
   }
 
   // The document checklist itself is never stored — it's computed live

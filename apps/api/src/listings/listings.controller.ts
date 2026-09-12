@@ -9,6 +9,7 @@ import { CreateListingDto } from './dto/create-listing.dto';
 import { CreateInquiryDto } from './dto/create-inquiry.dto';
 import { CreateOfferDto } from './dto/create-offer.dto';
 import { RespondOfferDto } from './dto/respond-offer.dto';
+import { RespondToCounterDto } from './dto/respond-to-counter.dto';
 import { SearchListingsQuery } from './dto/search-listings.dto';
 
 type AccountMemberCtx = { accountId: string };
@@ -107,6 +108,21 @@ export class ListingsController {
     @Body() dto: RespondOfferDto,
   ) {
     return this.listings.respondToOffer(listingId, offerId, member.accountId, dto);
+  }
+
+  // The buyer's own half of a countered offer — deliberately not nested
+  // under requireOwnListing like the route above, since the buyer never
+  // owns the listing; ListingsService.respondToCounter checks the offer
+  // itself belongs to the caller instead.
+  @RequirePermissions('offer:write')
+  @Post(':listingId/offers/:offerId/respond-to-counter')
+  respondToCounter(
+    @Param('listingId') listingId: string,
+    @Param('offerId') offerId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Body() dto: RespondToCounterDto,
+  ) {
+    return this.listings.respondToCounter(listingId, offerId, member.accountId, dto);
   }
 
   // The real gap the workflow audit found: nothing tracked what happens
