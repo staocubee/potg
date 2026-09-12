@@ -92,7 +92,122 @@ export class InAppNotificationsService {
     }
     return { checked: expiring.length, created };
   }
+
+  // The workflow audit's own finding: rent-overdue and lease-ending-soon
+  // were both real, but purely reactive — computed only when a report/AI
+  // query ran, never pushed. Same 30-day-per-period approximation
+  // reports.service.ts's isLeaseOverdue and lease-risk-flags.ts's
+  // overdueDays already use — deliberately a THIRD copy of that same
+  // small formula rather than a shared import, matching this codebase's
+  // own "duplicate, don't share" convention for a computation this small
+  // (see this file's own precedent with checkDocumentExpiry).
+  //
+  // Notifies both sides where real: the landlord's own account always
+  // (this account.property relation is how a lease reaches its owner),
+  // and the tenant's own account too, only when `Lease.tenantAccountId`
+  // is actually linked — Workflow 8's step names the tenant specifically,
+  // but an owner with no linked tenant account still deserves to know
+  // rent is overdue, since nothing else would ever tell them either.
+  async checkLeaseReminders(renewalWindowDays = 60, targetLocalHour?: number) {
+    const leases = await this.prisma.lease.findMany({
+      where: { status: 'active' },
+      select: {
+        id: true,
+        tenantName: true,
+        tenantAccountId: true,
+        rentFrequency: true,
+        startDate: true,
+        endDate: true,
+        rentPayments: { select: { periodEnd: true } },
+        property: { select: { id: true, accountId: true, account: { select: { timezone: true } } } },
+      },
+    });
+
+    let created = 0;
+    for (const lease of leases) {
+      if (targetLocalHour != null && !isCurrentlyLocalHour(lease.property.account.timezone, targetLocalHour)) continue;
+
+      const periodDays = RENT_FREQUENCY_DAYS[lease.rentFrequency] ?? RENT_FREQUENCY_DAYS.monthly;
+      const anchor =
+        lease.rentPayments.length > 0
+          ? new Date(Math.max(...lease.rentPayments.map((p) => p.periodEnd.getTime())))
+          : lease.startDate;
+      const daysSinceAnchor = (Date.now() - anchor.getTime()) / (1000 * 60 * 60 * 24);
+      const overdueDays = Math.floor(daysSinceAnchor - periodDays);
+
+      if (overdueDays > 0) {
+        // Keyed to this specific unpaid period (via the anchor date), not
+        // just the lease — once a new rent payment moves the anchor
+        // forward, a real reminder can fire again for the *next* overdue
+        // period instead of this lease only ever getting one reminder ever.
+        created += await this.notifyLeaseEvent(
+          lease.property.id,
+          lease.property.accountId,
+          lease.tenantAccountId,
+          'rent_overdue',
+          'Rent overdue',
+          `${lease.tenantName}'s rent looks about ${overdueDays} day(s) overdue.`,
+          `rent-${lease.id}-${anchor.toISOString().slice(0, 10)}`,
+        );
+      }
+
+      if (lease.endDate) {
+        const daysUntilEnd = (lease.endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+        if (daysUntilEnd > 0 && daysUntilEnd <= renewalWindowDays) {
+          created += await this.notifyLeaseEvent(
+            lease.property.id,
+            lease.property.accountId,
+            lease.tenantAccountId,
+            'lease_ending_soon',
+            'Lease ending soon',
+            `${lease.tenantName}'s lease ends on ${lease.endDate.toLocaleDateString()}.`,
+            `lease-ending-${lease.id}`,
+          );
+        }
+      }
+    }
+    return { checked: leases.length, created };
+  }
+
+  // Shared by both lease-reminder branches above: notifies the landlord's
+  // own account unconditionally, and the tenant's own account too when a
+  // real one is linked — each gets its own link (its own relevant page),
+  // so each side's own idempotency check (accountId + type + link) is
+  // independent of the other.
+  private async notifyLeaseEvent(
+    propertyId: string,
+    landlordAccountId: string,
+    tenantAccountId: string | null,
+    type: string,
+    title: string,
+    body: string,
+    dedupeKey: string,
+  ): Promise<number> {
+    let created = 0;
+    const landlordLink = `/properties/${propertyId}#${dedupeKey}`;
+    const landlordAlready = await this.prisma.notification.findFirst({
+      where: { accountId: landlordAccountId, type, link: landlordLink },
+    });
+    if (!landlordAlready) {
+      await this.notify(landlordAccountId, type, title, body, landlordLink);
+      created += 1;
+    }
+
+    if (tenantAccountId) {
+      const tenantLink = `/tenant#${dedupeKey}`;
+      const tenantAlready = await this.prisma.notification.findFirst({
+        where: { accountId: tenantAccountId, type, link: tenantLink },
+      });
+      if (!tenantAlready) {
+        await this.notify(tenantAccountId, type, title, body, tenantLink);
+        created += 1;
+      }
+    }
+    return created;
+  }
 }
+
+const RENT_FREQUENCY_DAYS: Record<string, number> = { weekly: 7, monthly: 30, annually: 365 };
 
 // Node's own Intl, no new dependency — reads the wall-clock hour a given
 // IANA timezone is currently at. An unrecognized/invalid timezone fails

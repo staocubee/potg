@@ -31,4 +31,16 @@ export class NotificationsSchedulerService {
       this.logger.log(`Document expiry check: ${checked} document(s) in window, ${created} new notification(s)`);
     }
   }
+
+  // The workflow audit's own finding: rent-overdue and lease-ending-soon
+  // were both real, computed-on-demand facts that nothing ever pushed —
+  // same shape as checkDocumentExpiry above, same reason for being hourly
+  // rather than once a day at one fixed UTC hour.
+  @Cron(CronExpression.EVERY_HOUR)
+  async checkLeaseReminders() {
+    const { checked, created } = await this.notifications.checkLeaseReminders(60, NotificationsSchedulerService.TARGET_LOCAL_HOUR);
+    if (created > 0) {
+      this.logger.log(`Lease reminder check: ${checked} active lease(s) checked, ${created} new notification(s)`);
+    }
+  }
 }

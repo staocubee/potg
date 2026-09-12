@@ -51,4 +51,13 @@ export class NotificationsController {
   checkDocumentExpiry(@Query('targetLocalHour') targetLocalHour?: string) {
     return this.notifications.checkDocumentExpiry(30, targetLocalHour !== undefined ? Number(targetLocalHour) : undefined);
   }
+
+  // Same manual-trigger shape as checkDocumentExpiry above, for the same
+  // reason — verify NotificationsSchedulerService.checkLeaseReminders
+  // over real HTTP without waiting an actual hour for the cron.
+  @RequirePermissions('account:read_all')
+  @Post('check-lease-reminders')
+  checkLeaseReminders(@Query('targetLocalHour') targetLocalHour?: string) {
+    return this.notifications.checkLeaseReminders(60, targetLocalHour !== undefined ? Number(targetLocalHour) : undefined);
+  }
 }

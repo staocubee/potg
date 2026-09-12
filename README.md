@@ -6674,6 +6674,81 @@ carry the same real `href`.
   fraction — the full stage bar already exists on the project page
   itself, one click away.
 
+## Proactive rent and lease reminders (this pass)
+
+The workflow audit's own finding: overdue-rent and lease-ending-soon
+were both real *computations* — `reports.service.ts`'s
+`isLeaseOverdue`, `lease-risk-flags.ts`'s `overdueDays` and "ending
+within 60 days" check — but purely reactive, run only when a report or
+AI query happened to ask. The only real proactive, scheduled push
+anywhere in the codebase was document-expiry. Nothing ever created a
+`Notification` for rent or a lease's own end date.
+
+**What's built**:
+
+- **`InAppNotificationsService.checkLeaseReminders`** — the same shape
+  as the existing `checkDocumentExpiry`: a real, idempotent sweep over
+  every active lease. Deliberately a third copy of the same small
+  30-day-per-period overdue formula the other two files already have
+  their own copies of, rather than a shared import — this codebase's
+  own established "duplicate, don't share" convention for a computation
+  this small.
+- **Two real notification types**: `rent_overdue` (fires once a lease
+  crosses into its next unpaid period — the dedupe key encodes the
+  *anchor date* the overdue calculation is based on, not just the
+  lease id, so a tenant who pays and then falls behind again gets a
+  real new reminder for the new period, not silence forever after the
+  first one) and `lease_ending_soon` (fires once, when a lease's
+  `endDate` first comes within 60 days — the same threshold
+  `lease-risk-flags.ts` already uses).
+- **Notifies both real sides**: the landlord's own account always (a
+  lease always resolves to one via its property), and the tenant's own
+  account too, whenever `Lease.tenantAccountId` is actually linked —
+  Workflow 8's own step names the tenant specifically, but a landlord
+  with an unlinked tenant deserves to know rent is overdue too, since
+  nothing else would ever tell them.
+- **Wired into the existing hourly cron** (`NotificationsSchedulerService`,
+  the same timezone-aware "~9am local" gate `checkDocumentExpiry`
+  already established), plus a matching manual-trigger endpoint
+  (`POST /notifications/check-lease-reminders`, `account:read_all` —
+  same shape and same permission as the document-expiry one) to verify
+  without waiting a real hour.
+
+**Verified live**: ran the manual trigger for real — it found the
+already-existing "Overdue Test Tenant" lease (no tenant account linked)
+and correctly created one real landlord-side notification: "Overdue
+Test Tenant's rent looks about 73 day(s) overdue" — the exact figure
+independently verified earlier this session via the at-risk dashboard.
+Re-ran it immediately after: `created: 0`, confirming idempotency.
+Since no existing lease had an `endDate` set, created two real test
+leases (one linked to a real tenant account, one not) with a
+40-days-ago start (genuinely overdue for a monthly lease) and an end
+date 20 days out (inside the 60-day window) to exercise the untested
+paths — re-ran the trigger and got exactly the predicted count:
+`created: 6` (2 notifications × 1 unlinked lease + 2 notifications × 2
+sides × 1 linked lease). Confirmed each notification's real content:
+both leases correctly showed "10 day(s) overdue" (40 days elapsed − 30
+day period) and "ends on 02/10/2026," the tenant account received its
+own two (correctly scoped only to the lease actually linked to it, not
+the unlinked one), and a second re-run again created zero. Confirmed
+the real "Rent Overdue" lease badges on the property page line up
+exactly with which leases triggered a reminder, and that the landlord's
+own notification bell shows the real "Rent overdue" entries.
+
+**Not done — explicit scope, not oversight**:
+
+- No email channel — same as every other in-app notification this
+  codebase has, this is `Notification` rows only; `EmailService` exists
+  for other flows but isn't wired to these two triggers.
+- `lease_ending_soon` fires exactly once per lease, ever — there's no
+  second, more urgent reminder as the date gets closer (e.g., a 60-day
+  and a 7-day warning). `rent_overdue` does effectively recur (a new
+  unpaid period produces a new anchor, hence a new reminder), but this
+  one doesn't need to — the end date itself never moves.
+- No UI lets a landlord or tenant configure or disable these two
+  reminder types independently — they fire unconditionally, like
+  document-expiry already does.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
