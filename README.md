@@ -6353,24 +6353,134 @@ was created with that role's real `roleId`, and the seed script's own
 (which would have crashed the seed on a typo) already proves the
 RBAC wiring is referentially correct.
 
-**Not done — explicit scope, not oversight**:
+**Not done — explicit scope, not oversight, at the time**:
 
-- `Finance Approver`, the fourth named role the audit flagged, wasn't
-  built this pass — nothing in this schema distinguishes "can approve a
-  payment" from "can release it" the way that role implies; `payment:
-  approve` already does both at once.
-- No UI gates the stage-editor dropdown or the "+ Post" update button
-  behind a permission check — both render unconditionally and rely on
-  the server's 403, the same pattern every other action button on this
-  page already uses (e.g. "Mark complete").
-- A vendor's own escrow/payout/receipt/dispute cards on the project
-  page still render their pre-existing "nothing yet" empty state when
-  the real reason is a 403, not an empty table — a real UX gap, not
-  dangerous (no data leaks, the vendor just can't tell "empty" from
-  "not allowed to see").
+- `Finance Approver`, the fourth named role the audit flagged, and the
+  UI-side permission gating and escrow/payout/receipt/dispute empty-
+  vs-forbidden distinction named just above, were all closed in a later
+  pass — see "Finance Approver, UI-side permission gating, and the
+  empty-vs-forbidden distinction" below.
 - `@AllowAssignedVendor()` was only added to the three routes a vendor
   has a real reason to reach — it wasn't swept across every
   `:projectId` route.
+
+## Finance Approver, UI-side permission gating, and the empty-vs-forbidden distinction (this pass)
+
+The three gaps left after the roles/ProjectStage/vendor-ABAC pass above:
+a fourth named role, buttons that rendered regardless of permission and
+relied on the server's 403, and a vendor's own escrow/payout/receipt/
+dispute cards showing "nothing yet" when the real reason was "you can't
+see this."
+
+**What's built**:
+
+- **`finance_approver`** (fourth new role) — the money-release gate
+  itself, split out from `project_manager`: can approve a milestone's
+  evidence (`milestone:write`, the actual permission
+  `PaymentsController.approveMilestone` checks) and release its funds
+  (`payment:approve`), but never `payment:write` (can't deposit into
+  escrow) and never `project:write` (can't create, edit, or complete a
+  project). Reuses `PaymentsService.releaseMilestone`'s existing
+  "`payment:approve` OR a per-property `PropertyAccessGrant.
+  canApprovePayments`" gate unchanged — no new permission key needed,
+  this role just reaches that same gate on the RBAC side. Invitable the
+  same way the other four operational roles already are.
+- **`GET /auth/accounts` now returns each membership's real
+  `permissions: string[]`** (`AuthService.listAccounts`, extended to
+  include `role.permissions.permission.key`) — the same key set
+  `PermissionsGuard` checks server-side, now available to the frontend
+  before a button is ever clicked. A new `auth.hasPermission(key)`
+  helper (`lib/auth.tsx`) wraps it. Never the actual authorization
+  boundary on its own — every request still hits the real
+  `PermissionsGuard` check regardless of what this says, so a stale or
+  tampered client value fails safe (a button might hide when the action
+  would actually have worked, never the reverse).
+- **UI-side permission gating on the project detail page** — the page
+  the earlier "Not done" bullet named specifically. Every action button
+  (Mark complete, Request/Accept quote, Deposit, Approve/Release
+  milestone, the stage-status editor, Post update, Raise dispute,
+  Resolve/Reject a dispute, Add evidence, payout Check status, and
+  review Edit/Delete/Submit) now checks `auth.hasPermission(...)` against
+  the real permission each one's own controller route requires, instead
+  of always rendering and relying on a 403 + error banner. A dispute's
+  "you raised this, the other party resolves it" message is now kept
+  separate from "you don't have permission to resolve disputes" — two
+  different reasons that used to collapse into one `canResolve` check.
+- **A real bug this same pass caught during its own live verification**:
+  permission alone isn't enough to predict whether a button will work —
+  `raiseDispute`/`updateReview`/`deleteReview`/`reviewVendor` (and
+  every other owner-only route on this page) were never extended with
+  `@AllowAssignedVendor()`, so they stay owner-account-only no matter
+  what RBAC permission the caller holds. The demo vendor holds
+  `dispute:write` (for its own, separate `/vendors/me/disputes` routes),
+  so gating "+ Raise dispute" on that permission alone left the button
+  visible for an assigned vendor on the *owner's* dispute route —
+  confirmed by actually clicking it as the vendor and getting a real
+  404. Fixed by computing `isOwningAccount = project.accountId ===
+  auth.currentAccountId` and requiring both checks together for every
+  button on an owner-only route; only the stage editor and "+ Post"
+  update correctly stay permission-only, since
+  `@AllowAssignedVendor()` genuinely does let an assigned vendor use
+  those two.
+- **The empty-vs-forbidden distinction** — `load()` now records which
+  of escrow/payouts/receipts/disputes came back a real 403 or 404 (via
+  `Promise.allSettled` + `ApiError.status`), not just whether the array
+  came back empty. Both codes mean the same thing from here — "you
+  can't see this from this page" — even though they're different
+  server-side reasons: escrow/receipts 403 for the vendor role entirely
+  (no `payment:read`), while payouts/disputes 404 for it specifically
+  because those two routes were never extended with
+  `@AllowAssignedVendor()` (vendor does hold `payout:read`/
+  `dispute:read` as role permissions — just not a path to use them from
+  this page). Each card renders "You don't have permission to view ___
+  on this project" instead of "No ___ yet" when the reason was one of
+  those two, not genuine emptiness; the escrow balance itself shows
+  "not visible to you" instead of a fake "NGN 0 / not funded" that
+  looked like a real, empty account.
+
+**Verified live**: confirmed via `GET /auth/accounts` that each demo
+account's `permissions` array matches its real seeded role (the vendor
+account's list includes `project:update_progress` but not
+`project:write`, exactly as seeded). Switched to the assigned demo
+vendor and reloaded the project page — "Mark complete," "+ Deposit,"
+"+ Add" (milestone), "Approve," "Release funds," and the review
+Edit/Delete buttons were all correctly absent, while the stage editor
+and "+ Post" update button — both backed by the `project:update_progress`
+permission this role does hold, and reachable via `@AllowAssignedVendor()`
+— rendered and worked exactly as the previous pass already proved. The
+Escrow, Payouts, Receipts, and Disputes cards showed "You don't have
+permission to view ___ on this project" instead of a false "nothing
+yet" (widened to also catch a 404, not just a 403 — see the bug below),
+and the escrow balance showed "not visible to you" instead of a fake
+₦0. First pass through, "+ Raise dispute" still showed up for this same
+vendor despite none of the above — see the bug that verification
+caught, and its fix, above. Re-verified after the fix: correctly gone.
+Switched back to the owning account and confirmed zero regressions —
+every button still renders exactly as it always did.
+
+**Not done — explicit scope, not oversight**:
+
+- The "Release funds"/payout-verification buttons check only the
+  `payment:approve` role permission, not `PaymentsService.
+  releaseMilestone`'s own second path (a per-property
+  `PropertyAccessGrant.canApprovePayments` grant) — there's no endpoint
+  yet for the frontend to ask "do I hold a grant on this property," so
+  a family member who only has a grant (not the role permission) still
+  sees the button hidden, even though the server would actually allow
+  the action. Fails safe (hides a working action), never the reverse.
+  A real, separate follow-up: expose that grant lookup.
+  `finance_approver` and the owner-tier roles are unaffected — they
+  reach `payment:approve` through the role, not the grant.
+- `hasPermission` combined with `isOwningAccount` covers every route on
+  this page precisely because none of them sit in between "owner-only"
+  and "assigned-vendor-reachable" — but the combination is still a
+  manual, per-button judgment call, not something derived automatically
+  from each route's own decorators. A future route added without
+  updating this page's gating to match could drift out of sync with the
+  server again.
+- This gating pass covered the project detail page only — the page
+  named in the earlier audit. Other pages (properties, vendors,
+  reports, ...) still render their action buttons unconditionally.
 
 ## Not built yet
 

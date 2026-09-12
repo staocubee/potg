@@ -38,6 +38,13 @@ export default function ProjectDetailPage() {
   const [completing, setCompleting] = useState(false);
   const [callbackNotice, setCallbackNotice] = useState<string | null>(null);
   const [stageUpdatingId, setStageUpdatingId] = useState<string | null>(null);
+  // Which of the secondary cards below came back 403, vs. genuinely
+  // empty — a vendor now reaching this page (see @AllowAssignedVendor())
+  // doesn't hold payment:read/payout:read/dispute:read the way the
+  // owning account does, and "No escrow activity yet" was misleading
+  // when the real reason was "you can't see this," not "there's nothing
+  // here."
+  const [forbidden, setForbidden] = useState({ escrow: false, payouts: false, receipts: false, disputes: false });
 
   function load() {
     if (!id || !auth.currentAccountId) return;
@@ -61,11 +68,27 @@ export default function ProjectDetailPage() {
       })
       .then((results) => {
         const [p, e, po, r, d] = results;
+        // 403 (lacks the read permission entirely, e.g. escrow/receipts
+        // for the vendor role) and 404 (holds the permission, but this
+        // particular route was never extended with @AllowAssignedVendor()
+        // — e.g. payouts/disputes) are different server-side reasons, but
+        // the same experience from here: "you can't see this on this
+        // page," not "there's genuinely nothing here."
+        const isForbidden = (result: PromiseSettledResult<unknown>) =>
+          result.status === "rejected" &&
+          result.reason instanceof ApiError &&
+          (result.reason.status === 403 || result.reason.status === 404);
         if (p.status === "fulfilled") setProperty(p.value);
         if (e.status === "fulfilled") setEscrow(e.value);
         if (po.status === "fulfilled") setPayouts(po.value);
         if (r.status === "fulfilled") setReceipts(r.value);
         if (d.status === "fulfilled") setDisputes(d.value);
+        setForbidden({
+          escrow: isForbidden(e),
+          payouts: isForbidden(po),
+          receipts: isForbidden(r),
+          disputes: isForbidden(d),
+        });
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this project."));
   }
@@ -210,7 +233,19 @@ export default function ProjectDetailPage() {
       )}
       {!project && !error && <p className="potg-muted">Loading…</p>}
 
-      {project && (
+      {project && (() => {
+        // Several project routes (complete, quotes, deposit, add/approve/
+        // release a milestone, raise/resolve a dispute, submit evidence,
+        // leave/edit/delete a review) were never extended with
+        // @AllowAssignedVendor() — they stay owner-account-only no matter
+        // what RBAC permission the caller holds, so a permission check
+        // alone isn't enough to know whether a button will actually work.
+        // Only the two routes @AllowAssignedVendor() *does* cover (the
+        // stage editor, posting an update — both gated on
+        // project:update_progress) are correctly left permission-only
+        // below, since an assigned vendor genuinely can use those.
+        const isOwningAccount = project.accountId === auth.currentAccountId;
+        return (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -232,7 +267,7 @@ export default function ProjectDetailPage() {
               <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <span className="potg-badge">{project.status.replace(/_/g, " ")}</span>
                 {project.budget && <div style={{ fontWeight: 700, fontSize: 14, marginTop: 6 }}>{formatMoney(project.budget, project.currency)}</div>}
-                {project.status !== "completed" && project.status !== "cancelled" && (
+                {project.status !== "completed" && project.status !== "cancelled" && isOwningAccount && auth.hasPermission("project:write") && (
                   <div style={{ marginTop: 8 }}>
                     <button className="potg-btn potg-btn-secondary" onClick={onComplete} disabled={completing}>
                       {completing ? "…" : "Mark complete"}
@@ -252,7 +287,8 @@ export default function ProjectDetailPage() {
                         className="potg-input"
                         style={{ fontSize: 11, padding: "2px 4px" }}
                         value={stage.status}
-                        disabled={stageUpdatingId === stage.id}
+                        disabled={stageUpdatingId === stage.id || !auth.hasPermission("project:update_progress")}
+                        title={auth.hasPermission("project:update_progress") ? undefined : "You don't have permission to update project stages"}
                         onChange={(e) => onUpdateStage(stage.id, e.target.value as "not_started" | "in_progress" | "completed")}
                       >
                         <option value="not_started">Not started</option>
@@ -278,9 +314,11 @@ export default function ProjectDetailPage() {
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <h3 style={{ fontSize: 14 }}>Vendor quotes</h3>
-              <button className="potg-btn potg-btn-secondary" onClick={() => setShowQuoteRequest((v) => !v)}>
-                {showQuoteRequest ? "Cancel" : "+ Request quote"}
-              </button>
+              {isOwningAccount && auth.hasPermission("quote:write") && (
+                <button className="potg-btn potg-btn-secondary" onClick={() => setShowQuoteRequest((v) => !v)}>
+                  {showQuoteRequest ? "Cancel" : "+ Request quote"}
+                </button>
+              )}
             </div>
             {showQuoteRequest && id && (
               <RequestQuoteWidget
@@ -306,7 +344,7 @@ export default function ProjectDetailPage() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     {q.status !== "requested" && <span style={{ fontWeight: 700 }}>{formatMoney(q.amount, q.currency)}</span>}
                     <span className="potg-badge">{q.status}</span>
-                    {q.status === "submitted" && (
+                    {q.status === "submitted" && isOwningAccount && auth.hasPermission("quote:write") && (
                       <button className="potg-btn potg-btn-primary" style={{ padding: "4px 9px", fontSize: 11 }} disabled={acceptingId !== null} onClick={() => onAccept(q.id)}>
                         {acceptingId === q.id ? "…" : "Accept"}
                       </button>
@@ -327,12 +365,20 @@ export default function ProjectDetailPage() {
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <div style={{ textAlign: "right" }}>
-                  <div style={{ fontWeight: 700, fontSize: 16 }}>{formatMoney(String(escrow?.balance ?? 0), escrow?.currency ?? project.currency)}</div>
-                  <span className="potg-badge">{escrow?.status ?? "not funded"}</span>
+                  {forbidden.escrow ? (
+                    <span className="potg-badge">not visible to you</span>
+                  ) : (
+                    <>
+                      <div style={{ fontWeight: 700, fontSize: 16 }}>{formatMoney(String(escrow?.balance ?? 0), escrow?.currency ?? project.currency)}</div>
+                      <span className="potg-badge">{escrow?.status ?? "not funded"}</span>
+                    </>
+                  )}
                 </div>
-                <button className="potg-btn potg-btn-secondary" onClick={() => setShowDepositForm((v) => !v)}>
-                  {showDepositForm ? "Cancel" : "+ Deposit"}
-                </button>
+                {isOwningAccount && auth.hasPermission("payment:write") && (
+                  <button className="potg-btn potg-btn-secondary" onClick={() => setShowDepositForm((v) => !v)}>
+                    {showDepositForm ? "Cancel" : "+ Deposit"}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -347,7 +393,10 @@ export default function ProjectDetailPage() {
               />
             )}
 
-            {(!escrow?.ledgerEntries || escrow.ledgerEntries.length === 0) && !showDepositForm && (
+            {forbidden.escrow && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view escrow activity on this project.</p>
+            )}
+            {!forbidden.escrow && (!escrow?.ledgerEntries || escrow.ledgerEntries.length === 0) && !showDepositForm && (
               <p className="potg-muted" style={{ fontSize: 12 }}>No escrow activity yet.</p>
             )}
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: showDepositForm ? 12 : 0 }}>
@@ -375,9 +424,11 @@ export default function ProjectDetailPage() {
             <div className="potg-card" style={{ padding: 18 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <h3 style={{ fontSize: 14 }}>Milestones</h3>
-                <button className="potg-btn potg-btn-secondary" onClick={() => setShowMilestoneForm((v) => !v)}>
-                  {showMilestoneForm ? "Cancel" : "+ Add"}
-                </button>
+                {isOwningAccount && auth.hasPermission("milestone:write") && (
+                  <button className="potg-btn potg-btn-secondary" onClick={() => setShowMilestoneForm((v) => !v)}>
+                    {showMilestoneForm ? "Cancel" : "+ Add"}
+                  </button>
+                )}
               </div>
               {showMilestoneForm && id && (
                 <AddMilestoneForm
@@ -406,7 +457,7 @@ export default function ProjectDetailPage() {
                     </div>
                     {m.paymentAmount && m.status !== "completed" && (
                       <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
-                        {m.approvalStatus !== "approved" && (
+                        {m.approvalStatus !== "approved" && isOwningAccount && auth.hasPermission("milestone:write") && (
                           <button
                             className="potg-btn potg-btn-secondary"
                             style={{ padding: "4px 9px", fontSize: 11 }}
@@ -416,7 +467,7 @@ export default function ProjectDetailPage() {
                             {milestoneActionId === m.id ? "…" : "Approve"}
                           </button>
                         )}
-                        {m.approvalStatus === "approved" && (
+                        {m.approvalStatus === "approved" && auth.hasPermission("payment:approve") && (
                           <button
                             className="potg-btn potg-btn-primary"
                             style={{ padding: "4px 9px", fontSize: 11 }}
@@ -437,9 +488,11 @@ export default function ProjectDetailPage() {
             <div className="potg-card" style={{ padding: 18 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <h3 style={{ fontSize: 14 }}>Updates</h3>
-                <button className="potg-btn potg-btn-secondary" onClick={() => setShowUpdateForm((v) => !v)}>
-                  {showUpdateForm ? "Cancel" : "+ Post"}
-                </button>
+                {auth.hasPermission("project:update_progress") && (
+                  <button className="potg-btn potg-btn-secondary" onClick={() => setShowUpdateForm((v) => !v)}>
+                    {showUpdateForm ? "Cancel" : "+ Post"}
+                  </button>
+                )}
               </div>
               {showUpdateForm && id && (
                 <AddUpdateForm
@@ -470,7 +523,8 @@ export default function ProjectDetailPage() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <div className="potg-card" style={{ padding: 18 }}>
               <h3 style={{ fontSize: 14, marginBottom: 10 }}>Payouts</h3>
-              {payouts.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No payouts yet.</p>}
+              {forbidden.payouts && <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view payouts on this project.</p>}
+              {!forbidden.payouts && payouts.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No payouts yet.</p>}
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {id && payouts.map((po) => <PayoutRow key={po.id} projectId={id} payout={po} onChanged={load} />)}
               </div>
@@ -478,7 +532,8 @@ export default function ProjectDetailPage() {
 
             <div className="potg-card" style={{ padding: 18 }}>
               <h3 style={{ fontSize: 14, marginBottom: 10 }}>Receipts</h3>
-              {receipts.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No receipts yet.</p>}
+              {forbidden.receipts && <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view receipts on this project.</p>}
+              {!forbidden.receipts && receipts.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No receipts yet.</p>}
               <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 {receipts.map((r) => (
                   <div key={r.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
@@ -499,6 +554,8 @@ export default function ProjectDetailPage() {
             <DisputesCard
               projectId={id}
               disputes={disputes}
+              forbidden={forbidden.disputes}
+              isOwningAccount={isOwningAccount}
               milestones={project.milestones ?? []}
               showForm={showDisputeForm}
               onToggleForm={() => setShowDisputeForm((v) => !v)}
@@ -514,11 +571,13 @@ export default function ProjectDetailPage() {
               projectId={id}
               assignments={project.assignments}
               reviews={project.reviews ?? []}
+              isOwningAccount={isOwningAccount}
               onReviewed={load}
             />
           )}
         </div>
-      )}
+        );
+      })()}
     </AppShell>
   );
 }
@@ -671,7 +730,7 @@ function PayoutRow({ projectId, payout, onChanged }: { projectId: string; payout
         </div>
       </div>
       {error && <div className="potg-error" style={{ marginTop: 4 }}>{error}</div>}
-      {payout.status === "processing" && !showOtp && (
+      {payout.status === "processing" && !showOtp && auth.hasPermission("payment:approve") && (
         <div style={{ marginTop: 4, display: "flex", gap: 6 }}>
           <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={onVerify}>
             {busy === "check" ? "Checking…" : "Check status"}
@@ -823,6 +882,8 @@ function DepositForm({ projectId, defaultCurrency, onCreated }: { projectId: str
 function DisputesCard({
   projectId,
   disputes,
+  forbidden,
+  isOwningAccount,
   milestones,
   showForm,
   onToggleForm,
@@ -830,21 +891,31 @@ function DisputesCard({
 }: {
   projectId: string;
   disputes: Dispute[];
+  forbidden: boolean;
+  isOwningAccount: boolean;
   milestones: ProjectMilestone[];
   showForm: boolean;
   onToggleForm: () => void;
   onChanged: () => void;
 }) {
+  const auth = useAuth();
   return (
     <div className="potg-card" style={{ padding: 18 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <h3 style={{ fontSize: 14 }}>Disputes</h3>
-        <button className="potg-btn potg-btn-secondary" onClick={onToggleForm}>
-          {showForm ? "Cancel" : "+ Raise dispute"}
-        </button>
+        {/* raiseDispute (POST :projectId/disputes) has no
+            @AllowAssignedVendor() — owner-account-only regardless of who
+            else holds dispute:write (e.g. the vendor role, for its own,
+            separate /vendors/me/disputes routes). */}
+        {isOwningAccount && auth.hasPermission("dispute:write") && (
+          <button className="potg-btn potg-btn-secondary" onClick={onToggleForm}>
+            {showForm ? "Cancel" : "+ Raise dispute"}
+          </button>
+        )}
       </div>
       {showForm && <RaiseDisputeForm projectId={projectId} milestones={milestones} onCreated={onChanged} />}
-      {disputes.length === 0 && !showForm && <p className="potg-muted" style={{ fontSize: 12 }}>No disputes on this project.</p>}
+      {forbidden && <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view disputes on this project.</p>}
+      {!forbidden && disputes.length === 0 && !showForm && <p className="potg-muted" style={{ fontSize: 12 }}>No disputes on this project.</p>}
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: showForm ? 12 : 0 }}>
         {disputes.map((d) => (
           <DisputeRow key={d.id} projectId={projectId} dispute={d} onResolved={onChanged} />
@@ -935,8 +1006,11 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
   // The account that raised a dispute can't be the one that resolves it —
   // the API 403s that, this just avoids showing a button that can't work.
   // If the vendor side raised it, resolving happens from their own
-  // dashboard (GET/POST /vendors/me/disputes), not from here.
-  const canResolve = dispute.raisedByAccountId !== auth.currentAccountId;
+  // dashboard (GET/POST /vendors/me/disputes), not from here. Kept
+  // separate from dispute:write below — "you raised this" and "you lack
+  // permission" are different reasons and get different messages.
+  const otherPartyRaisedIt = dispute.raisedByAccountId !== auth.currentAccountId;
+  const canResolve = otherPartyRaisedIt && auth.hasPermission("dispute:write");
 
   async function onResolve(status: "resolved" | "rejected") {
     setBusy(status);
@@ -1013,9 +1087,14 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
       <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
         raised {new Date(dispute.createdAt).toLocaleDateString()}
       </div>
-      {open && !canResolve && (
+      {open && !otherPartyRaisedIt && (
         <div className="potg-muted" style={{ fontSize: 11, marginTop: 6 }}>
           You raised this dispute — the other party needs to resolve it.
+        </div>
+      )}
+      {open && otherPartyRaisedIt && !canResolve && (
+        <div className="potg-muted" style={{ fontSize: 11, marginTop: 6 }}>
+          You don't have permission to resolve disputes on this project.
         </div>
       )}
       {open && canResolve && !resolving && (
@@ -1079,7 +1158,7 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
               ))}
             </div>
           )}
-          {open && !addingEvidence && (
+          {open && !addingEvidence && auth.hasPermission("dispute:write") && (
             <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setAddingEvidence(true)}>
               + Add evidence
             </button>
@@ -1129,14 +1208,20 @@ function ReviewsCard({
   projectId,
   assignments,
   reviews,
+  isOwningAccount,
   onReviewed,
 }: {
   projectId: string;
   assignments: ProjectVendorAssignment[];
   reviews: VendorReview[];
+  isOwningAccount: boolean;
   onReviewed: () => void;
 }) {
+  const auth = useAuth();
   const reviewByVendorId = new Map(reviews.map((r) => [r.vendorId, r]));
+  // reviewVendor/updateReview/deleteReview have no @AllowAssignedVendor()
+  // — owner-account-only, same reasoning as raiseDispute above.
+  const canReview = isOwningAccount && auth.hasPermission("review:write");
 
   return (
     <div className="potg-card" style={{ padding: 18 }}>
@@ -1144,15 +1229,19 @@ function ReviewsCard({
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {assignments.map((a) => {
           const review = reviewByVendorId.get(a.vendorId);
-          return review ? (
-            <VendorReviewRow
-              key={a.id}
-              projectId={projectId}
-              vendorName={a.vendor?.businessName ?? "Vendor"}
-              review={review}
-              onChanged={onReviewed}
-            />
-          ) : (
+          if (review) {
+            return (
+              <VendorReviewRow
+                key={a.id}
+                projectId={projectId}
+                vendorName={a.vendor?.businessName ?? "Vendor"}
+                review={review}
+                canReview={canReview}
+                onChanged={onReviewed}
+              />
+            );
+          }
+          return canReview ? (
             <LeaveVendorReviewForm
               key={a.id}
               projectId={projectId}
@@ -1160,7 +1249,7 @@ function ReviewsCard({
               vendorName={a.vendor?.businessName ?? "this vendor"}
               onReviewed={onReviewed}
             />
-          );
+          ) : null;
         })}
       </div>
     </div>
@@ -1171,11 +1260,13 @@ function VendorReviewRow({
   projectId,
   vendorName,
   review,
+  canReview,
   onChanged,
 }: {
   projectId: string;
   vendorName: string;
   review: VendorReview;
+  canReview: boolean;
   onChanged: () => void;
 }) {
   const auth = useAuth();
@@ -1251,14 +1342,16 @@ function VendorReviewRow({
             </div>
           )}
         </div>
-        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-          <button className="potg-btn potg-btn-secondary" onClick={() => setEditing(true)} style={{ padding: "3px 8px", fontSize: 11 }}>
-            Edit
-          </button>
-          <button className="potg-btn potg-btn-danger" disabled={busy !== null} onClick={onDelete} style={{ padding: "3px 8px", fontSize: 11 }}>
-            {busy === "delete" ? "…" : "Delete"}
-          </button>
-        </div>
+        {canReview && (
+          <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+            <button className="potg-btn potg-btn-secondary" onClick={() => setEditing(true)} style={{ padding: "3px 8px", fontSize: 11 }}>
+              Edit
+            </button>
+            <button className="potg-btn potg-btn-danger" disabled={busy !== null} onClick={onDelete} style={{ padding: "3px 8px", fontSize: 11 }}>
+              {busy === "delete" ? "…" : "Delete"}
+            </button>
+          </div>
+        )}
       </div>
       {error && <div className="potg-error" style={{ marginTop: 4 }}>{error}</div>}
     </div>

@@ -340,22 +340,29 @@ export class AuthService {
 
   // Returns the accounts this user can act as, so a client can prompt for
   // account switching (individual / family / company / vendor) before
-  // sending the X-Account-Id header on subsequent requests.
+  // sending the X-Account-Id header on subsequent requests. `permissions`
+  // (added this pass) is the same key set PermissionsGuard checks
+  // server-side — lets the frontend gate a button/action before the user
+  // clicks it, rather than only ever finding out via a 403 after the
+  // fact. Never the actual authorization boundary on its own: a stale or
+  // tampered client value still hits the real PermissionsGuard check on
+  // every request, this is purely a UX improvement.
   async listAccounts(userId: string) {
     const memberships = await this.prisma.accountMember.findMany({
       where: { userId, status: 'active' },
-      include: { account: true, role: true },
+      include: { account: true, role: { include: { permissions: { include: { permission: true } } } } },
     });
     type Membership = {
       accountId: string;
       account: { name: string; accountType: string };
-      role: { key: string };
+      role: { key: string; permissions: { permission: { key: string } }[] };
     };
     return memberships.map((m: Membership) => ({
       accountId: m.accountId,
       accountName: m.account.name,
       accountType: m.account.accountType,
       role: m.role.key,
+      permissions: m.role.permissions.map((rp) => rp.permission.key),
     }));
   }
 

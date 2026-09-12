@@ -35,6 +35,14 @@ type AuthContextValue = {
   switchAccount: (accountId: string) => void;
   refreshAccounts: () => Promise<AccountSummary[]>;
   logout: () => void;
+  // UI-only gate: hides/disables an action before the user clicks it,
+  // using the same permission keys PermissionsGuard checks server-side
+  // (see AuthService.listAccounts). Never the actual authorization
+  // boundary — every request is still checked for real on the server, so
+  // a stale value here (a permission grant that changed since login)
+  // fails safe: the button hides too eagerly at worst, never opens up
+  // an action the server would refuse.
+  hasPermission: (key: string) => boolean;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -151,6 +159,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const currentAccount = accounts.find((a) => a.accountId === currentAccountId) ?? null;
 
+  const hasPermission = useCallback(
+    (key: string) => currentAccount?.permissions.includes(key) ?? false,
+    [currentAccount],
+  );
+
   const value: AuthContextValue = {
     hydrated,
     token,
@@ -166,6 +179,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     switchAccount,
     refreshAccounts,
     logout,
+    hasPermission,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

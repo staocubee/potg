@@ -425,6 +425,27 @@ const ROLES: Record<string, string[]> = {
     'dispute:write',
     'ai:act',
   ],
+  // Section 7's fourth named role — the money-release gate itself, split
+  // out from project_manager above the same way PaymentsService.
+  // releaseMilestone already treats "run the project" and "release its
+  // escrow funds" as two different questions (that method's own OR check
+  // against a PropertyAccessGrant is the other way into the same gate).
+  // Can approve a milestone's evidence (milestone:write — the actual
+  // permission PaymentsController.approveMilestone checks) and release
+  // its funds (payment:approve), but never payment:write (can't deposit
+  // into escrow) and never project:write (can't create, edit, or
+  // complete a project) — a finance approver reviews and releases money
+  // on projects someone else runs, nothing else.
+  finance_approver: [
+    'property:read',
+    'project:read',
+    'milestone:write',
+    'payment:read',
+    'payment:approve',
+    'payout:read',
+    'dispute:read',
+    'ai:act',
+  ],
   // Module 6's actual "neutral reviewer" — a role deliberately never
   // granted to the vendor or supplier roles above, so a vendor/supplier
   // can never move its own verificationStatus off "not_verified"; never

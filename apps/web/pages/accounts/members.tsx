@@ -19,6 +19,7 @@ const INVITABLE_ROLES = [
   { key: "property_manager", label: "Property manager" },
   { key: "facility_manager", label: "Facility manager" },
   { key: "project_manager", label: "Project manager" },
+  { key: "finance_approver", label: "Finance approver" },
 ];
 
 export default function AccountMembersPage() {

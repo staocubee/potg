@@ -181,6 +181,11 @@ export type AccountSummary = {
   accountName: string;
   accountType: "INDIVIDUAL" | "FAMILY" | "COMPANY" | "VENDOR" | "SUPPLIER" | string;
   role: string;
+  // The acting role's own granted permission keys — lets the UI hide or
+  // disable an action before the user clicks it, rather than only ever
+  // finding out via a 403. Not itself a security boundary — the real
+  // check is still PermissionsGuard on every request.
+  permissions: string[];
 };
 
 export type AccountMemberSummary = {
