@@ -1318,6 +1318,26 @@ export type ListingOffer = {
   listing?: { id: string; title: string; status: string };
 };
 
+// The real gap the workflow audit found: an accepted ListingOffer never
+// led anywhere. Created the moment an offer is accepted
+// (ListingsService.respondToOffer) — `checklist` is computed live from
+// the property's own real documents, never stored, so it's always
+// current.
+export type ListingSale = {
+  id: string;
+  listingId: string;
+  offerId: string;
+  buyerAccountId: string;
+  sellerAccountId: string;
+  amount: string;
+  currency: string;
+  depositRecordedAt?: string | null;
+  completedAt?: string | null;
+  createdAt: string;
+  listingTitle: string;
+  checklist: { documentType: string; label: string; status: string }[];
+};
+
 export type ListingFavorite = {
   listingId: string;
   accountId: string;
@@ -2822,6 +2842,15 @@ export class ApiClient {
       token: this.token,
       accountId: this.accountId,
     });
+  }
+  getSale(listingId: string) {
+    return request<ListingSale>(`/listings/${listingId}/sale`, { token: this.token, accountId: this.accountId });
+  }
+  recordSaleDeposit(listingId: string) {
+    return request<ListingSale>(`/listings/${listingId}/sale/deposit`, { method: "POST", token: this.token, accountId: this.accountId });
+  }
+  completeSale(listingId: string) {
+    return request<Property>(`/listings/${listingId}/sale/complete`, { method: "POST", token: this.token, accountId: this.accountId });
   }
   favoriteListing(listingId: string) {
     return request<ListingFavorite>(`/listings/${listingId}/favorites`, {

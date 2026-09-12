@@ -8,6 +8,7 @@ import { SearchListingsQuery } from './dto/search-listings.dto';
 import { rankingBoost } from '../common/search-ranking.util';
 import { getActiveBoostMap, applyVisibilityBoost } from '../packages/boost.util';
 import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
+import { DEFAULT_DOCUMENT_CHECKLIST, labelDocumentType } from '../ai/skills/document-checklists';
 
 @Injectable()
 export class ListingsService {
@@ -261,7 +262,7 @@ export class ListingsService {
   }
 
   async respondToOffer(listingId: string, offerId: string, accountId: string, dto: RespondOfferDto) {
-    await this.requireOwnListing(listingId, accountId);
+    const listing = await this.requireOwnListing(listingId, accountId);
     const offer = await this.prisma.listingOffer.findFirst({ where: { id: offerId, listingId } });
     if (!offer) throw new NotFoundException('Offer not found on this listing');
 
@@ -275,8 +276,134 @@ export class ListingsService {
 
     if (dto.status === 'accepted') {
       await this.prisma.propertyListing.update({ where: { id: listingId }, data: { status: 'under_offer' } });
+      // The real gap the workflow audit found: acceptance used to stop
+      // right here. `upsert` (not `create`) guards against a double-
+      // accept on the same listing (respondToOffer itself doesn't
+      // prevent a second "accepted" call on a different offer) ever
+      // crashing on the unique listingId constraint — it just leaves the
+      // original sale's own buyer/amount as the real one.
+      const sale = await this.prisma.listingSale.upsert({
+        where: { listingId },
+        update: {},
+        create: {
+          listingId,
+          offerId,
+          buyerAccountId: offer.accountId,
+          sellerAccountId: accountId,
+          amount: updated.amount,
+          currency: updated.currency,
+        },
+      });
+      this.notifications.notify(
+        offer.accountId,
+        'listing_offer_accepted',
+        `Your offer on ${listing.title} was accepted`,
+        `Next: complete the document checklist and record your deposit to close the sale.`,
+        `/marketplace/${listingId}`,
+      );
     }
     return updated;
+  }
+
+  // The document checklist itself is never stored — it's computed live
+  // from the property's own real Document rows against the same fixed
+  // checklist verify_property_documents already uses, so a document
+  // verified (or newly uploaded) after the sale started is reflected
+  // immediately, with nothing to keep in sync by hand.
+  async getSale(listingId: string, accountId: string) {
+    const sale = await this.requireSaleParty(listingId, accountId);
+    const listing = await this.prisma.propertyListing.findUniqueOrThrow({
+      where: { id: listingId },
+      select: { propertyId: true, title: true },
+    });
+    const documents = await this.prisma.document.findMany({ where: { propertyId: listing.propertyId } });
+    const checklist = DEFAULT_DOCUMENT_CHECKLIST.map((documentType) => {
+      const found = documents.find((d) => d.documentType === documentType);
+      return {
+        documentType,
+        label: labelDocumentType(documentType),
+        status: found ? found.verificationStatus : 'missing',
+      };
+    });
+    return { ...sale, listingTitle: listing.title, checklist };
+  }
+
+  // Record-only, same restraint as LeaseRentPayment — logs that a
+  // deposit happened, doesn't move any money. Idempotent: a second call
+  // after one has already been recorded just returns the sale unchanged
+  // rather than resetting the timestamp.
+  async recordDeposit(listingId: string, accountId: string) {
+    const sale = await this.requireSaleParty(listingId, accountId);
+    if (sale.completedAt) throw new BadRequestException('This sale is already completed');
+    if (sale.depositRecordedAt) return sale;
+    return this.prisma.listingSale.update({ where: { id: sale.id }, data: { depositRecordedAt: new Date() } });
+  }
+
+  // The other real gap the audit found: nothing ever set a listing to
+  // "sold" or moved the property into the buyer's own portfolio.
+  // Property.accountId is the one field every permission/ABAC check in
+  // this codebase already keys on for "who owns this" — reassigning it
+  // is a real, immediate transfer: the buyer's account can now reach
+  // GET /properties and see it, and every existing lease/project/
+  // document/timeline entry comes along with it, unchanged (a real
+  // buyer inherits exactly what's actually on the property, not a
+  // stripped-down copy). Deliberately gated on both real preconditions —
+  // a recorded deposit and every checklist document actually verified —
+  // rather than a button that always works regardless of state.
+  async completeSale(listingId: string, accountId: string) {
+    const sale = await this.requireSaleParty(listingId, accountId);
+    if (sale.completedAt) throw new BadRequestException('This sale is already completed');
+    if (!sale.depositRecordedAt) {
+      throw new BadRequestException('Record the deposit before completing the sale');
+    }
+
+    const listing = await this.prisma.propertyListing.findUniqueOrThrow({ where: { id: listingId } });
+    const documents = await this.prisma.document.findMany({ where: { propertyId: listing.propertyId } });
+    const missing = DEFAULT_DOCUMENT_CHECKLIST.filter(
+      (documentType) => !documents.some((d) => d.documentType === documentType && d.verificationStatus === 'verified'),
+    );
+    if (missing.length > 0) {
+      throw new BadRequestException(
+        `Document checklist incomplete — not yet verified: ${missing.map(labelDocumentType).join(', ')}`,
+      );
+    }
+
+    const [, , property] = await this.prisma.$transaction([
+      this.prisma.listingSale.update({ where: { id: sale.id }, data: { completedAt: new Date() } }),
+      this.prisma.propertyListing.update({ where: { id: listingId }, data: { status: 'sold' } }),
+      this.prisma.property.update({ where: { id: listing.propertyId }, data: { accountId: sale.buyerAccountId } }),
+    ]);
+    await this.prisma.propertyTimelineEvent.create({
+      data: {
+        propertyId: listing.propertyId,
+        eventType: 'sold',
+        label: `Sold via marketplace listing "${listing.title}" — ownership transferred`,
+      },
+    });
+    this.notifications.notify(
+      sale.buyerAccountId,
+      'listing_sale_completed',
+      `Purchase complete: ${listing.title}`,
+      `This property now appears in your own portfolio.`,
+      `/properties/${listing.propertyId}`,
+    );
+    this.notifications.notify(
+      sale.sellerAccountId,
+      'listing_sale_completed',
+      `Sale complete: ${listing.title}`,
+      `Ownership has been transferred to the buyer.`,
+      `/marketplace/me`,
+    );
+    return property;
+  }
+
+  private async requireSaleParty(listingId: string, accountId: string) {
+    const sale = await this.prisma.listingSale.findUnique({ where: { listingId } });
+    if (!sale) throw new NotFoundException('No sale on this listing yet — an offer must be accepted first');
+    if (sale.buyerAccountId !== accountId && sale.sellerAccountId !== accountId) {
+      throw new NotFoundException('No sale on this listing yet — an offer must be accepted first');
+    }
+    return sale;
   }
 
   async favorite(listingId: string, accountId: string) {

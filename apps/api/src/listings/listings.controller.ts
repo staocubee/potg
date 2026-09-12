@@ -109,6 +109,29 @@ export class ListingsController {
     return this.listings.respondToOffer(listingId, offerId, member.accountId, dto);
   }
 
+  // The real gap the workflow audit found: nothing tracked what happens
+  // after an offer is accepted. All three routes below reach
+  // ListingsService.requireSaleParty instead of requireOwnListing — the
+  // buyer needs these just as much as the seller does, unlike every
+  // other route on this controller.
+  @RequirePermissions('offer:read')
+  @Get(':listingId/sale')
+  getSale(@Param('listingId') listingId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.listings.getSale(listingId, member.accountId);
+  }
+
+  @RequirePermissions('offer:write')
+  @Post(':listingId/sale/deposit')
+  recordDeposit(@Param('listingId') listingId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.listings.recordDeposit(listingId, member.accountId);
+  }
+
+  @RequirePermissions('offer:write')
+  @Post(':listingId/sale/complete')
+  completeSale(@Param('listingId') listingId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.listings.completeSale(listingId, member.accountId);
+  }
+
   @RequirePermissions('listing:read')
   @Post(':listingId/favorites')
   favorite(@Param('listingId') listingId: string, @CurrentAccountMember() member: AccountMemberCtx) {

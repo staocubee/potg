@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Listing, ListingInquiry, ListingOffer } from "../../lib/api";
+import { ApiError, Listing, ListingInquiry, ListingOffer, ListingSale } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 
@@ -29,6 +29,13 @@ export default function ListingDetailPage() {
   // owner with only one of the two used to see a false "No ___ yet." for
   // whichever one 403'd, since the old .catch swallowed either failure.
   const [forbidden, setForbidden] = useState({ inquiries: false, offers: false });
+  // Only real once an offer has actually been accepted — null the rest
+  // of the time, including for an onlooker or a losing bidder (they get
+  // a 404 from GET .../sale, same as "no sale yet", so there's nothing
+  // to distinguish here from an error banner's point of view).
+  const [sale, setSale] = useState<ListingSale | null>(null);
+  const [saleError, setSaleError] = useState<string | null>(null);
+  const [saleBusy, setSaleBusy] = useState(false);
 
   const isOwner = !!listing && listing.accountId === auth.currentAccountId;
 
@@ -60,6 +67,50 @@ export default function ListingDetailPage() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, listing?.id, isOwner]);
+
+  function loadSale() {
+    if (!id || !listing) return;
+    if (listing.status !== "under_offer" && listing.status !== "sold") return;
+    auth.api
+      .getSale(id)
+      .then(setSale)
+      // A 404 here just means "no sale involves this account" — an
+      // onlooker or a losing bidder, not a real error to show.
+      .catch(() => setSale(null));
+  }
+
+  useEffect(() => {
+    loadSale();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, listing?.id, listing?.status]);
+
+  async function onRecordDeposit() {
+    if (!id) return;
+    setSaleBusy(true);
+    setSaleError(null);
+    try {
+      setSale(await auth.api.recordSaleDeposit(id));
+    } catch (err) {
+      setSaleError(err instanceof ApiError ? err.message : "Couldn't record that deposit.");
+    } finally {
+      setSaleBusy(false);
+    }
+  }
+
+  async function onCompleteSale() {
+    if (!id) return;
+    setSaleBusy(true);
+    setSaleError(null);
+    try {
+      await auth.api.completeSale(id);
+      load();
+      loadSale();
+    } catch (err) {
+      setSaleError(err instanceof ApiError ? err.message : "Couldn't complete this sale.");
+    } finally {
+      setSaleBusy(false);
+    }
+  }
 
   async function onPublish() {
     if (!id) return;
@@ -155,6 +206,56 @@ export default function ListingDetailPage() {
               )}
             </div>
           </div>
+
+          {sale && (
+            <div className="potg-card" style={{ padding: 18 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                <div>
+                  <h3 style={{ fontSize: 14 }}>{sale.completedAt ? "Sale completed" : "Purchase in progress"}</h3>
+                  <p className="potg-muted" style={{ fontSize: 12, margin: "2px 0 0" }}>
+                    {sale.completedAt
+                      ? `Ownership transferred on ${new Date(sale.completedAt).toLocaleDateString()}.`
+                      : isOwner
+                        ? "Clear the document checklist and record the deposit to complete the sale."
+                        : "The seller needs to clear the document checklist before this can close."}
+                  </p>
+                </div>
+                <div style={{ fontWeight: 700, fontSize: 16, flexShrink: 0 }}>{formatMoney(sale.amount, sale.currency)}</div>
+              </div>
+
+              {saleError && <div className="potg-error" style={{ marginTop: 10 }}>{saleError}</div>}
+
+              <div style={{ marginTop: 12 }}>
+                <div className="potg-muted" style={{ fontSize: 11, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Document checklist
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {sale.checklist.map((item) => (
+                    <div key={item.documentType} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                      <span>{item.label}</span>
+                      <span className="potg-badge">{item.status.replace(/_/g, " ")}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {!sale.completedAt && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14 }}>
+                  <span className="potg-badge">{sale.depositRecordedAt ? "Deposit recorded" : "Deposit not recorded"}</span>
+                  {!sale.depositRecordedAt && auth.hasPermission("offer:write") && (
+                    <button className="potg-btn potg-btn-secondary" onClick={onRecordDeposit} disabled={saleBusy}>
+                      {saleBusy ? "…" : "Record deposit"}
+                    </button>
+                  )}
+                  {auth.hasPermission("offer:write") && (
+                    <button className="potg-btn potg-btn-primary" onClick={onCompleteSale} disabled={saleBusy || !sale.depositRecordedAt}>
+                      {saleBusy ? "…" : "Complete sale"}
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {!isOwner && listing.status === "active" && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>

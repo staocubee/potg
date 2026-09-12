@@ -1123,6 +1123,7 @@ model PropertyListing {
   inquiries ListingInquiry[]
   offers    ListingOffer[]
   favorites ListingFavorite[]
+  sale      ListingSale?
 
   @@map("property_listings")
 }
@@ -1154,8 +1155,43 @@ model ListingOffer {
   updatedAt DateTime @updatedAt
 
   listing PropertyListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  sale    ListingSale?
 
   @@map("listing_offers")
+}
+
+// The real gap the workflow audit found: an accepted ListingOffer never
+// led anywhere — nothing tracked a document checklist, a deposit, or
+// completion, and nothing ever transferred the property into the
+// buyer's own portfolio (ListingsService.respondToOffer only ever
+// flipped the listing to "under_offer" and stopped there). Created the
+// moment an offer is accepted (see respondToOffer's own comment).
+// Deliberately NOT wired into Payment/EscrowAccount — both require a
+// projectId, and a property purchase isn't a renovation project — same
+// "record what's true, don't fake a payment rail that isn't there"
+// restraint LeaseRentPayment's own comment already established for rent;
+// a real deployment collecting a real deposit would tie this to a real
+// gateway instead of a plain recorded timestamp. The document checklist
+// itself isn't stored here at all — it's computed on read from the
+// property's own real Document rows against DEFAULT_DOCUMENT_CHECKLIST
+// (see ListingsService.getSale), so there's nothing to keep in sync.
+model ListingSale {
+  id                String    @id @default(uuid())
+  listingId         String    @unique
+  offerId           String    @unique
+  buyerAccountId    String // soft reference, same as ListingOffer.accountId
+  sellerAccountId   String // soft reference, same reason
+  amount            Decimal   @db.Decimal(14, 2)
+  currency          String
+  depositRecordedAt DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  listing PropertyListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  offer   ListingOffer    @relation(fields: [offerId], references: [id], onDelete: Cascade)
+
+  @@map("listing_sales")
 }
 
 model ListingFavorite {

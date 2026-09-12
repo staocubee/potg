@@ -6749,6 +6749,95 @@ own notification bell shows the real "Rent overdue" entries.
   reminder types independently — they fire unconditionally, like
   document-expiry already does.
 
+## The marketplace purchase-to-portfolio flow (this pass)
+
+The workflow audit's biggest single finding: buying a property from the
+marketplace worked cleanly right up to an accepted offer, then simply
+stopped. `ListingsService.respondToOffer` flipped the listing to
+`under_offer` and nothing else ever happened — no document checklist, no
+deposit tracking, no completion, and no code anywhere that transferred
+a `Property` row between accounts. `Payment`/`EscrowAccount` couldn't
+help either: both require a `projectId`, and a property purchase isn't
+a renovation project.
+
+**What's built**:
+
+- **`ListingSale`** (new model) — created the moment an offer is
+  accepted, one per listing (`@unique` on both `listingId` and
+  `offerId`, `upsert`-guarded against a theoretical double-accept).
+  Deliberately **not** wired into `Payment`/`EscrowAccount` — same
+  "record what's true, don't fake a payment rail that isn't there"
+  restraint `LeaseRentPayment`'s own comment already established for
+  rent; `depositRecordedAt` is a plain timestamp, not a real charge.
+- **A document checklist that's never stored** — `ListingsService.
+  getSale` computes it live from the property's own real `Document`
+  rows against the exact same `DEFAULT_DOCUMENT_CHECKLIST` the
+  `verify_property_documents` AI skill already uses (title document,
+  survey plan, certificate of occupancy, building approval) — a
+  document verified (or newly uploaded) after the sale started shows up
+  immediately, with nothing to keep in sync by hand.
+- **Two new real preconditions gating completion** — `POST .../sale/
+  complete` throws a specific, real 400 if the deposit hasn't been
+  recorded yet, and a second, separate real 400 naming exactly which
+  checklist documents aren't yet `verified` if any aren't. Not a button
+  that always works regardless of state.
+- **A real transfer, not a copy** — completion reassigns the existing
+  `Property.accountId` to the buyer's own account: the one field every
+  permission/ABAC check in this codebase already keys on for "who owns
+  this," so the property is immediately reachable from the buyer's own
+  `GET /properties` with its full real history (documents, timeline,
+  any existing leases/projects) intact, not a stripped-down clone. Also
+  sets the listing to `sold`, logs a real `PropertyTimelineEvent`, and
+  notifies both sides.
+- **A new "Purchase in progress" / "Sale completed" card** on the
+  listing detail page, visible to both the buyer and seller (backed by
+  a new `requireSaleParty` check — the first thing on `ListingsController`
+  a non-owning account is allowed to reach) — the real amount (the
+  *accepted* offer amount, not the original asking price), the live
+  checklist, deposit status, and Record deposit / Complete sale buttons,
+  gated on `offer:write` per this session's own permission-gating sweep.
+
+**Verified live, the full real transaction, not a shortcut**: created a
+real second property and listing as the seller, registered a genuinely
+separate second user and INDIVIDUAL account as the buyer, submitted and
+accepted a real offer (`₦44,000,000`, below the `₦45,000,000` asking
+price — confirmed the sale correctly used the accepted amount, not the
+listing price). Confirmed `POST .../sale/complete` correctly refused
+with "Record the deposit before completing the sale," then — after
+recording a real deposit — refused again with "Document checklist
+incomplete — not yet verified: Title Document, Survey Plan, Certificate
+Of Occupancy, Building Approval" (all four, by name). Uploaded and
+verified all four real documents, confirmed the checklist picked them
+up live, and completed the sale for real. Confirmed: the seller's own
+`GET /properties` no longer includes it; the buyer's own account —
+logged into for real, not just switched into — does, with the property
+page's own real timeline showing "Sold via marketplace listing ... —
+ownership transferred" alongside its genuine document history; the
+listing itself now reads `sold`; both sides received a real, correctly
+worded completion notification; and a second `complete` call correctly
+refused with "This sale is already completed."
+
+**Not done — explicit scope, not oversight**:
+
+- No counter-offer UI (the audit's own earlier finding) — an owner can
+  still only Accept or Reject from this page, even though
+  `RespondOfferDto` has supported `countered` with a real re-priced
+  amount since before this pass.
+- No real payment gateway integration for the deposit — same
+  restraint as `LeaseRentPayment`, not an oversight; wiring a real
+  charge would mean either loosening `Payment`'s `projectId`/
+  `escrowAccountId` requirement (risking the well-tested renovation
+  escrow flow) or building a second, parallel payment path — a real,
+  separate, larger piece of work.
+- Only one offer per listing can ever have a real `ListingSale` (the
+  `@unique` constraint) — `respondToOffer` itself still doesn't prevent
+  a second "accepted" call on a different offer for the same listing;
+  it just can't create a second sale once one exists.
+- No UI surfaces `PropertyOwner` (the separate, still-inert
+  multi-owner/%-split model the audit flagged) as part of this flow —
+  the transfer is a clean single-owner handoff via `Property.accountId`,
+  deliberately not conflated with that separate gap.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
