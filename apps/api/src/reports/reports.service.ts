@@ -195,6 +195,43 @@ const METRIC_REGISTRY: Record<string, { label: string; rows: (o: PortfolioOvervi
       ...o.investmentPerformance.map((p) => ({ label: `${p.propertyName} — ROI`, value: `${p.simpleRoiPercent.toFixed(1)}%` })),
     ],
   },
+  maintenance_cost_report: {
+    label: 'Maintenance report (cost)',
+    rows: (o) => [
+      { label: `Total maintenance cost (${o.currency})`, value: o.maintenanceCostTotal },
+      ...o.maintenanceCostReport.map((m) => ({ label: `${m.propertyName} — maintenance cost (${o.currency})`, value: m.total })),
+    ],
+  },
+  compliance_report: {
+    label: 'Compliance report',
+    rows: (o) => [
+      { label: 'Documents needing attention', value: o.complianceReport.documentsNeedingAttention },
+      { label: 'Inspections needing attention', value: o.complianceReport.inspectionsNeedingAttention },
+      { label: 'Leases with rent overdue', value: o.complianceReport.overdueLeases },
+      ...o.complianceReport.vendorLicenseWarnings.map((v) => ({
+        label: `${v.businessName} — license ${v.expired ? 'expired' : 'expiring soon'}`,
+        value: new Date(v.licenseExpiresAt).toLocaleDateString(),
+      })),
+    ],
+  },
+  asset_utilization: {
+    label: 'Asset utilization report',
+    rows: (o) => [
+      { label: 'Total properties', value: o.assetUtilization.totalProperties },
+      { label: 'Occupied (active lease)', value: o.assetUtilization.occupied },
+      { label: 'Under an active project', value: o.assetUtilization.underActiveProject },
+      { label: 'Idle', value: o.assetUtilization.idle },
+      { label: 'Utilization rate', value: `${(o.assetUtilization.utilizationRate * 100).toFixed(1)}%` },
+    ],
+  },
+  project_progress: {
+    label: 'Project progress report',
+    rows: (o) =>
+      o.projectProgress.flatMap((p) => [
+        { label: `${p.title} — stages`, value: `${p.stagesCompleted}/${p.stagesTotal} (${p.stageProgressPercent.toFixed(0)}%)` },
+        { label: `${p.title} — milestones`, value: `${p.milestonesCompleted}/${p.milestonesTotal} (${p.milestoneProgressPercent.toFixed(0)}%)` },
+      ]),
+  },
 };
 
 // Real CSV escaping (RFC 4180) — quote a field only when it actually
@@ -257,13 +294,20 @@ export class ReportsService {
       branches,
       listings,
       valuations,
+      projectStages,
+      projectMilestones,
     ] = await Promise.all([
       this.prisma.property.findMany({
         where: { accountId },
         select: { id: true, name: true, status: true, estimatedValue: true, branchId: true },
       }),
-      this.prisma.project.findMany({ where: { accountId }, select: { status: true } }),
-      this.prisma.maintenanceRequest.findMany({ where: { property: { accountId } }, select: { status: true } }),
+      // id/title/propertyId added for Module 24's "Project progress
+      // report" below — every earlier metric here only ever needed the
+      // status breakdown.
+      this.prisma.project.findMany({ where: { accountId }, select: { id: true, title: true, status: true, propertyId: true } }),
+      // cost/propertyId added for Module 24's "Maintenance report" (cost)
+      // below.
+      this.prisma.maintenanceRequest.findMany({ where: { property: { accountId } }, select: { status: true, cost: true, propertyId: true } }),
       this.prisma.propertyInspection.findMany({ where: { property: { accountId } }, select: { status: true, overallResult: true } }),
       // grossAmount, not amount — every "spend"/"expense" figure derived
       // from this query is the owner's own perspective (what did I pay
@@ -282,9 +326,12 @@ export class ReportsService {
         },
       }),
       this.prisma.document.findMany({ where: { accountId }, select: { verificationStatus: true } }),
+      // propertyId added for Module 24's "Asset utilization report" below
+      // (occupied = a property with at least one active lease).
       this.prisma.lease.findMany({
         where: { property: { accountId }, status: 'active' },
         select: {
+          propertyId: true,
           rentFrequency: true,
           startDate: true,
           rentPayments: { select: { periodEnd: true } },
@@ -296,9 +343,15 @@ export class ReportsService {
       // the vendors this account has worked with actually perform), so one
       // metric group answers both named reports rather than building two
       // near-identical ones.
+      // vendor.licenseExpiresAt added for Module 24's "Compliance report"
+      // below.
       this.prisma.projectVendorAssignment.findMany({
         where: { project: { accountId } },
-        select: { vendorId: true, vendor: { select: { businessName: true } }, project: { select: { status: true } } },
+        select: {
+          vendorId: true,
+          vendor: { select: { businessName: true, licenseExpiresAt: true } },
+          project: { select: { status: true } },
+        },
       }),
       // This account's own reviews of vendors it has worked with — not
       // the vendor's platform-wide trust score rating (VendorTrustAudit/
@@ -374,6 +427,12 @@ export class ReportsService {
         orderBy: { valuedAt: 'asc' },
         select: { propertyId: true, estimatedValue: true, currency: true },
       }),
+      // Module 24's "Project progress report" below — stage/milestone
+      // completion, not queried by any earlier metric group (payouts
+      // above relate to milestones only indirectly, through which one
+      // funded them).
+      this.prisma.projectStage.findMany({ where: { project: { accountId } }, select: { projectId: true, status: true } }),
+      this.prisma.projectMilestone.findMany({ where: { project: { accountId } }, select: { projectId: true, status: true } }),
     ]);
 
     const completedInspections = inspections.filter((i: { status: string }) => i.status === 'completed');
@@ -669,6 +728,122 @@ export class ReportsService {
       overallRoiPercent: t.totalInvested > 0 ? ((t.totalCurrentValue - t.totalInvested) / t.totalInvested) * 100 : 0,
     }));
 
+    // Maintenance report (cost) — grouped by property and currency, same
+    // shape property_expenses already uses. Only requests with a real
+    // recorded `cost` contribute (see MaintenanceRequest.cost's own
+    // schema comment — most historical rows will have none, correctly
+    // excluded rather than treated as a real zero).
+    const maintenanceCostByProperty = new Map<string, { propertyId: string; propertyName: string; total: number }>();
+    let maintenanceCostTotal = 0;
+    for (const m of maintenanceRequests as { propertyId: string; cost: unknown }[]) {
+      if (m.cost == null) continue;
+      const amount = Number(m.cost);
+      maintenanceCostTotal += amount;
+      const existing = maintenanceCostByProperty.get(m.propertyId);
+      if (existing) {
+        existing.total += amount;
+      } else {
+        maintenanceCostByProperty.set(m.propertyId, { propertyId: m.propertyId, propertyName: propertyNameById.get(m.propertyId) ?? 'Unknown property', total: amount });
+      }
+    }
+    const maintenanceCostReport = Array.from(maintenanceCostByProperty.values()).sort((a, b) => b.total - a.total);
+
+    // Compliance report — a real composite of compliance-relevant signals
+    // already tracked elsewhere in this same computation (documents,
+    // inspections, overdue leases), plus one genuinely new check (vendor
+    // license expiry) — not a rename of the platform-wide ComplianceItem
+    // tracker above, which is platform_admin's own jurisdiction/category
+    // data and has no accountId of its own to scope by. "Expiring soon"
+    // is 30 days out, an arbitrary but real threshold — long enough to
+    // actually renew a license before it lapses, short enough not to
+    // flag every license an owner will ever see.
+    const documentsNeedingAttention = (documents as { verificationStatus: string }[]).filter(
+      (d) => d.verificationStatus === 'not_verified' || d.verificationStatus === 'rejected',
+    ).length;
+    const inspectionsNeedingAttention = countResult('needs_attention') + countResult('fail');
+    const licenseWarningWindowMs = 30 * 24 * 60 * 60 * 1000;
+    const seenVendorIds = new Set<string>();
+    const vendorLicenseWarnings: { vendorId: string; businessName: string; licenseExpiresAt: Date; expired: boolean }[] = [];
+    for (const a of vendorAssignments as { vendorId: string; vendor: { businessName: string; licenseExpiresAt: Date | null } }[]) {
+      if (seenVendorIds.has(a.vendorId) || !a.vendor.licenseExpiresAt) continue;
+      seenVendorIds.add(a.vendorId);
+      const expiresAt = a.vendor.licenseExpiresAt;
+      if (expiresAt.getTime() - Date.now() < licenseWarningWindowMs) {
+        vendorLicenseWarnings.push({ vendorId: a.vendorId, businessName: a.vendor.businessName, licenseExpiresAt: expiresAt, expired: expiresAt.getTime() < Date.now() });
+      }
+    }
+    const complianceReport = {
+      documentsNeedingAttention,
+      inspectionsNeedingAttention,
+      overdueLeases: (activeLeases as { rentFrequency: string; startDate: Date; rentPayments: { periodEnd: Date }[] }[]).filter(isLeaseOverdue).length,
+      vendorLicenseWarnings,
+    };
+
+    // Asset utilization report — reframed honestly the same way "Supplier
+    // sales" already was: this schema has no concept of a company's own
+    // equipment/assets being rented out (RentalBooking.accountId is
+    // always the account renting *from* a supplier), so "asset" here
+    // means what this platform's own asset actually is — a property —
+    // and "utilization" means whether it's currently generating value
+    // (an active lease, an active renovation project) or sitting idle.
+    // A property can be both occupied and under an active project at
+    // once (a tenanted property mid-renovation); it's counted in both,
+    // and "idle" only means neither, so the three counts don't
+    // necessarily sum to the portfolio total — the summary total does.
+    const occupiedPropertyIds = new Set((activeLeases as { propertyId: string }[]).map((l) => l.propertyId));
+    // Real Project.status values: planning | in_progress | on_hold |
+    // completed | cancelled — only in_progress means work is actually
+    // happening right now; planning/on_hold are real states but neither
+    // is "the property is currently being utilized."
+    const underProjectPropertyIds = new Set(
+      (projects as { status: string; propertyId: string }[]).filter((p) => p.status === 'in_progress').map((p) => p.propertyId),
+    );
+    const totalPropertyCount = (properties as { id: string }[]).length;
+    const idlePropertyCount = (properties as { id: string }[]).filter(
+      (p) => !occupiedPropertyIds.has(p.id) && !underProjectPropertyIds.has(p.id),
+    ).length;
+    const assetUtilization = {
+      totalProperties: totalPropertyCount,
+      occupied: occupiedPropertyIds.size,
+      underActiveProject: underProjectPropertyIds.size,
+      idle: idlePropertyCount,
+      utilizationRate: totalPropertyCount > 0 ? (totalPropertyCount - idlePropertyCount) / totalPropertyCount : 0,
+    };
+
+    // Project progress report — real stage/milestone completion per
+    // project, not just the projects_by_status count every earlier
+    // metric already gave. A project with zero stages/milestones yet
+    // (just created) correctly reads 0%, not NaN or 100%.
+    const stagesByProject = new Map<string, { total: number; completed: number }>();
+    for (const s of projectStages as { projectId: string; status: string }[]) {
+      const existing = stagesByProject.get(s.projectId) ?? { total: 0, completed: 0 };
+      existing.total += 1;
+      if (s.status === 'completed') existing.completed += 1;
+      stagesByProject.set(s.projectId, existing);
+    }
+    const milestonesByProject = new Map<string, { total: number; completed: number }>();
+    for (const m of projectMilestones as { projectId: string; status: string }[]) {
+      const existing = milestonesByProject.get(m.projectId) ?? { total: 0, completed: 0 };
+      existing.total += 1;
+      if (m.status === 'completed') existing.completed += 1;
+      milestonesByProject.set(m.projectId, existing);
+    }
+    const projectProgress = (projects as { id: string; title: string; status: string }[]).map((p) => {
+      const stages = stagesByProject.get(p.id) ?? { total: 0, completed: 0 };
+      const milestones = milestonesByProject.get(p.id) ?? { total: 0, completed: 0 };
+      return {
+        projectId: p.id,
+        title: p.title,
+        status: p.status,
+        stagesCompleted: stages.completed,
+        stagesTotal: stages.total,
+        stageProgressPercent: stages.total > 0 ? (stages.completed / stages.total) * 100 : 0,
+        milestonesCompleted: milestones.completed,
+        milestonesTotal: milestones.total,
+        milestoneProgressPercent: milestones.total > 0 ? (milestones.completed / milestones.total) * 100 : 0,
+      };
+    });
+
     return {
       currency: account.currency,
       digestFrequency: account.reportDigestFrequency,
@@ -722,6 +897,11 @@ export class ReportsService {
       inquiryConversion,
       investmentPerformance,
       investmentPerformanceTotals,
+      maintenanceCostReport,
+      maintenanceCostTotal,
+      complianceReport,
+      assetUtilization,
+      projectProgress,
     };
   }
 

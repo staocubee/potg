@@ -5244,23 +5244,19 @@ documented rather than invented.
   multiple ended leases) now appears. Also verified CSV export and AI
   narration both correctly include the new metrics unchanged, then
   deleted the test report definition to leave the demo account clean.
-- **Not done, by explicit scope, not oversight**: **Asset utilization
-  report** (Company) — `RentalBooking.accountId` is the account *renting
-  from* a supplier, there's no tracking anywhere of an account's own
-  assets being rented out or otherwise utilized; **Compliance report**
-  (Company) — the existing `ComplianceItem` model is platform-wide admin
-  data (jurisdiction/category tracking for `platform_admin`), not scoped
-  to an owning account at all, so it doesn't answer "is my own portfolio
-  compliant" the way this named report means; **Maintenance report**
-  (Owner) beyond the existing open/resolved counts — `MaintenanceRequest`
-  has no cost field, so a real maintenance *cost* report isn't buildable
-  from what's on record; **Project progress report** (Owner) beyond what
-  already exists per-project (`ProjectStageBar`) — no portfolio-wide
-  rollup was built this pass. (**Branch property report**, **Investment
-  performance report**, **Listing performance**, and **Inquiry
-  conversion** — all named here as cut for this same reason — were
-  closed in a later pass; see "Module 24: Branch, Investment, Listing,
-  and Inquiry reports" below.)
+- **Not done, by explicit scope, not oversight, at the time**: **Asset
+  utilization report** (Company), **Compliance report** (Company),
+  **Maintenance report** (Owner, beyond open/resolved counts), and
+  **Project progress report** (Owner, beyond the existing per-project
+  `ProjectStageBar`) were all cut here for missing data (no
+  rental-out tracking, no account-scoped compliance model, no
+  maintenance cost field, no portfolio-wide progress rollup). All four
+  were later closed once that data existed — see "Module 24: Asset
+  utilization, Compliance, Maintenance cost, and Project progress
+  reports" below. (**Branch property report**, **Investment performance
+  report**, **Listing performance**, and **Inquiry conversion** — cut
+  here for the same reason — were closed earlier still; see "Module 24:
+  Branch, Investment, Listing, and Inquiry reports" below.)
 
 ## Property development agreements — invite a developer to build (this pass)
 
@@ -6208,6 +6204,81 @@ organizes its properties across more than one physical location.
   would need to exist first, and that's a UX decision (does making an
   offer require citing which inquiry prompted it?) not just a schema
   addition.
+
+## Module 24: Asset utilization, Compliance, Maintenance cost, and Project progress reports (this pass)
+
+The last four Module 24 gaps a code-level audit found — all four were
+cut from the first Phase 1 pass for missing data (no rental-out
+tracking, no account-scoped compliance model, no maintenance cost
+field, no portfolio-wide progress rollup), not skipped scope. Each is
+closed here by reframing honestly onto data that already exists, plus
+one small, real schema addition (`MaintenanceRequest.cost`).
+
+**What's built**:
+
+- **`MaintenanceRequest.cost`** (new nullable `Decimal` field) — set
+  alongside `resolutionNotes` at resolution time
+  (`ResolveMaintenanceRequestDto.cost`, optional — a false alarm or a
+  self-fix has no real cost to record), since that's the only point the
+  real cost is actually known. No separate currency field, same
+  convention `Property.estimatedValue` already uses.
+- **`maintenance_cost_report`** — total and per-property maintenance
+  spend, summing only requests with a real recorded `cost` (most
+  historical rows have none, correctly excluded rather than treated as
+  a real zero).
+- **`compliance_report`** — a real composite of compliance-relevant
+  signals already tracked elsewhere in this account's own portfolio
+  (documents needing attention, inspections needing attention, leases
+  with rent overdue), plus one genuinely new check (vendor license
+  expiry, within a 30-day warning window). Deliberately not a rename of
+  the platform-wide `ComplianceItem` tracker (Admin operations, above)
+  — that model is `platform_admin`'s own jurisdiction/category data
+  with no `accountId` of its own to scope by, so it can't answer "is my
+  own portfolio compliant."
+- **`asset_utilization`** — reframed honestly: "asset" means a
+  property, "utilization" means whether it's currently generating value
+  (an active lease, or a project actually `in_progress` right now — not
+  `planning`/`on_hold`, which are real states but not "generating value
+  today"). A property under an active project and occupied by a lease
+  counts in both; "idle" means neither.
+- **`project_progress`** — real stage/milestone completion per project,
+  portfolio-wide (`ProjectStage.status`/`ProjectMilestone.status`
+  counted per project). A project with no stages/milestones yet
+  correctly reads 0%, not `NaN`.
+- All four are `METRIC_REGISTRY` additions inside the same
+  `getPortfolioOverview` call every other metric already comes from —
+  zero new frontend code for the report-builder side beyond the one new
+  "Cost (optional)" input on the maintenance-request resolve form.
+- **Verified live, cross-checked against real data**: built a real
+  saved report ("Final 4 verification") selecting all four metrics and
+  ran it — "Documents needing attention": 4, "Inspections needing
+  attention": 2, "Leases with rent overdue": 1, "Lekki Renovations Co.
+  — license expired: 01/01/2025" (a real, already-expired date matching
+  a value seen earlier this session), "Total properties": 4 /
+  "Occupied": 1 / "Under an active project": 0 / "Idle": 3 /
+  "Utilization rate": 25.0% (arithmetic checks out: 1 of 4 occupied,
+  none under an active project), and "Kitchen Renovation — stages":
+  0/5 (0%) / "milestones": 3/6 (50%) (matching this project's known
+  payout history). Then resolved a real open maintenance request
+  ("Leaking kitchen tap") with a real cost of ₦45,000 through the
+  property detail page's resolve form, confirmed the `POST .../resolve`
+  response persisted `cost: "45000"`, and re-ran the same saved report
+  — "Total maintenance cost (NGN)" correctly moved from 0 to 45000,
+  proving the write path end-to-end rather than just the read side.
+
+**Not done — explicit scope, not oversight**:
+
+- `MaintenanceRequest.cost` only gets set at resolution — a cancelled
+  or still-open request has no cost by design, not a gap.
+- Asset utilization's "idle" doesn't distinguish "never occupied" from
+  "recently vacated" — both read the same.
+- Compliance report's 30-day license-expiry window is a fixed,
+  non-configurable threshold, not a per-account setting.
+- Project progress is report-builder rows only (numbers and
+  percentages) — no chart/visual rendering was added.
+- The Reports & Permissions audit separately found no endpoint anywhere
+  updates a `ProjectStage`'s own status — that gap is still open and
+  wasn't part of this pass.
 
 ## Not built yet
 

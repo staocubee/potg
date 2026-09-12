@@ -954,7 +954,7 @@ export class PropertiesService {
     }
     const updated = await this.prisma.maintenanceRequest.update({
       where: { id: requestId },
-      data: { status: 'resolved', resolutionNotes: dto.resolutionNotes, resolvedAt: new Date() },
+      data: { status: 'resolved', resolutionNotes: dto.resolutionNotes, cost: dto.cost, resolvedAt: new Date() },
     });
     await this.prisma.propertyTimelineEvent.create({
       data: {

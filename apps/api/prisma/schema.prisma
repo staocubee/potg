@@ -1600,6 +1600,13 @@ model MaintenanceRequest {
   assignedVendorId String? // set instead of assignedTo when the assignee is a platform vendor
   assignedTo       String?
   resolutionNotes  String?
+  // Module 24's "Maintenance report" (cost) — set alongside
+  // resolutionNotes at resolution time, since that's the only point the
+  // real cost is actually known; null for a request that's still open,
+  // was cancelled, or was resolved before this pass existed. No separate
+  // currency field, same convention Property.estimatedValue already
+  // uses — implicitly the account's own single currency.
+  cost             Decimal?  @db.Decimal(14, 2)
   resolvedAt       DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt

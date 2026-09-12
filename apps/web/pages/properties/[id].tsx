@@ -2585,6 +2585,7 @@ function MaintenanceRequestRow({
   const [resolving, setResolving] = useState(false);
   const [editing, setEditing] = useState(false);
   const [resolutionNotes, setResolutionNotes] = useState("");
+  const [resolutionCost, setResolutionCost] = useState("");
   const [editTitle, setEditTitle] = useState(request.title);
   const [editDescription, setEditDescription] = useState(request.description);
   const [editPriority, setEditPriority] = useState(request.priority);
@@ -2616,7 +2617,10 @@ function MaintenanceRequestRow({
     setBusy("resolve");
     setError(null);
     try {
-      await auth.api.resolveMaintenanceRequest(propertyId, request.id, { resolutionNotes: resolutionNotes || undefined });
+      await auth.api.resolveMaintenanceRequest(propertyId, request.id, {
+        resolutionNotes: resolutionNotes || undefined,
+        cost: resolutionCost ? Number(resolutionCost) : undefined,
+      });
       setResolving(false);
       onChanged();
     } catch (err) {
@@ -2677,6 +2681,7 @@ function MaintenanceRequestRow({
           {request.resolutionNotes && (
             <div className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
               Resolution: {request.resolutionNotes}
+              {request.cost != null && ` — ${Number(request.cost).toLocaleString()}`}
             </div>
           )}
         </div>
@@ -2735,6 +2740,14 @@ function MaintenanceRequestRow({
             placeholder="Resolution notes (optional)"
             value={resolutionNotes}
             onChange={(e) => setResolutionNotes(e.target.value)}
+          />
+          <input
+            className="potg-input"
+            type="number"
+            min={0}
+            placeholder="Cost (optional)"
+            value={resolutionCost}
+            onChange={(e) => setResolutionCost(e.target.value)}
           />
           <div style={{ display: "flex", gap: 6 }}>
             <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>

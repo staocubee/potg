@@ -769,6 +769,9 @@ export type MaintenanceRequest = {
   assignedVendor?: AssignedVendor | null;
   assignedTo?: string | null;
   resolutionNotes?: string | null;
+  // Module 24's "Maintenance report" (cost) — set alongside
+  // resolutionNotes at resolution time, null otherwise.
+  cost?: string | null;
   resolvedAt?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -2073,7 +2076,7 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
-  resolveMaintenanceRequest(propertyId: string, requestId: string, input: { resolutionNotes?: string }) {
+  resolveMaintenanceRequest(propertyId: string, requestId: string, input: { resolutionNotes?: string; cost?: number }) {
     return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests/${requestId}/resolve`, {
       method: "POST",
       body: input,
