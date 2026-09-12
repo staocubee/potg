@@ -23,6 +23,9 @@ export default function PropertyMarketplacePage() {
   const [listings, setListings] = useState<Listing[] | null>(null);
   const [listingType, setListingType] = useState("");
   const [city, setCity] = useState("");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -31,13 +34,22 @@ export default function PropertyMarketplacePage() {
     setError(null);
     const timer = setTimeout(() => {
       auth.api
-        .searchListings({ listingType: listingType || undefined, city: city || undefined, q: q || undefined })
+        .searchListings({
+          listingType: listingType || undefined,
+          city: city || undefined,
+          minPrice: minPrice || undefined,
+          maxPrice: maxPrice || undefined,
+          verificationStatus: verifiedOnly ? "verified" : undefined,
+          q: q || undefined,
+        })
         .then(setListings)
         .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load the marketplace."));
     }, 250);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.currentAccountId, listingType, city, q]);
+  }, [auth.currentAccountId, listingType, city, minPrice, maxPrice, verifiedOnly, q]);
+
+  const hasActiveFilters = !!(city || listingType || minPrice || maxPrice || verifiedOnly || q);
 
   return (
     <AppShell
@@ -74,6 +86,31 @@ export default function PropertyMarketplacePage() {
           City
         </label>
         <input className="potg-input" style={{ width: 180 }} placeholder="Any city" value={city} onChange={(e) => setCity(e.target.value)} />
+        <label className="potg-label" style={{ margin: 0 }}>
+          Price
+        </label>
+        <input
+          className="potg-input"
+          type="number"
+          min={0}
+          style={{ width: 110 }}
+          placeholder="Min"
+          value={minPrice}
+          onChange={(e) => setMinPrice(e.target.value)}
+        />
+        <input
+          className="potg-input"
+          type="number"
+          min={0}
+          style={{ width: 110 }}
+          placeholder="Max"
+          value={maxPrice}
+          onChange={(e) => setMaxPrice(e.target.value)}
+        />
+        <label className="potg-muted" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13 }}>
+          <input type="checkbox" checked={verifiedOnly} onChange={(e) => setVerifiedOnly(e.target.checked)} />
+          Verified only
+        </label>
         <input
           className="potg-input"
           style={{ width: 220 }}
@@ -89,7 +126,7 @@ export default function PropertyMarketplacePage() {
       {listings && listings.length === 0 && (
         <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
           <p className="potg-muted" style={{ margin: 0 }}>
-            No active listings {city || listingType || q ? "match those filters" : "yet"}.{" "}
+            No active listings {hasActiveFilters ? "match those filters" : "yet"}.{" "}
             <Link href="/marketplace/new" style={{ color: "var(--potg-teal)", fontWeight: 600 }}>
               List a property from your portfolio
             </Link>
@@ -112,7 +149,14 @@ export default function PropertyMarketplacePage() {
               )}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                 <h3 style={{ fontSize: 15 }}>{l.title}</h3>
-                <span className="potg-badge">{l.listingType.replace(/_/g, " ")}</span>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end", flexShrink: 0 }}>
+                  <span className="potg-badge">{l.listingType.replace(/_/g, " ")}</span>
+                  {l.verificationStatus === "verified" && (
+                    <span className="potg-badge" style={{ background: "#e7f3ea", borderColor: "#b7ddc3", color: "#2f7a4f" }}>
+                      ✓ verified
+                    </span>
+                  )}
+                </div>
               </div>
               {"city" in (l.property ?? {}) && (l.property as { city?: string | null })?.city && (
                 <p className="potg-muted" style={{ fontSize: 12, margin: "4px 0 10px" }}>

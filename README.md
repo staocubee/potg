@@ -7147,6 +7147,60 @@ just an optimistic UI update.
 - Amenities remain freeform comma-separated text, unchanged — a
   deliberate choice, not a missed half of this same gap.
 
+## Marketplace price and verification-status filters (this pass)
+
+The workflow audit's own finding on Workflow 2 (Buy Property from
+Marketplace): "Backend supports price range + propertyType, but the UI
+only exposes `listingType` and `city` — no price inputs. Verification-
+status filtering doesn't exist anywhere, frontend or backend."
+
+**What's built**:
+
+- **Price filter** — no backend change needed; `minPrice`/`maxPrice`
+  query params already existed on `GET /listings` and were already
+  wired into the API client, just never exposed as inputs on the
+  marketplace page itself. Added real min/max number inputs.
+- **Verification-status filter** — genuinely new on both sides:
+  `SearchListingsQuery.verificationStatus` (new query param) applied
+  directly in `ListingsService.findAll`'s existing `where` clause —
+  `PropertyListing.verificationStatus` already existed and already fed
+  the ranking boost, it just had no filter of its own. A "Verified
+  only" checkbox on the marketplace page maps to
+  `verificationStatus: "verified"`.
+- **A verification badge on each listing card** — previously invisible
+  anywhere in the browse view; now a real "✓ verified" badge renders
+  next to a verified listing's type badge, so the new filter has
+  something visible to filter *for*, not just an invisible toggle.
+
+**Verified live**: a direct database check found every active test
+listing was `not_verified`, so set one real listing to `verified` to
+have a real positive case to filter for (there's no reviewer-facing
+action anywhere that sets this — see "Not done" below), then confirmed:
+the "✓ verified" badge appeared only on that listing; checking
+"Verified only" narrowed the browse view to exactly that one listing
+and unchecking it restored the rest; setting a min/max price range
+correctly narrowed results across listings in different currencies (a
+raw numeric compare, not currency-aware — see "Not done"); and the
+empty-state message correctly read "match those filters" once any
+filter was active, not just city/type/search as before.
+
+**Not done — explicit scope, not oversight**:
+
+- **A real, separate, adjacent gap surfaced while building this**: there
+  is no `listing:verify` action anywhere in the codebase — unlike
+  vendors, suppliers, and documents, which each have a real neutral-
+  reviewer `setVerificationStatus`-style endpoint, nothing ever sets
+  `PropertyListing.verificationStatus` except at creation. The filter
+  built in this pass works correctly against whatever value is already
+  there; it doesn't add a way to change that value. A real gap worth
+  its own pass, not this one.
+- No currency-aware price filtering — `minPrice`/`maxPrice` compare
+  `askingPrice` as a raw number regardless of the listing's own
+  `currency`, an existing backend limitation this pass didn't touch.
+- No propertyType filter exposed in the UI, even though the backend
+  already accepts one (same as price before this pass) — narrower scope
+  than the full audit finding, left for a follow-up.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

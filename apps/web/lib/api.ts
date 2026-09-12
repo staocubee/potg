@@ -2817,7 +2817,15 @@ export class ApiClient {
   createListing(input: { propertyId: string; listingType: string; askingPrice: number; currency?: string; title: string; description?: string; photoUrls?: string[] }) {
     return request<Listing>("/listings", { method: "POST", body: input, token: this.token, accountId: this.accountId });
   }
-  searchListings(query: { listingType?: string; city?: string; propertyType?: string; minPrice?: string; maxPrice?: string; q?: string }) {
+  searchListings(query: {
+    listingType?: string;
+    city?: string;
+    propertyType?: string;
+    minPrice?: string;
+    maxPrice?: string;
+    verificationStatus?: string;
+    q?: string;
+  }) {
     const params = new URLSearchParams();
     Object.entries(query).forEach(([k, v]) => {
       if (v) params.set(k, v);

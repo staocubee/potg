@@ -104,6 +104,7 @@ export class ListingsService {
         status: 'active',
         id: relevanceOrder ? { in: relevanceOrder } : undefined,
         listingType: query.listingType,
+        verificationStatus: query.verificationStatus,
         property: {
           propertyType: query.propertyType,
           city: query.city ? { equals: query.city, mode: 'insensitive' } : undefined,
