@@ -4671,7 +4671,13 @@ piece already hinted at elsewhere in this codebase — see below.
   endpoint (amenities/photo URLs as comma-separated text, not a bespoke
   tag-input widget — same tradeoff this app already accepts for fields
   with no fixed vocabulary). The portfolio grid's own cards show
-  bed/bath/sq-ft inline when set.
+  bed/bath/sq-ft inline when set. **Photos moved off that comma-
+  separated text field in a later pass** — see "Real photo uploads for
+  the property gallery" above: editing photos is now the real
+  `PhotoPicker` upload widget every other real photo field in this
+  codebase already uses, not a paste-your-own-URL box. Amenities stay
+  comma-separated text on purpose — no fixed vocabulary to build a
+  picker against.
 - **Verified live**: created a property with bedrooms/bathrooms/sq-ft/
   year built set, confirmed all four persisted and rendered on both the
   portfolio card and the detail page; used "Edit details" to add
@@ -7101,6 +7107,45 @@ and that a non-string value in `photoUrls` is rejected with a real 400.
 - No photo evidence on `start` (e.g., a "before work began" photo
   distinct from the original issue report) — only report-time and
   resolve-time photos exist.
+
+## Real photo uploads for the property gallery (this pass)
+
+The workflow audit's own finding on Workflow 1 (Add Existing Property):
+"No real upload widget for the gallery — it's a comma-separated
+paste-your-own-URL text field, unlike documents/inspections/licenses
+which all use the real R2 upload pipeline." True since Module 3 first
+added `Property.photoUrls` — see "Module 3: Property Details" above,
+whose own text plainly said "no upload pipeline changed" at the time.
+
+**What's built**:
+
+- **No backend change at all** — `UpdatePropertyDto.photoUrls` was
+  already a real `string[]`; the gap was entirely in the frontend
+  reducing that array down to a comma-joined text box and back.
+- **The property detail page's "Edit details" form now uses the same
+  `PhotoPicker` component** every other real photo field in this
+  codebase already shares (maintenance requests, inspections) — real
+  uploads through `POST /uploads` (Cloudflare R2), removable thumbnails,
+  multi-file select. Amenities deliberately stay comma-separated text —
+  unlike photos, there's no fixed vocabulary to build a picker against,
+  the same distinction this module's own original comment already drew.
+
+**Verified live**: uploaded two real images through the actual upload
+pipeline (not pasted URLs), saved them onto a real property, and
+confirmed both rendered in the existing photo-gallery grid on the
+non-editing view. Reopened "Edit details" and confirmed both photos
+appeared as real removable thumbnails (not text), removed one, saved,
+and confirmed the property now shows only the remaining photo — both on
+a fresh page load and via a direct re-fetch of the property record, not
+just an optimistic UI update.
+
+**Not done — explicit scope, not oversight**:
+
+- No photo reordering or captions — same limitation the maintenance-
+  request and inspection photo pickers already carry, not new to this
+  fix.
+- Amenities remain freeform comma-separated text, unchanged — a
+  deliberate choice, not a missed half of this same gap.
 
 ## Not built yet
 

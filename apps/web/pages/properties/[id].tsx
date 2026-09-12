@@ -678,11 +678,14 @@ function PropertyLiveViewCard({ property }: { property: Property }) {
 // Module 3: Property Details — specs, amenities, and a photo gallery.
 // The header card above shows these read-only; this card is the one
 // place to actually set them, since the base property record had no
-// update endpoint at all before this pass. Amenities/photo URLs are
-// edited as comma-separated text rather than a tag-input widget — same
-// "plain text over a bespoke control" tradeoff this app already accepts
+// update endpoint at all before this pass. Amenities stay edited as
+// comma-separated text rather than a tag-input widget — same "plain
+// text over a bespoke control" tradeoff this app already accepts
 // elsewhere (e.g. a lease's freeform tenantName) for a field with no
-// fixed vocabulary.
+// fixed vocabulary. Photos are different: the audit's own finding —
+// unlike documents/inspections/maintenance evidence, this was a
+// paste-your-own-URL text field, not the real upload pipeline — closed
+// by reusing the same PhotoPicker component those already use.
 function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUpdated: (p: Property) => void }) {
   const auth = useAuth();
   const [editing, setEditing] = useState(false);
@@ -691,7 +694,7 @@ function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUp
   const [squareFootage, setSquareFootage] = useState(property.squareFootage?.toString() ?? "");
   const [yearBuilt, setYearBuilt] = useState(property.yearBuilt?.toString() ?? "");
   const [amenities, setAmenities] = useState(property.amenities.join(", "));
-  const [photoUrls, setPhotoUrls] = useState(property.photoUrls.join(", "));
+  const [photoUrls, setPhotoUrls] = useState<string[]>(property.photoUrls);
   const [branchId, setBranchId] = useState(property.branchId ?? "");
   const [branches, setBranches] = useState<Branch[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -708,7 +711,7 @@ function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUp
     setSquareFootage(property.squareFootage?.toString() ?? "");
     setYearBuilt(property.yearBuilt?.toString() ?? "");
     setAmenities(property.amenities.join(", "));
-    setPhotoUrls(property.photoUrls.join(", "));
+    setPhotoUrls(property.photoUrls);
     setBranchId(property.branchId ?? "");
     setError(null);
     setEditing(true);
@@ -727,10 +730,7 @@ function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUp
           .split(",")
           .map((a) => a.trim())
           .filter(Boolean),
-        photoUrls: photoUrls
-          .split(",")
-          .map((u) => u.trim())
-          .filter(Boolean),
+        photoUrls,
         // Sent directly, not `|| undefined` — an empty string here means
         // "unassign," same convention UpdateInspectionDto.projectId's own
         // edit form already uses.
@@ -787,13 +787,8 @@ function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUp
             />
           </div>
           <div>
-            <label className="potg-label">Photo URLs (comma-separated)</label>
-            <input
-              className="potg-input"
-              placeholder="https://…, https://…"
-              value={photoUrls}
-              onChange={(e) => setPhotoUrls(e.target.value)}
-            />
+            <label className="potg-label">Photos</label>
+            <PhotoPicker urls={photoUrls} onChange={setPhotoUrls} label="+ Add photo" />
           </div>
           <div>
             <label className="potg-label">Branch (optional)</label>
