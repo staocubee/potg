@@ -767,6 +767,20 @@ export type MaintenanceRequest = {
   leaseId?: string | null;
   title: string;
   description: string;
+  category:
+    | "plumbing"
+    | "electrical"
+    | "hvac"
+    | "appliance"
+    | "structural"
+    | "pest_control"
+    | "landscaping"
+    | "painting"
+    | "roofing"
+    | "cleaning"
+    | "general"
+    | "other"
+    | string;
   priority: "low" | "normal" | "high" | "urgent" | string;
   status: "open" | "in_progress" | "resolved" | "cancelled" | string;
   reportedBy?: string | null;
@@ -2064,6 +2078,7 @@ export class ApiClient {
     input: {
       title: string;
       description: string;
+      category?: string;
       priority?: string;
       leaseId?: string;
       reportedBy?: string;
@@ -2093,7 +2108,7 @@ export class ApiClient {
   myTenantMaintenanceRequests() {
     return request<MaintenanceRequest[]>("/tenant/maintenance-requests", { token: this.token, accountId: this.accountId });
   }
-  reportTenantMaintenanceRequest(input: { title: string; description: string; priority?: string }) {
+  reportTenantMaintenanceRequest(input: { title: string; description: string; category?: string; priority?: string }) {
     return request<MaintenanceRequest>("/tenant/maintenance-requests", {
       method: "POST",
       body: input,
@@ -2107,7 +2122,11 @@ export class ApiClient {
   myTenantAnnouncements() {
     return request<Announcement[]>("/tenant/announcements", { token: this.token, accountId: this.accountId });
   }
-  updateMaintenanceRequest(propertyId: string, requestId: string, input: { title?: string; description?: string; priority?: string }) {
+  updateMaintenanceRequest(
+    propertyId: string,
+    requestId: string,
+    input: { title?: string; description?: string; category?: string; priority?: string },
+  ) {
     return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests/${requestId}`, {
       method: "PATCH",
       body: input,

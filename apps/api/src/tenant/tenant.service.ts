@@ -95,6 +95,7 @@ export class TenantService {
         leaseId: lease.id,
         title: dto.title,
         description: dto.description,
+        category: dto.category ?? 'general',
         priority: dto.priority ?? 'normal',
         reportedBy: lease.tenantName,
       },

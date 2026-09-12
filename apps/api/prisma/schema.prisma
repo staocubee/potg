@@ -1637,6 +1637,11 @@ model MaintenanceRequest {
   leaseId          String? // set when reported against an active tenancy
   title            String
   description      String
+  // The audit's own finding: no taxonomy existed at all, only priority.
+  // A flat category list, same shape as priority above — not a
+  // sub-category/licensing-requirement system, that's a market-specific
+  // config problem this scaffold doesn't attempt.
+  category         String    @default("general") // plumbing | electrical | hvac | appliance | structural | pest_control | landscaping | painting | roofing | cleaning | general | other
   priority         String    @default("normal") // low | normal | high | urgent
   status           String    @default("open") // open | in_progress | resolved | cancelled
   reportedBy       String?

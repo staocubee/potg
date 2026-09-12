@@ -891,6 +891,7 @@ export class PropertiesService {
         leaseId: dto.leaseId,
         title: dto.title,
         description: dto.description,
+        category: dto.category ?? 'general',
         priority: dto.priority ?? 'normal',
         reportedBy: dto.reportedBy,
         assignedVendorId: dto.assignedVendorId,
@@ -915,6 +916,7 @@ export class PropertiesService {
       data: {
         title: dto.title ?? undefined,
         description: dto.description ?? undefined,
+        category: dto.category ?? undefined,
         priority: dto.priority ?? undefined,
       },
     });

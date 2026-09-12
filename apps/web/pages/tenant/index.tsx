@@ -13,6 +13,20 @@ function formatMoney(value?: string | null, currency?: string) {
 }
 
 const MAINTENANCE_PRIORITIES = ["low", "normal", "high", "urgent"];
+const MAINTENANCE_CATEGORIES = [
+  "plumbing",
+  "electrical",
+  "hvac",
+  "appliance",
+  "structural",
+  "pest_control",
+  "landscaping",
+  "painting",
+  "roofing",
+  "cleaning",
+  "general",
+  "other",
+];
 
 // The tenant-facing counterpart to pages/properties/[id].tsx's Leases/
 // Maintenance cards — read-only for the lease itself (rent/dates/deposit
@@ -194,6 +208,9 @@ export default function TenantLeasePage() {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <div>
                       <div style={{ fontWeight: 600 }}>{r.title}</div>
+                      <div className="potg-muted" style={{ fontSize: 10, marginTop: 2, textTransform: "capitalize" }}>
+                        {r.category.replace(/_/g, " ")}
+                      </div>
                       <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>{r.description}</div>
                       {r.resolutionNotes && (
                         <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
@@ -222,6 +239,7 @@ function ReportTenantMaintenanceRequestForm({ onCreated }: { onCreated: (m: Main
   const auth = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("general");
   const [priority, setPriority] = useState("normal");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -231,7 +249,7 @@ function ReportTenantMaintenanceRequestForm({ onCreated }: { onCreated: (m: Main
     setError(null);
     setBusy(true);
     try {
-      const m = await auth.api.reportTenantMaintenanceRequest({ title, description, priority });
+      const m = await auth.api.reportTenantMaintenanceRequest({ title, description, category, priority });
       onCreated(m);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't report that issue.");
@@ -252,13 +270,22 @@ function ReportTenantMaintenanceRequestForm({ onCreated }: { onCreated: (m: Main
         value={description}
         onChange={(e) => setDescription(e.target.value)}
       />
-      <select className="potg-input" value={priority} onChange={(e) => setPriority(e.target.value)}>
-        {MAINTENANCE_PRIORITIES.map((p) => (
-          <option key={p} value={p}>
-            {p}
-          </option>
-        ))}
-      </select>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <select className="potg-input" value={category} onChange={(e) => setCategory(e.target.value)}>
+          {MAINTENANCE_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c.replace(/_/g, " ")}
+            </option>
+          ))}
+        </select>
+        <select className="potg-input" value={priority} onChange={(e) => setPriority(e.target.value)}>
+          {MAINTENANCE_PRIORITIES.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+      </div>
       <div>
         {auth.hasPermission("maintenance:write") && (
           <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>

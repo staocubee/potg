@@ -6978,6 +6978,67 @@ receipt on its own order.
   or would dispute what arrived, that's still the same manual
   "+ Raise dispute" flow as before, not wired to this new state.
 
+## Maintenance request categorization and category-filtered vendor assignment (this pass)
+
+The workflow audit's own finding on Workflow 7 (Maintenance Request):
+`MaintenanceRequest` had no `category` field at all, only `priority` —
+"no plumbing/electrical-style taxonomy exists." A closely related
+finding one step later in the same workflow: the vendor picker used to
+assign a request was "a plain unfiltered `<select>`, not the vendor
+marketplace's own search/filter experience" — every vendor on the
+platform in one list regardless of what the issue actually needed.
+
+**What's built**:
+
+- **`MaintenanceRequest.category`** (new column, `@default("general")`)
+  — a flat taxonomy (plumbing, electrical, hvac, appliance, structural,
+  pest_control, landscaping, painting, roofing, cleaning, general,
+  other), the same shape `priority` already uses, deliberately not a
+  sub-category/licensing-requirement system (a market-specific config
+  problem, same restraint `CreateVendorDto`'s own comment already
+  applies to vendor service categories). Settable on report, editable
+  afterward, real validation (`IsIn`) rejecting anything outside the
+  list.
+- **Both real report paths** — the landlord/manager form on the
+  property page and the tenant's own portal form — both gained the
+  category selector, not just one of them.
+- **Category-filtered vendor assignment** — `VendorOrNameField` (used
+  both when first reporting an issue and when starting one) now filters
+  its vendor list to `serviceCategory === category` whenever a real
+  match exists, with a visible "Showing N `<category>` vendors only"
+  hint, and silently falls back to the full unfiltered list when a
+  category has no vendor equivalent (structural, hvac, appliance,
+  pest_control, general, other) — rather than showing an empty,
+  dead-end picker for those.
+
+**Verified live**: reported four real requests on a real property —
+`electrical`, `structural`, `plumbing`, and one left uncategorized to
+confirm it defaulted to `general` — and confirmed a request with an
+invalid category string is rejected with a real 400 naming the full
+allowed list. Started the `electrical` request and confirmed the
+vendor picker correctly narrowed to exactly the 3 real electrical
+vendors on the platform with the "Showing 3 electrical vendors only"
+hint visible; started the `structural` one and confirmed it correctly
+showed all 7 vendors unfiltered, with no misleading hint. Edited an
+existing request's category from `general` to `appliance` and
+confirmed it persisted and re-rendered correctly. Separately verified
+the tenant-facing form end-to-end: logged in as the real tenant
+account, reported an issue with category `electrical`, and confirmed
+it appeared correctly categorized on the tenant's own request list.
+
+**Not done — explicit scope, not oversight**:
+
+- No sub-categories or per-category licensing rules — same restraint
+  vendor service categories already accept; a flat list, not a
+  taxonomy tree.
+- The vendor filter is a client-side narrowing of an already-fetched
+  list, not a new search/filter endpoint — the audit's own broader
+  finding (no location/rating/verification filtering anywhere on the
+  vendor marketplace itself) is unrelated and still open.
+- No category-based reporting/analytics (e.g., "most common issue type
+  this quarter") — the field exists and is queryable, but nothing
+  aggregates it yet.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

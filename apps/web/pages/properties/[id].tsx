@@ -1790,6 +1790,7 @@ function VendorOrNameField({
   name,
   setName,
   namePlaceholder,
+  preferredCategory,
 }: {
   vendors: Vendor[];
   vendorId: string;
@@ -1797,31 +1798,50 @@ function VendorOrNameField({
   name: string;
   setName: (n: string) => void;
   namePlaceholder: string;
+  // The audit's own finding: this picker was a plain, unfiltered select
+  // over every vendor on the platform, unlike the vendor marketplace's
+  // own search/filter experience. A full search UI is out of scope
+  // here, but the one filter that's actually meaningful in this
+  // context — matching the maintenance issue's own category to a
+  // vendor's serviceCategory — costs nothing extra to apply, since both
+  // already exist. Falls back to the full list when nothing matches
+  // (an issue category like "structural" has no vendor equivalent),
+  // rather than showing an empty, dead-end picker.
+  preferredCategory?: string;
 }) {
+  const matching = preferredCategory ? vendors.filter((v) => v.serviceCategory === preferredCategory) : [];
+  const options = matching.length > 0 ? matching : vendors;
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-      <select
-        className="potg-input"
-        value={vendorId}
-        onChange={(e) => {
-          setVendorId(e.target.value);
-          if (e.target.value) setName("");
-        }}
-      >
-        <option value="">Not a platform vendor</option>
-        {vendors.map((v) => (
-          <option key={v.id} value={v.id}>
-            {v.businessName} ({v.serviceCategory})
-          </option>
-        ))}
-      </select>
-      <input
-        className="potg-input"
-        placeholder={namePlaceholder}
-        value={name}
-        disabled={!!vendorId}
-        onChange={(e) => setName(e.target.value)}
-      />
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <select
+          className="potg-input"
+          value={vendorId}
+          onChange={(e) => {
+            setVendorId(e.target.value);
+            if (e.target.value) setName("");
+          }}
+        >
+          <option value="">Not a platform vendor</option>
+          {options.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.businessName} ({v.serviceCategory})
+            </option>
+          ))}
+        </select>
+        <input
+          className="potg-input"
+          placeholder={namePlaceholder}
+          value={name}
+          disabled={!!vendorId}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </div>
+      {matching.length > 0 && (
+        <span className="potg-muted" style={{ fontSize: 11 }}>
+          Showing {matching.length} {preferredCategory?.replace(/_/g, " ")} vendor{matching.length === 1 ? "" : "s"} only.
+        </span>
+      )}
     </div>
   );
 }
@@ -2539,6 +2559,20 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
 }
 
 const MAINTENANCE_PRIORITIES = ["low", "normal", "high", "urgent"];
+const MAINTENANCE_CATEGORIES = [
+  "plumbing",
+  "electrical",
+  "hvac",
+  "appliance",
+  "structural",
+  "pest_control",
+  "landscaping",
+  "painting",
+  "roofing",
+  "cleaning",
+  "general",
+  "other",
+];
 
 function ReportMaintenanceRequestForm({
   propertyId,
@@ -2554,6 +2588,7 @@ function ReportMaintenanceRequestForm({
   const auth = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("general");
   const [priority, setPriority] = useState("normal");
   const [leaseId, setLeaseId] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
@@ -2569,6 +2604,7 @@ function ReportMaintenanceRequestForm({
       const m = await auth.api.reportMaintenanceRequest(propertyId, {
         title,
         description,
+        category,
         priority,
         leaseId: leaseId || undefined,
         assignedTo: assignedVendorId ? undefined : assignedTo || undefined,
@@ -2588,6 +2624,13 @@ function ReportMaintenanceRequestForm({
       <input className="potg-input" required autoFocus placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
       <textarea className="potg-input" rows={2} required placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <select className="potg-input" value={category} onChange={(e) => setCategory(e.target.value)}>
+          {MAINTENANCE_CATEGORIES.map((c) => (
+            <option key={c} value={c}>
+              {c.replace(/_/g, " ")}
+            </option>
+          ))}
+        </select>
         <select className="potg-input" value={priority} onChange={(e) => setPriority(e.target.value)}>
           {MAINTENANCE_PRIORITIES.map((p) => (
             <option key={p} value={p}>
@@ -2595,15 +2638,15 @@ function ReportMaintenanceRequestForm({
             </option>
           ))}
         </select>
-        <select className="potg-input" value={leaseId} onChange={(e) => setLeaseId(e.target.value)}>
-          <option value="">Not tied to a lease</option>
-          {leases.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.tenantName}
-            </option>
-          ))}
-        </select>
       </div>
+      <select className="potg-input" value={leaseId} onChange={(e) => setLeaseId(e.target.value)}>
+        <option value="">Not tied to a lease</option>
+        {leases.map((l) => (
+          <option key={l.id} value={l.id}>
+            {l.tenantName}
+          </option>
+        ))}
+      </select>
       <VendorOrNameField
         vendors={vendors}
         vendorId={assignedVendorId}
@@ -2611,6 +2654,7 @@ function ReportMaintenanceRequestForm({
         name={assignedTo}
         setName={setAssignedTo}
         namePlaceholder="Assign to (optional)"
+        preferredCategory={category}
       />
       {auth.hasPermission("maintenance:write") && (
         <div>
@@ -2642,6 +2686,7 @@ function MaintenanceRequestRow({
   const [resolutionCost, setResolutionCost] = useState("");
   const [editTitle, setEditTitle] = useState(request.title);
   const [editDescription, setEditDescription] = useState(request.description);
+  const [editCategory, setEditCategory] = useState(request.category);
   const [editPriority, setEditPriority] = useState(request.priority);
   const [startAssignedTo, setStartAssignedTo] = useState(request.assignedVendorId ? "" : request.assignedTo ?? "");
   const [startAssignedVendorId, setStartAssignedVendorId] = useState(request.assignedVendorId ?? "");
@@ -2705,6 +2750,7 @@ function MaintenanceRequestRow({
       await auth.api.updateMaintenanceRequest(propertyId, request.id, {
         title: editTitle,
         description: editDescription,
+        category: editCategory,
         priority: editPriority,
       });
       setEditing(false);
@@ -2724,7 +2770,7 @@ function MaintenanceRequestRow({
         <div>
           <div style={{ fontWeight: 600 }}>{request.title}</div>
           <div className="potg-muted" style={{ fontSize: 11 }}>
-            {request.priority} priority · {new Date(request.createdAt).toLocaleDateString()}
+            {request.category.replace(/_/g, " ")} · {request.priority} priority · {new Date(request.createdAt).toLocaleDateString()}
           </div>
           <div style={{ marginTop: 4 }}>{request.description}</div>
           {(request.assignedVendor || request.assignedTo) && (
@@ -2774,6 +2820,7 @@ function MaintenanceRequestRow({
             name={startAssignedTo}
             setName={setStartAssignedTo}
             namePlaceholder="Assign to (optional)"
+            preferredCategory={request.category}
           />
           <div style={{ display: "flex", gap: 6 }}>
             {auth.hasPermission("maintenance:write") && (
@@ -2829,13 +2876,22 @@ function MaintenanceRequestRow({
             onChange={(e) => setEditDescription(e.target.value)}
             placeholder="Description"
           />
-          <select className="potg-input" value={editPriority} onChange={(e) => setEditPriority(e.target.value)}>
-            {MAINTENANCE_PRIORITIES.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <select className="potg-input" value={editCategory} onChange={(e) => setEditCategory(e.target.value)}>
+              {MAINTENANCE_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+            <select className="potg-input" value={editPriority} onChange={(e) => setEditPriority(e.target.value)}>
+              {MAINTENANCE_PRIORITIES.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
           <div style={{ display: "flex", gap: 6 }}>
             {auth.hasPermission("maintenance:write") && (
               <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
