@@ -102,6 +102,19 @@ export class PropertiesController {
     return this.properties.findAccessGrants(propertyId);
   }
 
+  // Deliberately property:read, not property:write like the admin-facing
+  // route above — this is "tell me about my own access," which every
+  // realistic grant holder already has property:read to ask (see
+  // PropertiesService.getMyAccessGrant's own comment). Registered after
+  // :grantId's own DELETE route above only for readability; Nest doesn't
+  // care about declaration order here since "me" isn't a valid :grantId
+  // shape either way.
+  @RequirePermissions('property:read')
+  @Get(':propertyId/access-grants/me')
+  getMyAccessGrant(@Param('propertyId') propertyId: string, @CurrentAccountMember() member: { id: string }) {
+    return this.properties.getMyAccessGrant(propertyId, member.id);
+  }
+
   @RequirePermissions('property:write')
   @Delete(':propertyId/access-grants/:grantId')
   revokeAccessGrant(@Param('propertyId') propertyId: string, @Param('grantId') grantId: string) {

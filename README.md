@@ -6458,19 +6458,12 @@ caught, and its fix, above. Re-verified after the fix: correctly gone.
 Switched back to the owning account and confirmed zero regressions —
 every button still renders exactly as it always did.
 
-**Not done — explicit scope, not oversight**:
+**Not done — explicit scope, not oversight, at the time**:
 
-- The "Release funds"/payout-verification buttons check only the
-  `payment:approve` role permission, not `PaymentsService.
-  releaseMilestone`'s own second path (a per-property
-  `PropertyAccessGrant.canApprovePayments` grant) — there's no endpoint
-  yet for the frontend to ask "do I hold a grant on this property," so
-  a family member who only has a grant (not the role permission) still
-  sees the button hidden, even though the server would actually allow
-  the action. Fails safe (hides a working action), never the reverse.
-  A real, separate follow-up: expose that grant lookup.
-  `finance_approver` and the owner-tier roles are unaffected — they
-  reach `payment:approve` through the role, not the grant.
+- The "Release funds" button's blind spot (couldn't see a per-property
+  `PropertyAccessGrant.canApprovePayments` grant, only the
+  `payment:approve` role permission) was closed in a later pass — see
+  "Exposing a member's own PropertyAccessGrant" below.
 - `hasPermission` combined with `isOwningAccount` covers every route on
   this page precisely because none of them sit in between "owner-only"
   and "assigned-vendor-reachable" — but the combination is still a
@@ -6481,6 +6474,63 @@ every button still renders exactly as it always did.
 - This gating pass covered the project detail page only — the page
   named in the earlier audit. Other pages (properties, vendors,
   reports, ...) still render their action buttons unconditionally.
+
+## Exposing a member's own PropertyAccessGrant (this pass)
+
+The one gap left after the UI-gating pass above: the "Release funds"
+button only ever checked the `payment:approve` role permission, never
+`PaymentsService.releaseMilestone`'s own second path — a per-property
+`PropertyAccessGrant.canApprovePayments` grant — because nothing let
+the frontend ask "do I hold a grant on this property" without already
+having `property:write` (the admin-facing `GET .../access-grants`
+route's own gate, which the grant exists to substitute for in the
+first place).
+
+**What's built**:
+
+- **`GET /properties/:propertyId/access-grants/me`** (new endpoint,
+  `PropertiesService.getMyAccessGrant`) — the current account member's
+  own grant on a property, or `null` if none. Gated at `property:read`,
+  not `property:write` — the much lower bar every realistic grant
+  holder already clears (grants only ever target a member of the
+  *same* owning account; `createOrUpdateAccessGrant` already refuses
+  one for any other account's member).
+- **`getMyAccessGrant`** (new API client method) and a `myAccessGrant`
+  state on the project detail page, fetched in the same
+  `Promise.allSettled` batch as escrow/payouts/receipts/disputes.
+- **"Release funds" now checks both paths**: `auth.hasPermission
+  ("payment:approve") || myAccessGrant?.canApprovePayments === true` —
+  mirroring `releaseMilestone`'s own OR exactly. The payout
+  "Check status"/"Enter OTP" buttons deliberately do **not** get this
+  same OR: `verifyPayout`/`finalizePayoutOtp` check `payment:approve`
+  alone server-side, with no grant fallback, so extending their UI
+  gating to the grant would have shown a button that still 404s.
+
+**Verified live, end-to-end, not just the button rendering**:
+registered a real second user, added them to the demo account as
+`viewer` (a role with no `payment:approve`), confirmed via
+`GET /auth/accounts` that this account genuinely has zero
+`payment:approve`, then granted them `canApprovePayments: true` on the
+demo property via the existing owner-facing endpoint. Logged in as that
+user and reloaded the project — "Release funds" correctly appeared on
+three pending, approved milestones despite the role permission being
+absent, while "+ Deposit," "+ Add" milestone, the payout
+"Check status" button, "+ Raise dispute," and review Edit/Delete all
+stayed correctly absent (this role holds none of those). Clicked
+"Release funds" on "Platform fee test milestone" — it worked for real:
+a genuine ₦950 payout (of ₦1,000 gross, ₦50 platform fee) dispatched to
+a real Flutterwave sandbox transfer, proving the grant path all the way
+through the server, not just past the button.
+
+**Not done — explicit scope, not oversight**:
+
+- `getMyAccessGrant` only covers the one grant field this page actually
+  uses (`canApprovePayments`). `canView`/`canEdit` remain unenforced
+  anywhere in this codebase, same as before this pass — the new
+  endpoint returns them, nothing reads them yet.
+- No UI anywhere lets a grant holder see their own grant outside of its
+  effect on this one button — there's no "your access to this property"
+  screen, just the one gate this pass needed.
 
 ## Not built yet
 

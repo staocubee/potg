@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Dispute, DisputeEvidence, DISPUTE_TYPES, EscrowAccount, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, Receipt, Vendor, VendorReview } from "../../lib/api";
+import { AccessGrant, ApiError, Dispute, DisputeEvidence, DISPUTE_TYPES, EscrowAccount, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, Receipt, Vendor, VendorReview } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -45,6 +45,11 @@ export default function ProjectDetailPage() {
   // when the real reason was "you can't see this," not "there's nothing
   // here."
   const [forbidden, setForbidden] = useState({ escrow: false, payouts: false, receipts: false, disputes: false });
+  // Closes the last "Release funds" gating gap: payment:approve isn't
+  // the only way PaymentsService.releaseMilestone lets someone through —
+  // a per-property PropertyAccessGrant.canApprovePayments does too. Null
+  // for "no grant," same as the endpoint itself returns.
+  const [myAccessGrant, setMyAccessGrant] = useState<AccessGrant | null>(null);
 
   function load() {
     if (!id || !auth.currentAccountId) return;
@@ -64,10 +69,11 @@ export default function ProjectDetailPage() {
           auth.api.findProjectPayouts(id),
           auth.api.findReceipts(id),
           auth.api.findDisputes(id),
+          auth.api.getMyAccessGrant(p.propertyId),
         ]);
       })
       .then((results) => {
-        const [p, e, po, r, d] = results;
+        const [p, e, po, r, d, grant] = results;
         // 403 (lacks the read permission entirely, e.g. escrow/receipts
         // for the vendor role) and 404 (holds the permission, but this
         // particular route was never extended with @AllowAssignedVendor()
@@ -82,6 +88,10 @@ export default function ProjectDetailPage() {
         if (e.status === "fulfilled") setEscrow(e.value);
         if (po.status === "fulfilled") setPayouts(po.value);
         if (r.status === "fulfilled") setReceipts(r.value);
+        // A vendor lacks property:read, so this 403s for it — same
+        // "just means no grant" fallback the endpoint itself uses for a
+        // real "no grant" answer.
+        setMyAccessGrant(grant.status === "fulfilled" ? grant.value : null);
         if (d.status === "fulfilled") setDisputes(d.value);
         setForbidden({
           escrow: isForbidden(e),
@@ -245,6 +255,12 @@ export default function ProjectDetailPage() {
         // project:update_progress) are correctly left permission-only
         // below, since an assigned vendor genuinely can use those.
         const isOwningAccount = project.accountId === auth.currentAccountId;
+        // PaymentsService.releaseMilestone's own two-path gate, mirrored
+        // client-side: payment:approve OR a per-property
+        // canApprovePayments grant. verifyPayout/finalizePayoutOtp below
+        // don't share this — they check payment:approve alone, server-
+        // side, so their own buttons stay permission-only.
+        const canReleaseFunds = auth.hasPermission("payment:approve") || myAccessGrant?.canApprovePayments === true;
         return (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div className="potg-card" style={{ padding: 18 }}>
@@ -467,7 +483,7 @@ export default function ProjectDetailPage() {
                             {milestoneActionId === m.id ? "…" : "Approve"}
                           </button>
                         )}
-                        {m.approvalStatus === "approved" && auth.hasPermission("payment:approve") && (
+                        {m.approvalStatus === "approved" && canReleaseFunds && (
                           <button
                             className="potg-btn potg-btn-primary"
                             style={{ padding: "4px 9px", fontSize: 11 }}

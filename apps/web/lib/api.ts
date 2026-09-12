@@ -1771,6 +1771,16 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  // "Do I hold a grant on this property, and does it include
+  // canApprovePayments" — the piece listAccessGrants above can't answer
+  // for a non-property:write member asking about themselves. Returns
+  // null (not a 404) when there's no grant.
+  getMyAccessGrant(propertyId: string) {
+    return request<AccessGrant | null>(`/properties/${propertyId}/access-grants/me`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   // Module 22 Phase 1 — the device registry.
   listDevices(propertyId: string) {
     return request<PropertyDevice[]>(`/properties/${propertyId}/devices`, { token: this.token, accountId: this.accountId });

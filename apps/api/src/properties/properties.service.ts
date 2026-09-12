@@ -273,6 +273,21 @@ export class PropertiesService {
     return { deleted: true };
   }
 
+  // The gap the "Release funds" UI-gating pass left open: findAccessGrants
+  // above lists every grant on a property, but is itself gated on
+  // property:write — exactly the permission a grant exists to substitute
+  // for, so its own holder could never call it to find out about their
+  // own access. This is the same data, narrowed to "just tell me about
+  // me," gated at the much lower property:read bar every realistic
+  // grant-holder already has (see this method's own frontend caller for
+  // why). Returns null, not a 404, when there's no grant — "no grant" is
+  // a perfectly normal answer here, not a missing resource.
+  getMyAccessGrant(propertyId: string, accountMemberId: string) {
+    return this.prisma.propertyAccessGrant.findUnique({
+      where: { propertyId_accountMemberId: { propertyId, accountMemberId } },
+    });
+  }
+
   // Module 22's device registry — see PropertyDevice's own schema
   // comment: a real record of intent to connect a device, always created
   // at "not_connected" since no adapter exists yet to ever report
