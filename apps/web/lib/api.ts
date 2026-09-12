@@ -1469,6 +1469,7 @@ export type Delivery = {
   trackingReference?: string | null;
   estimatedDeliveryDate?: string | null;
   deliveredAt?: string | null;
+  confirmedAt?: string | null;
 };
 
 export type MaterialOrder = {
@@ -3033,6 +3034,13 @@ export class ApiClient {
     return request<Delivery>(`/orders/${orderId}/delivery`, {
       method: "PATCH",
       body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  confirmReceipt(orderId: string) {
+    return request<Delivery>(`/orders/${orderId}/confirm-receipt`, {
+      method: "POST",
       token: this.token,
       accountId: this.accountId,
     });

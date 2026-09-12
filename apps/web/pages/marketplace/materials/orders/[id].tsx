@@ -27,6 +27,7 @@ export default function OrderDetailPage() {
   const [showDisputeForm, setShowDisputeForm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusBusy, setStatusBusy] = useState(false);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   function load() {
     if (!id || !auth.currentAccountId) return;
@@ -56,6 +57,19 @@ export default function OrderDetailPage() {
       setError(err instanceof ApiError ? err.message : "Couldn't update the order status.");
     } finally {
       setStatusBusy(false);
+    }
+  }
+
+  async function onConfirmReceipt() {
+    if (!id) return;
+    setConfirmBusy(true);
+    try {
+      const delivery = await auth.api.confirmReceipt(id);
+      setOrder((prev) => (prev ? { ...prev, delivery } : prev));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't confirm receipt.");
+    } finally {
+      setConfirmBusy(false);
     }
   }
 
@@ -155,6 +169,24 @@ export default function OrderDetailPage() {
                   {order.delivery.estimatedDeliveryDate && (
                     <div className="potg-muted" style={{ marginTop: 4 }}>
                       Estimated: {new Date(order.delivery.estimatedDeliveryDate).toLocaleDateString()}
+                    </div>
+                  )}
+                  {/* Buyer's own confirmation — separate from the supplier's
+                      "delivered" status above, see confirmReceipt's own
+                      comment on the API side. */}
+                  {order.delivery.status === "delivered" && (
+                    <div style={{ marginTop: 10 }}>
+                      {order.delivery.confirmedAt ? (
+                        <span className="potg-badge">
+                          Receipt confirmed {new Date(order.delivery.confirmedAt).toLocaleDateString()}
+                        </span>
+                      ) : (
+                        auth.hasPermission("order:write") && (
+                          <button className="potg-btn potg-btn-primary" onClick={onConfirmReceipt} disabled={confirmBusy}>
+                            {confirmBusy ? "…" : "Confirm receipt"}
+                          </button>
+                        )
+                      )}
                     </div>
                   )}
                 </div>
@@ -372,6 +404,11 @@ function DeliveryEditor({
         <label className="potg-label">Tracking reference (optional)</label>
         <input className="potg-input" value={trackingReference} onChange={(e) => setTrackingReference(e.target.value)} />
       </div>
+      {delivery?.confirmedAt && (
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+          Buyer confirmed receipt on {new Date(delivery.confirmedAt).toLocaleDateString()}.
+        </p>
+      )}
       <div>
         <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
           {busy ? "Saving…" : "Save delivery info"}

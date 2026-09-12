@@ -1409,6 +1409,13 @@ model Delivery {
   trackingReference     String?
   estimatedDeliveryDate DateTime?
   deliveredAt           DateTime?
+  // The buyer's own confirmation, separate from deliveredAt above (which
+  // the supplier sets unilaterally) — the audit's own finding: "only the
+  // supplier can set delivery status, including delivered — the buyer
+  // has no confirm-receipt action of their own." Settable only once the
+  // supplier has already marked it delivered (see
+  // MaterialsService.confirmReceipt).
+  confirmedAt           DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 

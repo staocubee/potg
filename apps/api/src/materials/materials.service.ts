@@ -20,10 +20,14 @@ import { CheckoutCartDto } from './dto/checkout-cart.dto';
 import { getSupplierTrustScore } from './trust-score';
 import { rankingBoost } from '../common/search-ranking.util';
 import { getActiveBoostMap, applyVisibilityBoost } from '../packages/boost.util';
+import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
 
 @Injectable()
 export class MaterialsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: InAppNotificationsService,
+  ) {}
 
   private async requireOwnSupplier(accountId: string) {
     const supplier = await this.prisma.supplier.findUnique({ where: { accountId } });
@@ -508,6 +512,39 @@ export class MaterialsService {
       update: data,
       create: { orderId, ...data },
     });
+  }
+
+  // The audit's own finding: only a supplier can ever set delivery
+  // status, including "delivered" — the buyer had no confirm-receipt
+  // action of its own. Deliberately a separate field (Delivery.
+  // confirmedAt) rather than reusing deliveredAt, so "the supplier says
+  // it shipped/arrived" and "the site says it actually has it" stay two
+  // distinct, independently-true facts instead of one party being able
+  // to silently claim the other's half.
+  async confirmReceipt(orderId: string, accountId: string) {
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, accountId }, include: { delivery: true } });
+    if (!order) throw new NotFoundException('Order not found in your account');
+    if (!order.delivery || order.delivery.status !== 'delivered') {
+      throw new BadRequestException('This order has not been marked delivered by the supplier yet');
+    }
+    if (order.delivery.confirmedAt) {
+      throw new BadRequestException('Receipt was already confirmed for this order');
+    }
+
+    const delivery = await this.prisma.delivery.update({ where: { orderId }, data: { confirmedAt: new Date() } });
+
+    const supplier = await this.prisma.supplier.findUnique({ where: { id: order.supplierId } });
+    if (supplier) {
+      this.notifications.notify(
+        supplier.accountId,
+        'order_receipt_confirmed',
+        `Receipt confirmed for order`,
+        `The buyer confirmed they received order #${order.id.slice(0, 8)}.`,
+        `/marketplace/materials/orders/${order.id}`,
+      );
+    }
+
+    return delivery;
   }
 
   // --- Reviews -------------------------------------------------------

@@ -6914,6 +6914,70 @@ status }` shape `myOffers()` itself already selects.
   amount is overwritten in place; nothing records what the buyer
   originally offered before the counter.
 
+## Buyer receipt confirmation on material orders (this pass)
+
+The workflow audit's own finding on Workflow 6 (Buy Construction
+Materials): only a supplier could ever set an order's delivery status,
+including "delivered" — the buyer/site had no confirm-receipt action of
+its own; its only post-delivery action was leaving a review. One side
+of the transaction could unilaterally declare "delivered" with nothing
+from the other side checking that claim.
+
+**What's built**:
+
+- **`Delivery.confirmedAt`** (new column) — deliberately separate from
+  the existing `deliveredAt` the supplier already sets, so "the
+  supplier says it arrived" and "the site says it actually has it" stay
+  two distinct, independently-true facts rather than one party being
+  able to silently claim the other's half.
+- **`POST /orders/:orderId/confirm-receipt`** (new route,
+  `MaterialsService.confirmReceipt`) — buyer-only (checked against
+  `Order.accountId`, not `requireOwnSupplier`), and only reachable once
+  the supplier has actually marked the order `delivered`: a real,
+  specific 400 either way — before delivery, or on a second attempt
+  once already confirmed.
+- **A real notification to the supplier** (`order_receipt_confirmed`)
+  the moment the buyer confirms — the first notification either side of
+  a material order has ever received; before this pass, `Order` had no
+  `.notify(` call site at all, checked across the whole module.
+- **Buyer UI** (order detail page): a "Confirm receipt" button appears
+  once the supplier has marked an order delivered, replaced by a
+  "Receipt confirmed [date]" badge afterward.
+- **Supplier UI**: the existing `DeliveryEditor` now shows a read-only
+  "Buyer confirmed receipt on [date]" line once confirmed, so the
+  supplier doesn't have to guess whether the buyer ever saw it arrive.
+
+**Verified live** end-to-end with the demo login's own two real,
+distinct accounts (an INDIVIDUAL buyer and the seeded "Lagos BuildMart"
+supplier account, same underlying user, switched via the account
+selector — not simulated): placed a real order, confirmed
+`confirm-receipt` correctly refused with "This order has not been
+marked delivered by the supplier yet" while still `pending`, marked it
+delivered from the supplier side, then confirmed receipt for real from
+the buyer's own order page. Confirmed the button was replaced by a real
+"Receipt confirmed" badge with the actual date, that switching to the
+supplier's own account showed the matching read-only confirmation line
+on `DeliveryEditor`, and that a real `order_receipt_confirmed`
+notification reached the supplier's own notification bell with the
+correct order-specific wording. Also verified a second confirm-receipt
+call correctly refused with "Receipt was already confirmed for this
+order," and that the supplier's own account is refused outright
+(404 — "Order not found in your account") if it tries to confirm
+receipt on its own order.
+
+**Not done — explicit scope, not oversight**:
+
+- No enforcement tying receipt confirmation to anything downstream —
+  `Order.status`/`Project.budget` are unaffected by confirmation; it's
+  a real fact recorded, not (yet) a gate on anything else.
+- No reminder if a delivered order is never confirmed — same reactive-
+  only pattern this codebase already has elsewhere (rent/lease
+  reminders were the exception this session built, not the rule);
+  confirmation sits open indefinitely with no nudge.
+- No dispute auto-raised on a mismatch — if the buyer never confirms,
+  or would dispute what arrived, that's still the same manual
+  "+ Raise dispute" flow as before, not wired to this new state.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

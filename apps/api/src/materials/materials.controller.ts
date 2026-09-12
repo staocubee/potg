@@ -261,6 +261,16 @@ export class MaterialsController {
     return this.materials.upsertDelivery(orderId, member.accountId, dto);
   }
 
+  // The buyer's own counterpart to the supplier-only route above — see
+  // MaterialsService.confirmReceipt's own comment. Deliberately not
+  // nested under requireOwnSupplier like upsertDelivery: this account is
+  // the order's buyer, never its supplier.
+  @RequirePermissions('order:write')
+  @Post('orders/:orderId/confirm-receipt')
+  confirmReceipt(@Param('orderId') orderId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.materials.confirmReceipt(orderId, member.accountId);
+  }
+
   // Module 18 Phase 1 — the buyer/supplier dispute routes for an order.
   // One unified path for both sides (see PaymentsService.
   // requireOrderParty's own comment for why, unlike the project-dispute
