@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsIn, IsOptional, IsString } from 'class-validator';
 
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 
@@ -52,4 +52,13 @@ export class ReportMaintenanceRequestDto {
   @IsOptional()
   @IsString()
   assignedVendorId?: string;
+
+  // Real photos of the issue itself — see MaintenanceRequest.photoUrls's
+  // own schema comment. Same "just a String[] of real POST /uploads
+  // (R2) URLs, no URL-shape validation" convention every other photo
+  // field in this codebase already uses.
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  photoUrls?: string[];
 }

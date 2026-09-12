@@ -2593,6 +2593,7 @@ function ReportMaintenanceRequestForm({
   const [leaseId, setLeaseId] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
   const [assignedVendorId, setAssignedVendorId] = useState("");
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -2609,6 +2610,7 @@ function ReportMaintenanceRequestForm({
         leaseId: leaseId || undefined,
         assignedTo: assignedVendorId ? undefined : assignedTo || undefined,
         assignedVendorId: assignedVendorId || undefined,
+        photoUrls: photoUrls.length > 0 ? photoUrls : undefined,
       });
       onCreated(m);
     } catch (err) {
@@ -2656,6 +2658,7 @@ function ReportMaintenanceRequestForm({
         namePlaceholder="Assign to (optional)"
         preferredCategory={category}
       />
+      <PhotoPicker urls={photoUrls} onChange={setPhotoUrls} label="+ Add photo" />
       {auth.hasPermission("maintenance:write") && (
         <div>
           <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
@@ -2688,6 +2691,8 @@ function MaintenanceRequestRow({
   const [editDescription, setEditDescription] = useState(request.description);
   const [editCategory, setEditCategory] = useState(request.category);
   const [editPriority, setEditPriority] = useState(request.priority);
+  const [editPhotoUrls, setEditPhotoUrls] = useState(request.photoUrls);
+  const [resolutionPhotoUrls, setResolutionPhotoUrls] = useState<string[]>([]);
   const [startAssignedTo, setStartAssignedTo] = useState(request.assignedVendorId ? "" : request.assignedTo ?? "");
   const [startAssignedVendorId, setStartAssignedVendorId] = useState(request.assignedVendorId ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -2719,6 +2724,7 @@ function MaintenanceRequestRow({
       await auth.api.resolveMaintenanceRequest(propertyId, request.id, {
         resolutionNotes: resolutionNotes || undefined,
         cost: resolutionCost ? Number(resolutionCost) : undefined,
+        resolutionPhotoUrls: resolutionPhotoUrls.length > 0 ? resolutionPhotoUrls : undefined,
       });
       setResolving(false);
       onChanged();
@@ -2752,6 +2758,7 @@ function MaintenanceRequestRow({
         description: editDescription,
         category: editCategory,
         priority: editPriority,
+        photoUrls: editPhotoUrls,
       });
       setEditing(false);
       onChanged();
@@ -2773,6 +2780,15 @@ function MaintenanceRequestRow({
             {request.category.replace(/_/g, " ")} · {request.priority} priority · {new Date(request.createdAt).toLocaleDateString()}
           </div>
           <div style={{ marginTop: 4 }}>{request.description}</div>
+          {request.photoUrls.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+              {request.photoUrls.map((url) => (
+                <a key={url} href={url} target="_blank" rel="noreferrer">
+                  <img src={url} alt="" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6, border: "1px solid var(--potg-border)" }} />
+                </a>
+              ))}
+            </div>
+          )}
           {(request.assignedVendor || request.assignedTo) && (
             <div className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
               Assigned to: {request.assignedVendor ? `${request.assignedVendor.businessName} (vendor)` : request.assignedTo}
@@ -2782,6 +2798,15 @@ function MaintenanceRequestRow({
             <div className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
               Resolution: {request.resolutionNotes}
               {request.cost != null && ` — ${Number(request.cost).toLocaleString()}`}
+            </div>
+          )}
+          {request.resolutionPhotoUrls.length > 0 && (
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+              {request.resolutionPhotoUrls.map((url) => (
+                <a key={url} href={url} target="_blank" rel="noreferrer">
+                  <img src={url} alt="" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6, border: "1px solid var(--potg-border)" }} />
+                </a>
+              ))}
             </div>
           )}
         </div>
@@ -2852,6 +2877,7 @@ function MaintenanceRequestRow({
             value={resolutionCost}
             onChange={(e) => setResolutionCost(e.target.value)}
           />
+          <PhotoPicker urls={resolutionPhotoUrls} onChange={setResolutionPhotoUrls} label="+ Add receipt/completion photo" />
           <div style={{ display: "flex", gap: 6 }}>
             {auth.hasPermission("maintenance:write") && (
               <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>
@@ -2892,6 +2918,7 @@ function MaintenanceRequestRow({
               ))}
             </select>
           </div>
+          <PhotoPicker urls={editPhotoUrls} onChange={setEditPhotoUrls} label="+ Add photo" />
           <div style={{ display: "flex", gap: 6 }}>
             {auth.hasPermission("maintenance:write") && (
               <button className="potg-btn potg-btn-primary" type="submit" disabled={busy !== null} style={{ padding: "4px 9px", fontSize: 11 }}>

@@ -791,6 +791,8 @@ export type MaintenanceRequest = {
   // Module 24's "Maintenance report" (cost) — set alongside
   // resolutionNotes at resolution time, null otherwise.
   cost?: string | null;
+  photoUrls: string[];
+  resolutionPhotoUrls: string[];
   resolvedAt?: string | null;
   createdAt: string;
   updatedAt: string;
@@ -2084,6 +2086,7 @@ export class ApiClient {
       reportedBy?: string;
       assignedTo?: string;
       assignedVendorId?: string;
+      photoUrls?: string[];
     },
   ) {
     return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests`, {
@@ -2108,7 +2111,7 @@ export class ApiClient {
   myTenantMaintenanceRequests() {
     return request<MaintenanceRequest[]>("/tenant/maintenance-requests", { token: this.token, accountId: this.accountId });
   }
-  reportTenantMaintenanceRequest(input: { title: string; description: string; category?: string; priority?: string }) {
+  reportTenantMaintenanceRequest(input: { title: string; description: string; category?: string; priority?: string; photoUrls?: string[] }) {
     return request<MaintenanceRequest>("/tenant/maintenance-requests", {
       method: "POST",
       body: input,
@@ -2125,7 +2128,7 @@ export class ApiClient {
   updateMaintenanceRequest(
     propertyId: string,
     requestId: string,
-    input: { title?: string; description?: string; category?: string; priority?: string },
+    input: { title?: string; description?: string; category?: string; priority?: string; photoUrls?: string[] },
   ) {
     return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests/${requestId}`, {
       method: "PATCH",
@@ -2142,7 +2145,11 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
-  resolveMaintenanceRequest(propertyId: string, requestId: string, input: { resolutionNotes?: string; cost?: number }) {
+  resolveMaintenanceRequest(
+    propertyId: string,
+    requestId: string,
+    input: { resolutionNotes?: string; cost?: number; resolutionPhotoUrls?: string[] },
+  ) {
     return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests/${requestId}/resolve`, {
       method: "POST",
       body: input,

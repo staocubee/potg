@@ -893,6 +893,7 @@ export class PropertiesService {
         description: dto.description,
         category: dto.category ?? 'general',
         priority: dto.priority ?? 'normal',
+        photoUrls: dto.photoUrls ?? [],
         reportedBy: dto.reportedBy,
         assignedVendorId: dto.assignedVendorId,
         assignedTo: dto.assignedVendorId ? undefined : dto.assignedTo,
@@ -918,6 +919,7 @@ export class PropertiesService {
         description: dto.description ?? undefined,
         category: dto.category ?? undefined,
         priority: dto.priority ?? undefined,
+        photoUrls: dto.photoUrls ?? undefined,
       },
     });
   }
@@ -971,7 +973,13 @@ export class PropertiesService {
     }
     const updated = await this.prisma.maintenanceRequest.update({
       where: { id: requestId },
-      data: { status: 'resolved', resolutionNotes: dto.resolutionNotes, cost: dto.cost, resolvedAt: new Date() },
+      data: {
+        status: 'resolved',
+        resolutionNotes: dto.resolutionNotes,
+        cost: dto.cost,
+        resolutionPhotoUrls: dto.resolutionPhotoUrls ?? [],
+        resolvedAt: new Date(),
+      },
     });
     await this.prisma.propertyTimelineEvent.create({
       data: {

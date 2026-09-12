@@ -97,6 +97,7 @@ export class TenantService {
         description: dto.description,
         category: dto.category ?? 'general',
         priority: dto.priority ?? 'normal',
+        photoUrls: dto.photoUrls ?? [],
         reportedBy: lease.tenantName,
       },
     });

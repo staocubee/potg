@@ -1655,6 +1655,15 @@ model MaintenanceRequest {
   // currency field, same convention Property.estimatedValue already
   // uses — implicitly the account's own single currency.
   cost             Decimal?  @db.Decimal(14, 2)
+  // The audit's own finding: no photo/attachment field existed at all —
+  // resolution recorded only free-text notes and a cost number. Two
+  // separate arrays, not one, because they answer two different
+  // questions: photoUrls is "what's actually wrong" (settable at report
+  // time, same as an inspection's own overview photos), resolutionPhotoUrls
+  // is "proof it was actually fixed" (settable only at resolve time) —
+  // conflating them would lose which photo was taken when.
+  photoUrls           String[]  @default([])
+  resolutionPhotoUrls String[]  @default([])
   resolvedAt       DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt

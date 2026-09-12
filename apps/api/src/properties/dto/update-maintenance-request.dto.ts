@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsIn, IsOptional, IsString } from 'class-validator';
 
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 
@@ -33,4 +33,9 @@ export class UpdateMaintenanceRequestDto {
   @IsOptional()
   @IsIn(PRIORITIES)
   priority?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  photoUrls?: string[];
 }

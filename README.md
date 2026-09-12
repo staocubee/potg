@@ -7049,6 +7049,59 @@ it appeared correctly categorized on the tenant's own request list.
   this quarter") — the field exists and is queryable, but nothing
   aggregates it yet.
 
+## Photo evidence on maintenance requests (this pass)
+
+The workflow audit's own finding on Workflow 7 (Maintenance Request):
+`MaintenanceRequest` had no photo/attachment field at all — resolution
+recorded only free-text notes and a cost number, with no way to show
+what was actually wrong or prove it was actually fixed.
+
+**What's built**:
+
+- **Two separate photo arrays, not one** — `MaintenanceRequest.photoUrls`
+  (what's actually wrong, settable at report time) and
+  `resolutionPhotoUrls` (proof it was fixed, settable only at resolve
+  time). Deliberately kept apart: conflating them would lose which
+  photo was taken when, the same reasoning `PropertyInspection`'s own
+  inspection-level vs. finding-level photos already established.
+- **Real uploads, not pasted URLs** — both fields go through the same
+  `POST /uploads` (Cloudflare R2) pipeline every other real photo field
+  in this codebase already uses, via the existing `PhotoPicker`
+  component (already shared by the inspection overview/finding pickers).
+- **Both real report paths get it** — the landlord/manager form on the
+  property page, the tenant's own portal form, and the edit form (to
+  add photos to an already-open request) all gained a real photo picker;
+  the resolve form gained its own, separate one for receipt/completion
+  photos.
+- **Rendered everywhere the request itself is**: thumbnails linking to
+  the full-size image on the property page's maintenance list and the
+  tenant's own "My Lease" maintenance list, issue photos shown above the
+  resolution notes and receipt photos below them.
+
+**Verified live**: uploaded real images through the actual R2 pipeline
+(not mocked) as both the owner and the tenant. Reported a real request
+with a real issue photo, confirmed it persisted on a fresh re-fetch (not
+just echoed back), edited the same request to add a second photo,
+resolved it with a real, separate receipt photo, and confirmed all
+three photos rendered in the right place on the property page — two
+issue photos above the resolution note, one receipt photo below it.
+Separately verified the tenant's own report form end-to-end: a real
+tenant-uploaded photo appeared correctly on both the tenant's own list
+and the owner's view of the same request. Confirmed a request reported
+with no photos defaults cleanly to two empty arrays rather than null,
+and that a non-string value in `photoUrls` is rejected with a real 400.
+
+**Not done — explicit scope, not oversight**:
+
+- No per-photo caption or ordering — photos render in upload order with
+  no way to annotate which one shows what.
+- No enforcement that a resolution actually includes a photo — it's a
+  real, available field, not a required one; an owner can still resolve
+  a request with notes only, same as before this pass.
+- No photo evidence on `start` (e.g., a "before work began" photo
+  distinct from the original issue report) — only report-time and
+  resolve-time photos exist.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

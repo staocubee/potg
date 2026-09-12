@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Announcement, AppDocument, Lease, MaintenanceRequest } from "../../lib/api";
 import AppShell from "../../components/AppShell";
@@ -212,9 +212,27 @@ export default function TenantLeasePage() {
                         {r.category.replace(/_/g, " ")}
                       </div>
                       <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>{r.description}</div>
+                      {r.photoUrls.length > 0 && (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                          {r.photoUrls.map((url) => (
+                            <a key={url} href={url} target="_blank" rel="noreferrer">
+                              <img src={url} alt="" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, border: "1px solid var(--potg-border)" }} />
+                            </a>
+                          ))}
+                        </div>
+                      )}
                       {r.resolutionNotes && (
                         <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
                           Resolution: {r.resolutionNotes}
+                        </div>
+                      )}
+                      {r.resolutionPhotoUrls.length > 0 && (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                          {r.resolutionPhotoUrls.map((url) => (
+                            <a key={url} href={url} target="_blank" rel="noreferrer">
+                              <img src={url} alt="" style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, border: "1px solid var(--potg-border)" }} />
+                            </a>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -241,6 +259,7 @@ function ReportTenantMaintenanceRequestForm({ onCreated }: { onCreated: (m: Main
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState("general");
   const [priority, setPriority] = useState("normal");
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -249,7 +268,13 @@ function ReportTenantMaintenanceRequestForm({ onCreated }: { onCreated: (m: Main
     setError(null);
     setBusy(true);
     try {
-      const m = await auth.api.reportTenantMaintenanceRequest({ title, description, category, priority });
+      const m = await auth.api.reportTenantMaintenanceRequest({
+        title,
+        description,
+        category,
+        priority,
+        photoUrls: photoUrls.length > 0 ? photoUrls : undefined,
+      });
       onCreated(m);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't report that issue.");
@@ -286,6 +311,7 @@ function ReportTenantMaintenanceRequestForm({ onCreated }: { onCreated: (m: Main
           ))}
         </select>
       </div>
+      <PhotoPicker urls={photoUrls} onChange={setPhotoUrls} label="+ Add photo" />
       <div>
         {auth.hasPermission("maintenance:write") && (
           <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
@@ -294,5 +320,79 @@ function ReportTenantMaintenanceRequestForm({ onCreated }: { onCreated: (m: Main
         )}
       </div>
     </form>
+  );
+}
+
+// Duplicated from properties/[id].tsx's own PhotoPicker rather than
+// shared — same small, self-contained component, same real POST
+// /uploads (R2) pipeline, just needed in a second page.
+function PhotoPicker({ urls, onChange, label }: { urls: string[]; onChange: (urls: string[]) => void; label: string }) {
+  const auth = useAuth();
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onFilesSelected(e: ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    setError(null);
+    try {
+      const uploaded: string[] = [];
+      for (const file of Array.from(files)) {
+        const { url } = await auth.api.uploadFile(file);
+        uploaded.push(url);
+      }
+      onChange([...urls, ...uploaded]);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't upload that photo.");
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
+  }
+
+  return (
+    <div>
+      {urls.length > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+          {urls.map((url, idx) => (
+            <div key={url} style={{ position: "relative" }}>
+              <img
+                src={url}
+                alt=""
+                style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 6, border: "1px solid var(--potg-border)" }}
+              />
+              <button
+                type="button"
+                onClick={() => onChange(urls.filter((_, i) => i !== idx))}
+                aria-label="Remove photo"
+                style={{
+                  position: "absolute",
+                  top: -6,
+                  right: -6,
+                  width: 16,
+                  height: 16,
+                  borderRadius: "50%",
+                  background: "var(--potg-danger)",
+                  color: "#fff",
+                  border: "none",
+                  fontSize: 10,
+                  lineHeight: "16px",
+                  padding: 0,
+                  cursor: "pointer",
+                }}
+              >
+                &times;
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <label className="potg-btn potg-btn-secondary" style={{ fontSize: 11, padding: "4px 9px", display: "inline-block", cursor: "pointer" }}>
+        {uploading ? "Uploading…" : label}
+        <input type="file" accept="image/*" multiple hidden onChange={onFilesSelected} disabled={uploading} />
+      </label>
+      {error && <div className="potg-error" style={{ marginTop: 4, fontSize: 11 }}>{error}</div>}
+    </div>
   );
 }
