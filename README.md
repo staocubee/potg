@@ -6622,6 +6622,58 @@ loads its real (empty) document list instead of crashing on the
   matching `hasPermission` check somewhere in the frontend" — this is
   still a manual discipline, not a lint rule.
 
+## Closing the vendor project-discoverability gap (this pass)
+
+The Key Workflows Audit's own finding: `ProjectsController` has let an
+assigned vendor reach `GET /projects/:projectId` and post progress
+updates since the earlier vendor-ABAC pass (`@AllowAssignedVendor()`),
+but `/vendors/me` never gave a vendor any way to find out which
+projects those even are — `myQuotes` only ever showed what it
+*submitted*, not what it was actually *hired* onto, and nothing on the
+page linked through to a project even when one was known.
+
+**What's built**:
+
+- **`GET /vendors/me/projects`** (new endpoint, `VendorsService.
+  myProjects`) — the real "hired" list: every `ProjectVendorAssignment`
+  this vendor holds, each with its project's title, status, currency,
+  property name, and stage list. Gated on `project:read`, which the
+  vendor role already has.
+- **A new "Your projects" card** on `/vendors/me`, above the quotes
+  section — each assignment renders as a real `Link` straight to
+  `/projects/:id`, with a status badge and an "X/Y stages complete"
+  line. This is the actual fix: the backend capability existed, the
+  entry point to reach it didn't.
+- **Two existing lists now link through too, precisely where it's
+  safe to**: the Quotes section's project title is a `Link` only when
+  `quote.status === "accepted"` (the one status that guarantees
+  `acceptQuote` already created a real assignment — any earlier status
+  would link to a project the vendor can't open yet, a dead end this
+  pass deliberately avoids). The Payouts section always links (a
+  payout can only ever exist for a project the vendor was actually
+  paid on, so it's unconditionally safe).
+
+**Verified live**: as the demo vendor (Lekki Renovations Co.), the new
+"Your projects" card showed the real Kitchen Renovation assignment —
+correct property name, "Completed" status, real stage count. Clicked
+through and landed on the real project detail page, with the "+ Post"
+update button and the project's stage editor both present and usable
+(closing the audit's paired "Progress Updates" finding at the same
+time, since it was the same missing entry point). The Quotes section's
+now-linked accepted quote and all seven Payouts rows were confirmed to
+carry the same real `href`.
+
+**Not done — explicit scope, not oversight**:
+
+- "Your projects" shows every assignment regardless of project status
+  (completed, cancelled, etc.) rather than filtering to only
+  `in_progress` ones — matches this page's own existing convention
+  (Payouts/Quotes already show full history, not a filtered "pending"
+  view), not an oversight.
+- No dedicated stage-progress visual (bar/chart) on this card, just a
+  fraction — the full stage bar already exists on the project page
+  itself, one click away.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

@@ -979,6 +979,17 @@ export type ProjectVendorAssignment = {
   vendorId: string;
   role: string;
   vendor?: Vendor;
+  // Only populated by GET /vendors/me/projects — the reverse direction
+  // from the project page's own use of this type (which populates
+  // `vendor` instead, for a project's own assignments list).
+  project?: {
+    id: string;
+    title: string;
+    status: string;
+    currency: string;
+    property: { name: string } | null;
+    stages: { name: string; status: string; sortOrder: number }[];
+  };
 };
 
 export type Project = {
@@ -2255,6 +2266,9 @@ export class ApiClient {
   }
   myPayouts() {
     return request<Payout[]>("/vendors/me/payouts", { token: this.token, accountId: this.accountId });
+  }
+  myProjects() {
+    return request<ProjectVendorAssignment[]>("/vendors/me/projects", { token: this.token, accountId: this.accountId });
   }
   listBanks(provider?: string) {
     const qs = provider ? `?provider=${encodeURIComponent(provider)}` : "";

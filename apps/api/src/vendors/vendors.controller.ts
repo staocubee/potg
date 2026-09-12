@@ -119,6 +119,17 @@ export class VendorsController {
     return this.vendors.myPayouts(member.accountId);
   }
 
+  // The projects this vendor is actually hired onto (a real
+  // ProjectVendorAssignment, not just a submitted quote) — the entry
+  // point vendors/me.tsx never had, even though ProjectsController
+  // already lets an assigned vendor reach GET /projects/:projectId and
+  // post updates via @AllowAssignedVendor().
+  @RequirePermissions('project:read')
+  @Get('me/projects')
+  myProjects(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.vendors.myProjects(member.accountId);
+  }
+
   // Vendor-initiated: submit or revise a quote on a project that isn't this
   // account's own — deliberately not /projects/:projectId/... so it never
   // hits PermissionsGuard's project-ownership ABAC check.

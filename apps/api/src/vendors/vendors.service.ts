@@ -321,6 +321,31 @@ export class VendorsService {
     });
   }
 
+  // The real gap the workflow audit flagged: a vendor can already reach
+  // GET /projects/:projectId and post progress updates once assigned
+  // (@AllowAssignedVendor() on ProjectsController), but had no way to
+  // discover which projects those even are — myQuotes only shows quotes
+  // it submitted, not projects it was actually hired onto. This is the
+  // real "hired" signal (ProjectVendorAssignment), not just any quote.
+  myProjects(accountId: string) {
+    return this.prisma.projectVendorAssignment.findMany({
+      where: { vendor: { accountId } },
+      include: {
+        project: {
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            currency: true,
+            property: { select: { name: true } },
+            stages: { select: { name: true, status: true, sortOrder: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   // A vendor checking what it's actually been paid — Payout rows are only
   // ever created by PaymentsService.releaseMilestone, this is read-only.
   myPayouts(accountId: string) {

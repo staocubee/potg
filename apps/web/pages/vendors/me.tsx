@@ -8,6 +8,7 @@ import {
   DISPUTE_TYPES,
   Payout,
   PaystackBank,
+  ProjectVendorAssignment,
   Vendor,
   VendorQuote,
   VendorReview,
@@ -47,11 +48,17 @@ export default function VendorDashboardPage() {
   const [quotes, setQuotes] = useState<VendorQuote[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [disputes, setDisputes] = useState<Dispute[]>([]);
+  // The real "hired" list — a ProjectVendorAssignment, not just a
+  // submitted quote. Closes the workflow audit's "Active Projects"/
+  // "Progress Updates" gap: the backend already lets an assigned vendor
+  // reach GET /projects/:projectId and post updates, this dashboard just
+  // never linked to it.
+  const [projects, setProjects] = useState<ProjectVendorAssignment[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Tells "you can't see this" (403/404 on the underlying route) apart
   // from a genuinely empty section — mirrors projects/[id].tsx's own
   // forbidden state for the same reason.
-  const [forbidden, setForbidden] = useState({ quotes: false, payouts: false, disputes: false });
+  const [forbidden, setForbidden] = useState({ quotes: false, payouts: false, disputes: false, projects: false });
 
   function load() {
     if (!auth.currentAccountId) return;
@@ -68,18 +75,22 @@ export default function VendorDashboardPage() {
           // first one and show a confusing top-level "Missing
           // permission(s)" banner even though the rest of the page
           // (profile, license, bank details) loaded and rendered fine.
-          return Promise.allSettled([auth.api.myQuotes(), auth.api.myPayouts(), auth.api.myDisputes()]).then(
-            ([q, p, d]) => {
-              const isForbidden = (result: PromiseSettledResult<unknown>) =>
-                result.status === "rejected" &&
-                result.reason instanceof ApiError &&
-                (result.reason.status === 403 || result.reason.status === 404);
-              if (q.status === "fulfilled") setQuotes(q.value);
-              if (p.status === "fulfilled") setPayouts(p.value);
-              if (d.status === "fulfilled") setDisputes(d.value);
-              setForbidden({ quotes: isForbidden(q), payouts: isForbidden(p), disputes: isForbidden(d) });
-            },
-          );
+          return Promise.allSettled([
+            auth.api.myQuotes(),
+            auth.api.myPayouts(),
+            auth.api.myDisputes(),
+            auth.api.myProjects(),
+          ]).then(([q, p, d, pr]) => {
+            const isForbidden = (result: PromiseSettledResult<unknown>) =>
+              result.status === "rejected" &&
+              result.reason instanceof ApiError &&
+              (result.reason.status === 403 || result.reason.status === 404);
+            if (q.status === "fulfilled") setQuotes(q.value);
+            if (p.status === "fulfilled") setPayouts(p.value);
+            if (d.status === "fulfilled") setDisputes(d.value);
+            if (pr.status === "fulfilled") setProjects(pr.value);
+            setForbidden({ quotes: isForbidden(q), payouts: isForbidden(p), disputes: isForbidden(d), projects: isForbidden(pr) });
+          });
         }
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load your vendor dashboard."));
@@ -169,6 +180,44 @@ export default function VendorDashboardPage() {
           </div>
 
           <div className="potg-card" style={{ padding: 18 }}>
+            <h3 style={{ fontSize: 14, marginBottom: 10 }}>Your projects</h3>
+            {forbidden.projects && <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view projects here.</p>}
+            {!forbidden.projects && projects.length === 0 && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>No projects yet — once an owner accepts your quote, it'll show up here.</p>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {projects.map((a) => {
+                const p = a.project;
+                if (!p) return null;
+                const completedStages = p.stages.filter((s) => s.status === "completed").length;
+                return (
+                  <Link
+                    key={a.id}
+                    href={`/projects/${p.id}`}
+                    className="potg-card"
+                    style={{ display: "block", padding: 12, borderColor: "var(--potg-border)" }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 13, color: "var(--potg-text)" }}>{p.title}</div>
+                        {p.property && <div className="potg-muted" style={{ fontSize: 11 }}>{p.property.name}</div>}
+                      </div>
+                      <div style={{ textAlign: "right", flexShrink: 0 }}>
+                        <span className="potg-badge">{p.status.replace(/_/g, " ")}</span>
+                        {p.stages.length > 0 && (
+                          <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
+                            {completedStages}/{p.stages.length} stages complete
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
             <h3 style={{ fontSize: 14, marginBottom: 10 }}>Quote requests & submissions</h3>
             {forbidden.quotes && <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view quote requests here.</p>}
             {!forbidden.quotes && quotes.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No quote requests yet.</p>}
@@ -191,7 +240,16 @@ export default function VendorDashboardPage() {
               {payouts.map((p) => (
                 <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
                   <div>
-                    <div style={{ fontWeight: 600 }}>{p.project?.title ?? "Project"}</div>
+                    {/* A payout only ever happens on a project this vendor
+                        was actually assigned to (releaseMilestone pays the
+                        assignment's own vendor) — always safe to link. */}
+                    {p.project ? (
+                      <Link href={`/projects/${p.project.id}`} style={{ fontWeight: 600, color: "var(--potg-text)" }}>
+                        {p.project.title}
+                      </Link>
+                    ) : (
+                      <div style={{ fontWeight: 600 }}>Project</div>
+                    )}
                     <div className="potg-muted" style={{ fontSize: 11 }}>
                       {p.payoutMethod.replace(/_/g, " ")}
                       {p.paidAt && ` · paid ${new Date(p.paidAt).toLocaleDateString()}`}
@@ -294,7 +352,17 @@ function QuoteRow({ quote, onSubmitted }: { quote: VendorQuote; onSubmitted: () 
   return (
     <div style={{ borderBottom: "1px solid var(--potg-border)", paddingBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
-        <span style={{ fontWeight: 600 }}>{quote.project?.title ?? "Project"}</span>
+        {/* Only linkable once accepted — that's the only status
+            guaranteed to have created a real ProjectVendorAssignment
+            (ProjectsService.acceptQuote), so this never links to a
+            project the vendor can't actually open yet. */}
+        {quote.project && quote.status === "accepted" ? (
+          <Link href={`/projects/${quote.projectId}`} style={{ fontWeight: 600, color: "var(--potg-text)" }}>
+            {quote.project.title}
+          </Link>
+        ) : (
+          <span style={{ fontWeight: 600 }}>{quote.project?.title ?? "Project"}</span>
+        )}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {quote.status !== "requested" && <span style={{ fontWeight: 700 }}>{formatMoney(quote.amount, quote.currency)}</span>}
           <span className="potg-badge">{quote.status}</span>
