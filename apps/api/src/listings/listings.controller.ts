@@ -12,6 +12,7 @@ import { RespondOfferDto } from './dto/respond-offer.dto';
 import { RespondToCounterDto } from './dto/respond-to-counter.dto';
 import { SearchListingsQuery } from './dto/search-listings.dto';
 import { SetListingVerificationDto } from './dto/set-listing-verification.dto';
+import { RequestInspectionDto } from './dto/request-inspection.dto';
 
 type AccountMemberCtx = { accountId: string };
 
@@ -47,6 +48,12 @@ export class ListingsController {
   @Get('me/offers')
   myOffers(@CurrentAccountMember() member: AccountMemberCtx) {
     return this.listings.myOffers(member.accountId);
+  }
+
+  @RequirePermissions('offer:read')
+  @Get('me/inspection-requests')
+  myInspectionRequests(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.listings.myInspectionRequests(member.accountId);
   }
 
   @RequirePermissions('listing:read')
@@ -108,6 +115,16 @@ export class ListingsController {
   @Get(':listingId/offers')
   findOffers(@Param('listingId') listingId: string, @CurrentAccountMember() member: AccountMemberCtx) {
     return this.listings.findOffers(listingId, member.accountId);
+  }
+
+  @RequirePermissions('offer:write')
+  @Post(':listingId/inspection-requests')
+  requestInspection(
+    @Param('listingId') listingId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Body() dto: RequestInspectionDto,
+  ) {
+    return this.listings.requestInspection(listingId, member.accountId, dto);
   }
 
   @RequirePermissions('offer:write')

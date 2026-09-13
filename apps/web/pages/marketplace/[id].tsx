@@ -297,9 +297,10 @@ export default function ListingDetailPage() {
           )}
 
           {!isOwner && listing.status === "active" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
               {auth.hasPermission("offer:write") && <MakeOfferForm listingId={listing.id} currency={listing.currency} />}
               <InquiryForm listingId={listing.id} />
+              {auth.hasPermission("offer:write") && <RequestInspectionForm listingId={listing.id} />}
             </div>
           )}
 
@@ -550,6 +551,53 @@ function InquiryForm({ listingId }: { listingId: string }) {
           />
           <button className="potg-btn potg-btn-secondary" type="submit" disabled={busy}>
             {busy ? "…" : "Send"}
+          </button>
+        </div>
+      )}
+    </form>
+  );
+}
+
+// The audit's own finding on Workflow 2: no buyer-initiated "request an
+// inspection on this listing" endpoint existed anywhere — every
+// PropertyInspection route was ABAC-scoped to the property's own owning
+// account. This is the buyer's own entry point; the owner confirms or
+// declines it on the property's own page.
+function RequestInspectionForm({ listingId }: { listingId: string }) {
+  const auth = useAuth();
+  const [preferredDate, setPreferredDate] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.requestInspection(listingId, { preferredDate: new Date(preferredDate).toISOString() });
+      setSuccess(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't request an inspection.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="potg-card" style={{ padding: 16 }}>
+      <h3 style={{ fontSize: 14, marginBottom: 10 }}>Request an inspection</h3>
+      {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+      {success ? (
+        <p style={{ fontSize: 13, color: "var(--potg-success)", margin: 0 }}>
+          Requested — the owner needs to confirm before it's a real appointment.
+        </p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <label className="potg-label">Preferred date</label>
+          <input className="potg-input" type="date" required value={preferredDate} onChange={(e) => setPreferredDate(e.target.value)} />
+          <button className="potg-btn potg-btn-secondary" type="submit" disabled={busy}>
+            {busy ? "…" : "Request inspection"}
           </button>
         </div>
       )}

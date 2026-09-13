@@ -263,6 +263,12 @@ export class PropertiesController {
   }
 
   @RequirePermissions('inspection:write')
+  @Post(':propertyId/inspections/:inspectionId/confirm')
+  confirmInspection(@Param('propertyId') propertyId: string, @Param('inspectionId') inspectionId: string) {
+    return this.properties.confirmInspection(propertyId, inspectionId);
+  }
+
+  @RequirePermissions('inspection:write')
   @Post(':propertyId/inspections/:inspectionId/complete')
   completeInspection(
     @Param('propertyId') propertyId: string,

@@ -2049,7 +2049,19 @@ function InspectionRow({
   const [editInspectorName, setEditInspectorName] = useState(inspection.inspectorVendorId ? "" : inspection.inspectorName ?? "");
   const [editInspectorVendorId, setEditInspectorVendorId] = useState(inspection.inspectorVendorId ?? "");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"complete" | "cancel" | "edit" | null>(null);
+  const [busy, setBusy] = useState<"complete" | "cancel" | "edit" | "confirm" | null>(null);
+
+  async function onConfirm() {
+    setBusy("confirm");
+    setError(null);
+    try {
+      await auth.api.confirmInspection(propertyId, inspection.id);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't confirm that inspection.");
+      setBusy(null);
+    }
+  }
 
   function addFinding() {
     if (!findingArea || !findingDescription) return;
@@ -2123,6 +2135,11 @@ function InspectionRow({
             {inspection.inspectorVendor && ` · ${inspection.inspectorVendor.businessName} (vendor)`}
             {!inspection.inspectorVendor && inspection.inspectorName && ` · ${inspection.inspectorName}`}
           </div>
+          {inspection.status === "requested" && (
+            <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
+              Requested by a buyer — not a confirmed appointment yet.
+            </div>
+          )}
           {inspection.summary && <div style={{ marginTop: 4 }}>{inspection.summary}</div>}
           <PhotoThumbs urls={inspection.photoUrls} />
           {inspection.findings && inspection.findings.length > 0 && (
@@ -2144,6 +2161,17 @@ function InspectionRow({
       </div>
 
       {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
+
+      {inspection.status === "requested" && auth.hasPermission("inspection:write") && (
+        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          <button className="potg-btn potg-btn-primary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={onConfirm}>
+            {busy === "confirm" ? "…" : "Confirm"}
+          </button>
+          <button className="potg-btn potg-btn-danger" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={onCancel}>
+            {busy === "cancel" ? "…" : "Decline"}
+          </button>
+        </div>
+      )}
 
       {inspection.status === "scheduled" && !completing && !editing && auth.hasPermission("inspection:write") && (
         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>

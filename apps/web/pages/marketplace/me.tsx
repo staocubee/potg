@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Listing, ListingOffer } from "../../lib/api";
+import { ApiError, Listing, ListingOffer, PropertyInspection } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 function formatMoney(value?: string | null, currency?: string) {
@@ -16,16 +16,18 @@ export default function MyListingsPage() {
   const auth = useAuth();
   const [listings, setListings] = useState<Listing[] | null>(null);
   const [offers, setOffers] = useState<ListingOffer[] | null>(null);
+  const [inspectionRequests, setInspectionRequests] = useState<PropertyInspection[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [publishingId, setPublishingId] = useState<string | null>(null);
 
   function load() {
     if (!auth.currentAccountId) return;
     setError(null);
-    Promise.all([auth.api.myListings(), auth.api.myOffers()])
-      .then(([l, o]) => {
+    Promise.all([auth.api.myListings(), auth.api.myOffers(), auth.api.myInspectionRequests()])
+      .then(([l, o, ir]) => {
         setListings(l);
         setOffers(o);
+        setInspectionRequests(ir);
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load your listings."));
   }
@@ -137,6 +139,27 @@ export default function MyListingsPage() {
               ) : (
                 <span className="potg-badge">{o.status.replace(/_/g, " ")}</span>
               )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <h3 style={{ fontSize: 14, margin: "28px 0 10px" }}>Inspection requests you've made</h3>
+      {inspectionRequests && inspectionRequests.length === 0 && (
+        <p className="potg-muted" style={{ fontSize: 13 }}>You haven't requested any inspections yet.</p>
+      )}
+      {inspectionRequests && inspectionRequests.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {inspectionRequests.map((ir) => (
+            <div key={ir.id} className="potg-card" style={{ padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+              <div>
+                <span style={{ fontWeight: 700, fontSize: 14 }}>{ir.property?.name ?? "Property"}</span>
+                <div className="potg-muted" style={{ fontSize: 12, marginTop: 2 }}>
+                  {ir.property?.addressLine}
+                  {ir.property?.city && `, ${ir.property.city}`} · preferred {new Date(ir.scheduledFor).toLocaleDateString()}
+                </div>
+              </div>
+              <span className="potg-badge">{ir.status === "requested" ? "awaiting confirmation" : ir.status}</span>
             </div>
           ))}
         </div>

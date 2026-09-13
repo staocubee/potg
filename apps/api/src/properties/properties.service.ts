@@ -722,13 +722,33 @@ export class PropertiesService {
     return this.findInspection(propertyId, updated.id);
   }
 
+  // Also doubles as "decline" for a buyer-initiated request — a
+  // requested inspection that never gets confirmed is functionally the
+  // same "no" a scheduled one being cancelled already means, so this
+  // reuses the one action rather than adding a separate decline route.
   async cancelInspection(propertyId: string, inspectionId: string) {
     const inspection = await this.prisma.propertyInspection.findFirst({ where: { id: inspectionId, propertyId } });
     if (!inspection) throw new NotFoundException('Inspection not found on this property');
-    if (inspection.status !== 'scheduled') {
+    if (inspection.status !== 'scheduled' && inspection.status !== 'requested') {
       throw new BadRequestException(`This inspection is already "${inspection.status}"`);
     }
     return this.prisma.propertyInspection.update({ where: { id: inspectionId }, data: { status: 'cancelled' } });
+  }
+
+  // The owner's side of a buyer-initiated inspection request
+  // (ListingsService.requestInspection) — confirming is its own real
+  // step, not implicit: a "requested" inspection can't be edited or
+  // completed until it flips to "scheduled" here first (updateInspection/
+  // completeInspection both still gate on status === 'scheduled',
+  // unchanged), so a buyer's requested date can't silently become a
+  // confirmed appointment nobody at the property actually agreed to.
+  async confirmInspection(propertyId: string, inspectionId: string) {
+    const inspection = await this.prisma.propertyInspection.findFirst({ where: { id: inspectionId, propertyId } });
+    if (!inspection) throw new NotFoundException('Inspection not found on this property');
+    if (inspection.status !== 'requested') {
+      throw new BadRequestException(`This inspection is "${inspection.status}" — only a requested inspection can be confirmed`);
+    }
+    return this.prisma.propertyInspection.update({ where: { id: inspectionId }, data: { status: 'scheduled' } });
   }
 
   // Module 13. Deliberately not wired to Listing/Offer (Module 5) at all —

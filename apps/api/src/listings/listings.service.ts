@@ -7,6 +7,7 @@ import { RespondOfferDto } from './dto/respond-offer.dto';
 import { RespondToCounterDto } from './dto/respond-to-counter.dto';
 import { SearchListingsQuery } from './dto/search-listings.dto';
 import { SetListingVerificationDto } from './dto/set-listing-verification.dto';
+import { RequestInspectionDto } from './dto/request-inspection.dto';
 import { rankingBoost } from '../common/search-ranking.util';
 import { getActiveBoostMap, applyVisibilityBoost } from '../packages/boost.util';
 import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
@@ -282,6 +283,55 @@ export class ListingsService {
   async findOffers(listingId: string, accountId: string) {
     await this.requireOwnListing(listingId, accountId);
     return this.prisma.listingOffer.findMany({ where: { listingId }, orderBy: { amount: 'desc' } });
+  }
+
+  // The audit's own finding on Workflow 2: "PropertyInspection is real
+  // but every route is ABAC-scoped to the property's own owning account
+  // — there is no buyer-initiated 'request an inspection on this
+  // listing' endpoint anywhere." Reuses offer:write, same permission a
+  // buyer already holds to act on a listing — requesting an inspection
+  // is the same kind of pre-purchase buyer action as making an offer,
+  // and there's no self-request conflict a dedicated permission would
+  // need to guard against (the listing's own owner already reaches
+  // PropertyInspection through inspection:write on their own property).
+  // Lives here rather than PropertiesService since the buyer has no
+  // relationship to the property's owning account at all — the same
+  // reason createOffer/createInquiry above don't delegate anywhere
+  // either, they just reach PrismaService directly.
+  async requestInspection(listingId: string, accountId: string, dto: RequestInspectionDto) {
+    const listing = await this.prisma.propertyListing.findUnique({
+      where: { id: listingId },
+      select: { propertyId: true, title: true, accountId: true },
+    });
+    if (!listing) throw new NotFoundException('Listing not found');
+    const inspection = await this.prisma.propertyInspection.create({
+      data: {
+        propertyId: listing.propertyId,
+        inspectionType: 'pre_purchase',
+        status: 'requested',
+        scheduledFor: new Date(dto.preferredDate),
+        requestedByAccountId: accountId,
+      },
+    });
+    this.notifications.notify(
+      listing.accountId,
+      'inspection_requested',
+      'A buyer requested an inspection',
+      `A buyer wants to inspect "${listing.title}" on ${new Date(dto.preferredDate).toLocaleDateString()}.`,
+      `/properties/${listing.propertyId}`,
+    );
+    return inspection;
+  }
+
+  // The other side of requestInspection above — a buyer's own view of
+  // every inspection request it's made across every listing, same shape
+  // myOffers already gives for offers.
+  myInspectionRequests(accountId: string) {
+    return this.prisma.propertyInspection.findMany({
+      where: { requestedByAccountId: accountId },
+      include: { property: { select: { id: true, name: true, addressLine: true, city: true, country: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   myOffers(accountId: string) {

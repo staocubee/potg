@@ -708,11 +708,17 @@ export type PropertyInspection = {
   propertyId: string;
   projectId?: string | null;
   inspectionType: "general" | "pre_purchase" | "move_in" | "move_out" | "safety" | "post_renovation" | string;
-  status: "scheduled" | "completed" | "cancelled" | string;
+  status: "requested" | "scheduled" | "completed" | "cancelled" | string;
   scheduledFor: string;
   inspectorVendorId?: string | null;
   inspectorVendor?: AssignedVendor | null;
   inspectorName?: string | null;
+  // Set only for a buyer-initiated request (ListingsService.requestInspection)
+  // — null for an owner-scheduled inspection.
+  requestedByAccountId?: string | null;
+  // Only present on myInspectionRequests — the buyer's own view of what
+  // it requested, since it isn't a member of the property's own account.
+  property?: { id: string; name: string; addressLine: string; city?: string | null; country: string };
   overallResult?: "pass" | "needs_attention" | "fail" | string | null;
   summary?: string | null;
   // General walkthrough/overview photos, set alongside overallResult on
@@ -2872,6 +2878,9 @@ export class ApiClient {
   myOffers() {
     return request<ListingOffer[]>("/listings/me/offers", { token: this.token, accountId: this.accountId });
   }
+  myInspectionRequests() {
+    return request<PropertyInspection[]>("/listings/me/inspection-requests", { token: this.token, accountId: this.accountId });
+  }
   myFavorites() {
     return request<ListingFavorite[]>("/listings/me/favorites", { token: this.token, accountId: this.accountId });
   }
@@ -2910,6 +2919,21 @@ export class ApiClient {
   }
   findOffers(listingId: string) {
     return request<ListingOffer[]>(`/listings/${listingId}/offers`, { token: this.token, accountId: this.accountId });
+  }
+  requestInspection(listingId: string, input: { preferredDate: string }) {
+    return request<PropertyInspection>(`/listings/${listingId}/inspection-requests`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  confirmInspection(propertyId: string, inspectionId: string) {
+    return request<PropertyInspection>(`/properties/${propertyId}/inspections/${inspectionId}/confirm`, {
+      method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
   }
   respondToOffer(listingId: string, offerId: string, input: { status: "countered" | "accepted" | "rejected"; counterAmount?: number }) {
     return request<ListingOffer>(`/listings/${listingId}/offers/${offerId}/respond`, {

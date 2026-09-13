@@ -1513,10 +1513,24 @@ model PropertyInspection {
   propertyId        String
   projectId         String? // set when this inspection is tied to a renovation project (e.g. a post-work inspection)
   inspectionType    String // general | pre_purchase | move_in | move_out | safety | post_renovation
-  status            String    @default("scheduled") // scheduled | completed | cancelled
+  // The audit's own finding on Workflow 2: "PropertyInspection is real
+  // but every route is ABAC-scoped to the property's own owning account
+  // — there is no buyer-initiated 'request an inspection on this
+  // listing' endpoint anywhere." "requested" is the buyer-initiated
+  // state, awaiting the owner's own confirm/decline — decline reuses
+  // the existing cancelInspection action, confirm is new. An
+  // owner-scheduled inspection skips straight to "scheduled", same as
+  // before this pass.
+  status            String    @default("scheduled") // requested | scheduled | completed | cancelled
   scheduledFor      DateTime
   inspectorVendorId String? // set instead of inspectorName when the inspector is a platform vendor
   inspectorName     String?
+  // Set only for a buyer-initiated request (status starts "requested");
+  // null for an owner-scheduled inspection, same as before this pass.
+  // Soft reference, not a formal relation — same as ListingOffer.accountId
+  // ("the buyer's account — soft reference") for the identical reason: a
+  // cross-account buyer action on someone else's property/listing.
+  requestedByAccountId String?
   overallResult     String? // pass | needs_attention | fail — set on completion
   summary           String?
   // Real remote-verification evidence (this pass) — general walkthrough/

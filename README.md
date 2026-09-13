@@ -7665,6 +7665,76 @@ cleaning up after themselves.
   action on them (unlike milestones/payments), so there's no real
   enforcement yet to surface a hold indicator for.
 
+## Buyer-initiated inspection requests (this pass)
+
+Closes the audit's own finding on Workflow 2: "`PropertyInspection` is
+real but every route is ABAC-scoped to the property's own owning
+account — there is no buyer-initiated 'request an inspection on this
+listing' endpoint anywhere." A buyer browsing the marketplace had no
+way to ask to see a property before making an offer on it.
+
+**What's built**:
+
+- **`PropertyInspection.status`** gained a `requested` state (alongside
+  the existing `scheduled | completed | cancelled`) and a new
+  `requestedByAccountId` — a soft reference, not a formal relation,
+  same as `ListingOffer.accountId` ("the buyer's account — soft
+  reference") for the identical reason: a cross-account buyer action on
+  someone else's property.
+- **`POST /listings/:listingId/inspection-requests`** (new,
+  `ListingsService.requestInspection`) — reuses `offer:write`, the same
+  permission a buyer already holds to act on a listing, rather than a
+  new dedicated permission: requesting an inspection is the same kind
+  of pre-purchase buyer action as making an offer, with no
+  self-request conflict a dedicated permission would need to guard
+  against. Resolves the listing's own `propertyId`, creates the
+  inspection as `requested`, and notifies the listing's owning account.
+- **`POST /properties/:propertyId/inspections/:inspectionId/confirm`**
+  (new) — the owner's real sign-off step: a requested inspection can't
+  be edited or completed until it flips to `scheduled` here first
+  (`updateInspection`/`completeInspection` both still gate on
+  `status === 'scheduled'`, confirmed unchanged — a direct `complete`
+  attempt against a still-`requested` inspection returns a real `400`).
+  Declining reuses the existing `cancelInspection` action rather than a
+  separate route — a requested inspection nobody confirms is
+  functionally the same "no" a cancelled scheduled one already means.
+- **`GET /listings/me/inspection-requests`** (new,
+  `ListingsService.myInspectionRequests`) — the buyer's own view of
+  every request it's made, same shape `myOffers` already gives for
+  offers, since a buyer isn't a member of the property's own account
+  and can't reach it any other way.
+- **UI**: a "Request an inspection" form on the marketplace listing
+  page (alongside the existing offer/inquiry forms), a "Requested by a
+  buyer" note plus real Confirm/Decline actions on the property page's
+  own inspection list, and a new "Inspection requests you've made"
+  section on the buyer's "My listings & offers" page.
+
+**Verified live** end to end across two genuinely different accounts —
+not the same account switching context, a real buyer account and a
+real, independently-owned property account ("Comparable House A",
+owned by a distinct `property_owner`). Requested an inspection as the
+buyer (`POST .../inspection-requests → 201`), confirmed the real
+in-app notification landed on the owner's account
+(`type: 'inspection_requested'`, correct title/body/link), and
+confirmed `GET /listings/me/inspection-requests` returned it with the
+property joined in. Logged into the actual owner account and confirmed
+the property's own `GET .../inspections` listed the real request; tried
+completing it before confirming and got a real `400` ("This inspection
+is already 'requested'"); confirmed it and watched `status` flip to
+`scheduled`. Raised a second request and confirmed Decline (the reused
+`cancelInspection`) correctly flipped it to `cancelled` instead.
+
+**Not done — explicit scope, not oversight**:
+
+- No way for the buyer to propose a specific time slot beyond a single
+  preferred date, and no counter-proposal from the owner — the owner
+  confirms the date as given or declines; rescheduling still goes
+  through the existing `updateInspection` edit form once confirmed.
+- No inspection-request-specific notification for the buyer when
+  declined — the buyer finds out by checking "My listings & offers"
+  (`GET /listings/me/inspection-requests`), same as how an offer's own
+  status is checked today rather than pushed.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
