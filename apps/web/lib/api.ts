@@ -1150,6 +1150,19 @@ export const DISPUTE_TYPES = [
   { value: "other", label: "Other" },
 ];
 
+// The audit's own finding on Workflow 9: "proposing a resolution is
+// just a status flip + free-text note, no structured proposal object."
+// Shared across every dispute-resolving form (arbitration, project
+// two-party, vendor-side, order two-party), same reasoning
+// DISPUTE_TYPES above already gives for centralizing it here.
+export const RESOLUTION_TYPES = [
+  { value: "refund", label: "Refund" },
+  { value: "release", label: "Release funds" },
+  { value: "rework", label: "Rework required" },
+  { value: "no_action", label: "No action" },
+  { value: "other", label: "Other" },
+];
+
 export type Dispute = {
   id: string;
   // Module 18 Phase 1 — projectId is now optional: exactly one of
@@ -1165,6 +1178,11 @@ export type Dispute = {
   reason: string;
   status: "open" | "under_review" | "resolved" | "rejected" | string;
   resolutionNotes?: string | null;
+  // The audit's own finding: a resolution used to be just a status flip
+  // + free-text note, no structured proposal object. Doesn't itself
+  // move money — refund/release/rework still happen through their own
+  // separate, existing actions once the dispute's own guard clears.
+  resolutionType?: "refund" | "release" | "rework" | "no_action" | "other" | string | null;
   createdAt: string;
   resolvedAt?: string | null;
   // Only present on GET /vendors/me/disputes and GET /payments/disputes/
@@ -2402,7 +2420,7 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
-  resolveDisputeAsVendor(disputeId: string, input: { status: "resolved" | "rejected"; resolutionNotes?: string }) {
+  resolveDisputeAsVendor(disputeId: string, input: { status: "resolved" | "rejected"; resolutionNotes?: string; resolutionType?: string }) {
     return request<Dispute>(`/vendors/me/disputes/${disputeId}/resolve`, {
       method: "POST",
       body: input,
@@ -2495,7 +2513,7 @@ export class ApiClient {
   findDisputes(projectId: string) {
     return request<Dispute[]>(`/projects/${projectId}/disputes`, { token: this.token, accountId: this.accountId });
   }
-  resolveDispute(projectId: string, disputeId: string, input: { status: "resolved" | "rejected"; resolutionNotes?: string }) {
+  resolveDispute(projectId: string, disputeId: string, input: { status: "resolved" | "rejected"; resolutionNotes?: string; resolutionType?: string }) {
     return request<Dispute>(`/projects/${projectId}/disputes/${disputeId}/resolve`, {
       method: "POST",
       body: input,
@@ -2531,7 +2549,7 @@ export class ApiClient {
   findOrderDisputes(orderId: string) {
     return request<Dispute[]>(`/orders/${orderId}/disputes`, { token: this.token, accountId: this.accountId });
   }
-  resolveOrderDispute(orderId: string, disputeId: string, input: { status: "resolved" | "rejected"; resolutionNotes?: string }) {
+  resolveOrderDispute(orderId: string, disputeId: string, input: { status: "resolved" | "rejected"; resolutionNotes?: string; resolutionType?: string }) {
     return request<Dispute>(`/orders/${orderId}/disputes/${disputeId}/resolve`, {
       method: "POST",
       body: input,
@@ -2787,7 +2805,7 @@ export class ApiClient {
   findOpenDisputesForArbitration() {
     return request<Dispute[]>("/payments/disputes/open", { token: this.token, accountId: this.accountId });
   }
-  arbitrateDispute(disputeId: string, input: { status: "resolved" | "rejected" | "under_review"; resolutionNotes?: string }) {
+  arbitrateDispute(disputeId: string, input: { status: "resolved" | "rejected" | "under_review"; resolutionNotes?: string; resolutionType?: string }) {
     return request<Dispute>(`/payments/disputes/${disputeId}/arbitrate`, {
       method: "PATCH",
       body: input,

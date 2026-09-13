@@ -1063,6 +1063,16 @@ model Dispute {
   reason            String
   status            String    @default("open") // open | under_review | resolved | rejected
   resolutionNotes   String?
+  // The audit's own finding on Workflow 9: "proposing a resolution is
+  // just a status flip + free-text note, no structured proposal
+  // object." Doesn't itself move money or trigger rework — the actual
+  // refund/release/rework action still happens through its own
+  // existing, separate endpoint once the dispute's own guard clears
+  // (see PaymentsService.releaseMilestone/refundPayment's own dispute
+  // checks) — this just records what the resolution actually decided,
+  // real structure instead of whatever words happened to end up in
+  // resolutionNotes.
+  resolutionType    String?   // refund | release | rework | no_action | other
   createdAt         DateTime  @default(now())
   resolvedAt        DateTime?
 

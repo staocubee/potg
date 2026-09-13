@@ -7735,6 +7735,60 @@ is already 'requested'"); confirmed it and watched `status` flip to
   (`GET /listings/me/inspection-requests`), same as how an offer's own
   status is checked today rather than pushed.
 
+## A structured resolution type for disputes (this pass)
+
+Closes the audit's own finding on Workflow 9: "'proposing a resolution'
+is just a status flip + free-text note, no structured proposal object."
+A resolved dispute recorded whatever words happened to end up in
+`resolutionNotes` — nothing said, in a queryable way, whether the
+outcome was a refund, a release, rework, or nothing at all.
+
+**What's built**:
+
+- **`Dispute.resolutionType`** (new, optional column) — `refund |
+  release | rework | no_action | other`, shared as `RESOLUTION_TYPES`
+  in both `ResolveDisputeDto`/`ArbitrateDisputeDto` (backend) and
+  `lib/api.ts` (frontend, same centralizing reasoning `DISPUTE_TYPES`
+  already documents there — a fixed vocabulary reused across every
+  dispute-resolving form, not duplicated per form). Deliberately
+  doesn't move money or trigger anything itself — refund/release/
+  rework still happen through their own separate, pre-existing actions
+  once the dispute's own guard clears; this only records what the
+  resolution actually decided.
+- **All four real dispute-resolving surfaces** gained the same
+  "Resolution type" dropdown and display: the platform reviewer's
+  arbitration queue (`payments/index.tsx`), the project owner's
+  two-party resolve (`projects/[id].tsx`), the vendor-side resolve
+  (`vendors/me.tsx`), and the order two-party resolve
+  (`marketplace/materials/orders/[id].tsx`) — all four call into one of
+  two shared service methods (`applyDisputeResolution`/
+  `arbitrateDispute`), so the one backend change reaches every caller.
+
+**Verified live** against real disputes on the real "Kitchen
+Renovation" project, across both backend code paths independently:
+arbitrated a real open dispute ("Countertop color doesn't match what
+was approved") as the platform reviewer with `resolutionType: 'rework'`
+(`PATCH .../arbitrate → 200`, confirmed persisted, confirmed it
+dropped out of the open-disputes queue, confirmed "Resolution: rework"
+rendered on the project page). Separately raised a fresh dispute and
+resolved it through the *other* code path — as the assigned vendor,
+via `resolveDisputeAsVendor` — with `resolutionType: 'no_action'`,
+confirming the shared `applyDisputeResolution` method persists it
+identically regardless of which of its three callers (project,
+vendor, or order two-party resolve) is used.
+
+**Not done — explicit scope, not oversight**:
+
+- Doesn't itself execute anything — choosing "refund" doesn't trigger
+  `refundPayment`, choosing "release" doesn't trigger `releaseMilestone`.
+  Wiring a resolution type to automatically fire its own action would
+  remove the deliberate human-in-the-loop step every money-moving
+  action in this codebase already requires elsewhere.
+- "Rework" still has no tracking mechanism of its own beyond this label
+  — no re-inspection trigger, no rework-specific milestone. Recording
+  that rework was the decision is real progress on the audit's own
+  finding; a full rework workflow is a separate, larger feature.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

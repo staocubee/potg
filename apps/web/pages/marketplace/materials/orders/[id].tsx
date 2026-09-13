@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../../../lib/auth";
-import { ApiError, Dispute, DisputeEvidence, DISPUTE_TYPES, MaterialOrder, SupplierReview } from "../../../../lib/api";
+import { ApiError, Dispute, DisputeEvidence, DISPUTE_TYPES, MaterialOrder, RESOLUTION_TYPES, SupplierReview } from "../../../../lib/api";
 import AppShell from "../../../../components/AppShell";
 import AiDraftCard, { DraftDecision } from "../../../../components/AiDraftCard";
 
@@ -466,6 +466,7 @@ function OrderDisputeRow({ orderId, dispute, onChanged }: { orderId: string; dis
   const auth = useAuth();
   const [resolving, setResolving] = useState(false);
   const [notes, setNotes] = useState("");
+  const [resolutionType, setResolutionType] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"resolved" | "rejected" | null>(null);
 
@@ -492,7 +493,11 @@ function OrderDisputeRow({ orderId, dispute, onChanged }: { orderId: string; dis
     setBusy(status);
     setError(null);
     try {
-      await auth.api.resolveOrderDispute(orderId, dispute.id, { status, resolutionNotes: notes || undefined });
+      await auth.api.resolveOrderDispute(orderId, dispute.id, {
+        status,
+        resolutionNotes: notes || undefined,
+        resolutionType: status === "resolved" ? resolutionType || undefined : undefined,
+      });
       onChanged();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't resolve that dispute.");
@@ -563,6 +568,11 @@ function OrderDisputeRow({ orderId, dispute, onChanged }: { orderId: string; dis
         {dispute.disputeType.replace(/_/g, " ")} · raised {new Date(dispute.createdAt).toLocaleDateString()}
       </div>
       {dispute.resolutionNotes && <div className="potg-muted" style={{ fontSize: 12, marginTop: 2 }}>{dispute.resolutionNotes}</div>}
+      {dispute.status === "resolved" && dispute.resolutionType && (
+        <div className="potg-muted" style={{ fontSize: 12, marginTop: 2 }}>
+          Resolution: {dispute.resolutionType.replace(/_/g, " ")}
+        </div>
+      )}
       {open && !otherPartyRaisedIt && (
         <div className="potg-muted" style={{ fontSize: 11, marginTop: 6 }}>
           You raised this dispute — the other party needs to resolve it.
@@ -582,6 +592,14 @@ function OrderDisputeRow({ orderId, dispute, onChanged }: { orderId: string; dis
         <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
           {error && <div className="potg-error">{error}</div>}
           <input className="potg-input" placeholder="Resolution notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <select className="potg-input" value={resolutionType} onChange={(e) => setResolutionType(e.target.value)}>
+            <option value="">Resolution type (if marking resolved)</option>
+            {RESOLUTION_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
           <div style={{ display: "flex", gap: 6 }}>
             <button className="potg-btn potg-btn-primary" style={{ padding: "4px 9px", fontSize: 11 }} disabled={busy !== null} onClick={() => onResolve("resolved")}>
               {busy === "resolved" ? "…" : "Mark resolved"}

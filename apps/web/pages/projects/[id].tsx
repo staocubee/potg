@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { AccessGrant, ApiError, Dispute, DisputeEvidence, DISPUTE_TYPES, EscrowAccount, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, Receipt, Vendor, VendorReview } from "../../lib/api";
+import { AccessGrant, ApiError, Dispute, DisputeEvidence, DISPUTE_TYPES, EscrowAccount, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, Receipt, RESOLUTION_TYPES, Vendor, VendorReview } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -1022,6 +1022,7 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
   const auth = useAuth();
   const [resolving, setResolving] = useState(false);
   const [notes, setNotes] = useState("");
+  const [resolutionType, setResolutionType] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"resolved" | "rejected" | null>(null);
 
@@ -1059,7 +1060,11 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
     setBusy(status);
     setError(null);
     try {
-      await auth.api.resolveDispute(projectId, dispute.id, { status, resolutionNotes: notes || undefined });
+      await auth.api.resolveDispute(projectId, dispute.id, {
+        status,
+        resolutionNotes: notes || undefined,
+        resolutionType: status === "resolved" ? resolutionType || undefined : undefined,
+      });
       onResolved();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't resolve that dispute.");
@@ -1127,6 +1132,11 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
         <span className="potg-badge">{dispute.status.replace(/_/g, " ")}</span>
       </div>
       {dispute.resolutionNotes && <div className="potg-muted" style={{ fontSize: 12, marginTop: 2 }}>{dispute.resolutionNotes}</div>}
+      {dispute.status === "resolved" && dispute.resolutionType && (
+        <div className="potg-muted" style={{ fontSize: 12, marginTop: 2 }}>
+          Resolution: {dispute.resolutionType.replace(/_/g, " ")}
+        </div>
+      )}
       <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
         raised {new Date(dispute.createdAt).toLocaleDateString()}
       </div>
@@ -1149,6 +1159,14 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
         <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
           {error && <div className="potg-error">{error}</div>}
           <input className="potg-input" placeholder="Resolution notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <select className="potg-input" value={resolutionType} onChange={(e) => setResolutionType(e.target.value)}>
+            <option value="">Resolution type (if marking resolved)</option>
+            {RESOLUTION_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
           <div style={{ display: "flex", gap: 6 }}>
             <button className="potg-btn potg-btn-primary" style={{ padding: "4px 9px", fontSize: 11 }} disabled={busy !== null} onClick={() => onResolve("resolved")}>
               {busy === "resolved" ? "…" : "Mark resolved"}

@@ -1017,7 +1017,7 @@ export class PaymentsService {
     }
     return this.prisma.dispute.update({
       where: { id: dispute.id },
-      data: { status: dto.status, resolutionNotes: dto.resolutionNotes, resolvedAt: new Date() },
+      data: { status: dto.status, resolutionNotes: dto.resolutionNotes, resolutionType: dto.resolutionType, resolvedAt: new Date() },
     });
   }
 
@@ -1131,6 +1131,7 @@ export class PaymentsService {
       data: {
         status: dto.status,
         resolutionNotes: dto.resolutionNotes,
+        resolutionType: dto.resolutionType,
         resolvedAt: dto.status === 'under_review' ? null : new Date(),
       },
     });

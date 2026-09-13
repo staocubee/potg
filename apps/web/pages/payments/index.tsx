@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Dispute, PaymentsOverview } from "../../lib/api";
+import { ApiError, Dispute, PaymentsOverview, RESOLUTION_TYPES } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 function formatMoney(value: number, currency: string) {
@@ -194,6 +194,7 @@ function DisputeArbitrationQueue() {
 function ArbitrationRow({ dispute, onChanged }: { dispute: Dispute; onChanged: () => void }) {
   const auth = useAuth();
   const [resolutionNotes, setResolutionNotes] = useState("");
+  const [resolutionType, setResolutionType] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"resolved" | "rejected" | "under_review" | null>(null);
 
@@ -201,7 +202,11 @@ function ArbitrationRow({ dispute, onChanged }: { dispute: Dispute; onChanged: (
     setBusy(status);
     setError(null);
     try {
-      await auth.api.arbitrateDispute(dispute.id, { status, resolutionNotes: resolutionNotes || undefined });
+      await auth.api.arbitrateDispute(dispute.id, {
+        status,
+        resolutionNotes: resolutionNotes || undefined,
+        resolutionType: status === "resolved" ? resolutionType || undefined : undefined,
+      });
       onChanged();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't record that decision.");
@@ -229,6 +234,11 @@ function ArbitrationRow({ dispute, onChanged }: { dispute: Dispute; onChanged: (
           {dispute.status === "under_review" && dispute.resolutionNotes && (
             <p className="potg-muted" style={{ fontSize: 12, marginTop: 8, borderLeft: "2px solid var(--potg-border)", paddingLeft: 8 }}>
               What's needed: {dispute.resolutionNotes}
+            </p>
+          )}
+          {dispute.status === "resolved" && dispute.resolutionType && (
+            <p className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Resolution: {dispute.resolutionType.replace(/_/g, " ")}
             </p>
           )}
           {/* Already included in GET /payments/disputes/open's own
@@ -268,6 +278,14 @@ function ArbitrationRow({ dispute, onChanged }: { dispute: Dispute; onChanged: (
         onChange={(e) => setResolutionNotes(e.target.value)}
         style={{ marginTop: 8 }}
       />
+      <select className="potg-input" style={{ marginTop: 6 }} value={resolutionType} onChange={(e) => setResolutionType(e.target.value)}>
+        <option value="">Resolution type (if resolving in favor of the claim)</option>
+        {RESOLUTION_TYPES.map((t) => (
+          <option key={t.value} value={t.value}>
+            {t.label}
+          </option>
+        ))}
+      </select>
       <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
         {auth.hasPermission("dispute:arbitrate") && (
           <>

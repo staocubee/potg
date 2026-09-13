@@ -1,4 +1,5 @@
 import { IsIn, IsOptional, IsString } from 'class-validator';
+import { RESOLUTION_TYPES } from './resolve-dispute.dto';
 
 // The neutral-reviewer counterpart to ResolveDisputeDto — a superset, not
 // a variant: everything a two-party resolution can do (resolved/rejected),
@@ -13,4 +14,8 @@ export class ArbitrateDisputeDto {
   @IsOptional()
   @IsString()
   resolutionNotes?: string;
+
+  @IsOptional()
+  @IsIn(RESOLUTION_TYPES)
+  resolutionType?: string;
 }
