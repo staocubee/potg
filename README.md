@@ -508,10 +508,13 @@ as its own deliberate step.
   `.../offers/:offerId/respond` is the owner accepting, rejecting, or
   countering. `GET /listings/me/offers` and `.../me/favorites` mirror
   `VendorsController`'s `me` routes for the buyer side.
-  `PropertyListing.verificationStatus` is a plain field with no dedicated
-  review endpoint — the same simplification `Vendor.verificationStatus`
-  took in Priority 3; Module 6's full verification workflow (a separate
-  reviewer, risk flags, trust scores) isn't built.
+  `PropertyListing.verificationStatus` started as a plain field with no
+  dedicated review endpoint — the same simplification
+  `Vendor.verificationStatus` took in Priority 3 — but a later pass
+  closed that gap: see "A real listing:verify action for the neutral
+  platform reviewer" below. Module 6's full verification workflow
+  (risk flags, trust scores) still isn't built for listings specifically
+  the way it is for vendors/suppliers.
 - **`src/materials`** — `POST /suppliers` creates a 1:1 marketplace profile
   on a `SUPPLIER`-type account (same shape as `Vendor`); `POST /suppliers/
   me/products` and `PATCH .../products/:id` manage its own catalog;
@@ -6055,10 +6058,10 @@ didn't. This closes that.
 **Not done — explicit scope, not oversight**:
 
 - `Property.photoUrls` itself (the property record's own general photos,
-  separate from any inspection) still uses the older pasted-URL text
-  field on this same page — upgrading it to the same real `PhotoPicker`
-  is a natural, low-risk follow-up but a separate edit, not part of
-  closing the inspection-evidence gap specifically.
+  separate from any inspection) used the older pasted-URL text field on
+  this same page at the time this was written — that's since been
+  upgraded to the same real `PhotoPicker` in a later pass, see "Real
+  photo uploads for the property gallery" above.
 - No annotation/markup on a photo (e.g. circling the exact crack) — the
   photo itself is the evidence, nothing draws on top of it.
 - No required-photo enforcement — a finding can still be saved with no
@@ -7448,24 +7451,31 @@ blueprint, or explicitly cut from it:
   on record just scores on activity plus identity, same as before this
   pass.
 - **The neutral reviewer's decisions carry real context for all four
-  fields now, and three of the four have a real evidence-submission
-  channel behind them too.** `platform_reviewer` covers `Vendor`/
-  `Supplier.verificationStatus`, dispute arbitration,
-  `Document.verificationStatus`, and review `moderationStatus` (see "A
-  real neutral reviewer", "Extending the neutral reviewer to dispute
-  arbitration", "Extending the neutral reviewer to document
-  verification", and "Review moderation" above). Dispute arbitration and
-  document verification both have an evidence-request step
-  (`under_review` / `submitted`); vendor/supplier verification's
-  `pending` plays the same "awaiting evidence" role. All three now also
-  have a real, structured way for the reviewed account to *submit*
-  evidence in response — see "Structured evidence-submission channels
-  for document and vendor/supplier verification" above — not just
-  general tools unrelated to the review itself. Review `moderationStatus`
-  is the one exception, by design rather than oversight: "flagged"
-  already plays an analogous "needs a decision" role there, raised by
-  the reviewed party rather than requested by the reviewer, so there's
-  nothing parallel to add.
+  fields covered at the time this was written, and three of the four
+  have a real evidence-submission channel behind them too.**
+  `platform_reviewer` covered `Vendor`/`Supplier.verificationStatus`,
+  dispute arbitration, `Document.verificationStatus`, and review
+  `moderationStatus` (see "A real neutral reviewer", "Extending the
+  neutral reviewer to dispute arbitration", "Extending the neutral
+  reviewer to document verification", and "Review moderation" above).
+  Dispute arbitration and document verification both have an
+  evidence-request step (`under_review` / `submitted`); vendor/supplier
+  verification's `pending` plays the same "awaiting evidence" role. All
+  three now also have a real, structured way for the reviewed account to
+  *submit* evidence in response — see "Structured evidence-submission
+  channels for document and vendor/supplier verification" above — not
+  just general tools unrelated to the review itself. Review
+  `moderationStatus` is the one exception, by design rather than
+  oversight: "flagged" already plays an analogous "needs a decision"
+  role there, raised by the reviewed party rather than requested by the
+  reviewer, so there's nothing parallel to add. **A fifth field joined
+  this list in a later pass**: `PropertyListing.verificationStatus` —
+  see "A real listing:verify action for the neutral platform reviewer"
+  above, which mirrors the vendor/supplier shape exactly (a real
+  `verificationNotes` field, `platform_reviewer`-only, never granted to
+  `listing:write`) but, like vendor/supplier verification and unlike
+  dispute/document arbitration, has no structured evidence-submission
+  channel of its own yet.
 - **Real AR/VR renovation visualization — deliberately not attempted.**
   See "AI-generated renovation visualizations — the 2D half only" above:
   a bounded 2D "AI-edited before/after photo" slice is built, and every
