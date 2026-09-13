@@ -2271,10 +2271,13 @@ export class ApiClient {
   // --- Vendors (marketplace browse is cross-account by design; "me" routes
   // are scoped to whichever account is currently active, which only makes
   // sense for a VENDOR-type account) ---
-  listVendors(serviceCategory?: string, q?: string) {
+  listVendors(serviceCategory?: string, q?: string, location?: string, minRating?: string, verificationStatus?: string) {
     const params = new URLSearchParams();
     if (serviceCategory) params.set("serviceCategory", serviceCategory);
     if (q) params.set("q", q);
+    if (location) params.set("location", location);
+    if (minRating) params.set("minRating", minRating);
+    if (verificationStatus) params.set("verificationStatus", verificationStatus);
     const qs = params.toString();
     return request<Vendor[]>(`/vendors${qs ? `?${qs}` : ""}`, { token: this.token, accountId: this.accountId });
   }

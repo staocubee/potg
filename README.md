@@ -7050,10 +7050,12 @@ it appeared correctly categorized on the tenant's own request list.
 - No sub-categories or per-category licensing rules — same restraint
   vendor service categories already accept; a flat list, not a
   taxonomy tree.
-- The vendor filter is a client-side narrowing of an already-fetched
-  list, not a new search/filter endpoint — the audit's own broader
-  finding (no location/rating/verification filtering anywhere on the
-  vendor marketplace itself) is unrelated and still open.
+- The vendor filter here is a client-side narrowing of an already-
+  fetched list, not a new search/filter endpoint. ~~The audit's own
+  broader finding (no location/rating/verification filtering anywhere
+  on the vendor marketplace itself) is unrelated and still open~~ —
+  closed; see "Vendor marketplace location/rating/verification filters"
+  below.
 - No category-based reporting/analytics (e.g., "most common issue type
   this quarter") — the field exists and is queryable, but nothing
   aggregates it yet.
@@ -7306,6 +7308,49 @@ than silently matching everything.
 - No currency-aware or combined price+type faceting beyond what already
   exists — this pass only adds the one missing dropdown, same scope
   boundary the price/verification pass drew for itself.
+
+## Vendor marketplace location/rating/verification filters (this pass)
+
+Closes the broader audit finding the maintenance-category pass left
+explicitly open: "no location/rating/verification filtering anywhere on
+the vendor marketplace itself" — vendor cards already display
+`locationCoverage`, `ratingAverage`, and `verificationStatus`, but there
+were no server-side query params to filter on any of them.
+
+**What's built**:
+
+- **`GET /vendors`** gained three new optional query params —
+  `location`, `minRating`, `verificationStatus` — alongside the
+  existing `serviceCategory`/`q`, applied in `VendorsService.findAll`'s
+  `where` clause. `location` is a real substring match
+  (`contains`/`insensitive`) against the vendor's own freeform
+  `locationCoverage` text, since there's no fixed region taxonomy to
+  match exactly against (the same reasoning `city` used before it
+  became a real column elsewhere); `minRating` is a numeric floor
+  (`gte`) against `ratingAverage`; `verificationStatus` is an exact
+  match, mirroring the listing side's own verification filter.
+- A "Any location" text input, a "★ 4+/3+/2+" rating dropdown, and a
+  "Verified only" checkbox on the vendor marketplace page — same shape
+  and placement as the marketplace listing page's own price/verified
+  filter row, with `flexWrap: "wrap"` added to the filter bar now that
+  it holds five inputs.
+
+**Verified live** against the real seeded vendor set (7 vendors: 2×
+"Spark Electrical Co" and "Lekki Renovations Co." carrying
+`locationCoverage: "Lagos, Nigeria"`, the rest with none;
+"Precision Plumbing Co" at ★4.8 and "Lekki Renovations Co." at ★4.0,
+the rest unrated; 2 verified, 5 not). Confirmed via direct network
+inspection: `?location=Lagos` narrowed 7 vendors to exactly the 3 with
+"Lagos, Nigeria" in their coverage text; `?minRating=4` narrowed to
+exactly the 2 vendors rated ★4.0 and above; `?verificationStatus=verified`
+narrowed to exactly the 2 verified vendors. Each filter cleared
+correctly back to the full list.
+
+**Not done — explicit scope, not oversight**:
+
+- No combined "vendors near me" geo-radius search — `location` is a
+  freeform substring match against existing text, not coordinate-based.
+- No saved filter presets or URL-shareable filter state.
 
 ## Not built yet
 

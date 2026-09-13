@@ -24,6 +24,9 @@ export default function VendorMarketplacePage() {
   const auth = useAuth();
   const [vendors, setVendors] = useState<Vendor[] | null>(null);
   const [category, setCategory] = useState("");
+  const [location, setLocation] = useState("");
+  const [minRating, setMinRating] = useState("");
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -32,13 +35,15 @@ export default function VendorMarketplacePage() {
     setError(null);
     const timer = setTimeout(() => {
       auth.api
-        .listVendors(category || undefined, q || undefined)
+        .listVendors(category || undefined, q || undefined, location || undefined, minRating || undefined, verifiedOnly ? "verified" : undefined)
         .then(setVendors)
         .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load the vendor marketplace."));
     }, 250);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.currentAccountId, category, q]);
+  }, [auth.currentAccountId, category, location, minRating, verifiedOnly, q]);
+
+  const hasActiveFilters = !!(category || location || minRating || verifiedOnly || q);
 
   const isVendorAccount = auth.currentAccount?.accountType === "VENDOR";
   const canModerateReviews = auth.hasPermission("review:moderate");
@@ -62,7 +67,7 @@ export default function VendorMarketplacePage() {
           of) the vendor list this role already browses to verify vendors. */}
       {canModerateReviews && <ReviewModerationQueue />}
 
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
         <label className="potg-label" style={{ margin: 0 }}>
           Category
         </label>
@@ -76,7 +81,24 @@ export default function VendorMarketplacePage() {
         </select>
         <input
           className="potg-input"
-          style={{ width: 260 }}
+          style={{ width: 180 }}
+          placeholder="Any location"
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+        />
+        <select className="potg-input" style={{ width: 130 }} value={minRating} onChange={(e) => setMinRating(e.target.value)}>
+          <option value="">Any rating</option>
+          <option value="4">★ 4+</option>
+          <option value="3">★ 3+</option>
+          <option value="2">★ 2+</option>
+        </select>
+        <label className="potg-muted" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13 }}>
+          <input type="checkbox" checked={verifiedOnly} onChange={(e) => setVerifiedOnly(e.target.checked)} />
+          Verified only
+        </label>
+        <input
+          className="potg-input"
+          style={{ width: 220 }}
           placeholder="Search vendors by name…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -89,7 +111,7 @@ export default function VendorMarketplacePage() {
       {vendors && vendors.length === 0 && (
         <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
           <p className="potg-muted" style={{ margin: 0 }}>
-            No vendors {category || q ? "match those filters" : "yet"}.
+            No vendors {hasActiveFilters ? "match those filters" : "yet"}.
             {!isVendorAccount && (
               <>
                 {" "}

@@ -132,7 +132,15 @@ export class VendorsService {
   // same pg_trgm-backed "$queryRaw for matching ids, Prisma findMany to
   // hydrate, re-sort in JS" split ListingsService.findAll's own comment
   // explains in full.
-  async findAll(serviceCategory?: string, q?: string) {
+  // The audit's own finding: "cards display location/rating/verification,
+  // but there are no server-side query params to filter on them at all."
+  // Three new optional filters, same shape serviceCategory already used:
+  // location is a real substring match against the vendor's own freeform
+  // locationCoverage text (there's no fixed region taxonomy to match
+  // exactly against), minRating is a real numeric floor, verificationStatus
+  // is exact — mirrors ListingsService.findAll's own verificationStatus
+  // filter added for the marketplace listing side of this same gap.
+  async findAll(serviceCategory?: string, q?: string, location?: string, minRating?: string, verificationStatus?: string) {
     let relevanceOrder: string[] | undefined;
     let relevanceScore: Map<string, number> | undefined;
     if (q) {
@@ -155,6 +163,9 @@ export class VendorsService {
       where: {
         serviceCategory: serviceCategory || undefined,
         id: relevanceOrder ? { in: relevanceOrder } : undefined,
+        locationCoverage: location ? { contains: location, mode: 'insensitive' } : undefined,
+        ratingAverage: minRating ? { gte: Number(minRating) } : undefined,
+        verificationStatus: verificationStatus || undefined,
       },
       orderBy: relevanceOrder ? undefined : [{ ratingAverage: 'desc' }, { createdAt: 'desc' }],
     });

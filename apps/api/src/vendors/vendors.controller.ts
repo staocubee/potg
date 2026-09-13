@@ -92,13 +92,20 @@ export class VendorsController {
     return this.vendors.listBanks(provider);
   }
 
-  // Marketplace browse (Module 7): ?serviceCategory=plumbing, and now
-  // ?q=... for fuzzy free-text search against businessName — see
-  // VendorsService.findAll's own comment.
+  // Marketplace browse (Module 7): ?serviceCategory=plumbing, ?q=... for
+  // fuzzy free-text search against businessName, and now ?location=,
+  // ?minRating=, ?verificationStatus= — see VendorsService.findAll's own
+  // comment on the three-filter addition.
   @RequirePermissions('vendor:read')
   @Get()
-  findAll(@Query('serviceCategory') serviceCategory?: string, @Query('q') q?: string) {
-    return this.vendors.findAll(serviceCategory, q);
+  findAll(
+    @Query('serviceCategory') serviceCategory?: string,
+    @Query('q') q?: string,
+    @Query('location') location?: string,
+    @Query('minRating') minRating?: string,
+    @Query('verificationStatus') verificationStatus?: string,
+  ) {
+    return this.vendors.findAll(serviceCategory, q, location, minRating, verificationStatus);
   }
 
   @RequirePermissions('vendor:read')
