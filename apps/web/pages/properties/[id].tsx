@@ -2430,9 +2430,21 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
             {lease.endDate && ` to ${new Date(lease.endDate).toLocaleDateString()}`}
           </div>
           {lease.rentPayments && lease.rentPayments.length > 0 && (
-            <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
-              {lease.rentPayments.length} payment(s) recorded · {formatMoney(String(totalPaid), lease.currency)} total
-            </div>
+            <>
+              <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
+                {lease.rentPayments.length} payment(s) recorded · {formatMoney(String(totalPaid), lease.currency)} total
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 4 }}>
+                {lease.rentPayments.map((p) => (
+                  <div key={p.id} className="potg-muted" style={{ fontSize: 10.5, display: "flex", justifyContent: "space-between", gap: 10 }}>
+                    <span>
+                      {new Date(p.periodStart).toLocaleDateString()} – {new Date(p.periodEnd).toLocaleDateString()}
+                    </span>
+                    <span>{p.receipt ? p.receipt.receiptNumber : formatMoney(p.amount, p.currency)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
           <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
             {lease.tenantAccount ? `Tenant account linked (${lease.tenantAccount.name})` : "No tenant account linked yet"}

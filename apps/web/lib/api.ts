@@ -734,6 +734,10 @@ export type LeaseRentPayment = {
   method: string;
   notes?: string | null;
   paidAt: string;
+  // The audit's own finding: LeaseRentPayment had no receipt relation.
+  // Only present on payments recorded since this pass — not retroactive
+  // for older seeded/test data.
+  receipt?: Receipt | null;
 };
 
 export type Lease = {

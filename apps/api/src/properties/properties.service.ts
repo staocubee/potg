@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { OpenAiEmbeddingService } from './openai-embedding.service';
 import { GoogleGeocodingService } from './google-geocoding.service';
@@ -795,7 +796,10 @@ export class PropertiesService {
   findLeases(propertyId: string) {
     return this.prisma.lease.findMany({
       where: { propertyId },
-      include: { rentPayments: { orderBy: { periodStart: 'desc' } }, tenantAccount: { select: { id: true, name: true } } },
+      include: {
+        rentPayments: { include: { receipt: true }, orderBy: { periodStart: 'desc' } },
+        tenantAccount: { select: { id: true, name: true } },
+      },
       orderBy: { startDate: 'desc' },
     });
   }
@@ -803,27 +807,55 @@ export class PropertiesService {
   findLease(propertyId: string, leaseId: string) {
     return this.prisma.lease.findFirst({
       where: { id: leaseId, propertyId },
-      include: { rentPayments: { orderBy: { periodStart: 'desc' } }, tenantAccount: { select: { id: true, name: true } } },
+      include: {
+        rentPayments: { include: { receipt: true }, orderBy: { periodStart: 'desc' } },
+        tenantAccount: { select: { id: true, name: true } },
+      },
     });
   }
 
+  // The audit's own finding on Workflow 8: "Receipt only attaches to
+  // project payments/payouts — LeaseRentPayment has no receipt
+  // relation, and no receipt UI appears anywhere in the tenant or owner
+  // lease views." accountId is the property's own owning account (the
+  // landlord) — the party that actually "received" the rent, same
+  // reasoning PaymentsService.releaseMilestone's own receipt uses the
+  // vendor's account, not the project's.
   async recordRentPayment(propertyId: string, leaseId: string, dto: RecordRentPaymentDto) {
-    const lease = await this.prisma.lease.findFirst({ where: { id: leaseId, propertyId } });
+    const lease = await this.prisma.lease.findFirst({
+      where: { id: leaseId, propertyId },
+      include: { property: { select: { accountId: true } } },
+    });
     if (!lease) throw new NotFoundException('Lease not found on this property');
     if (lease.status !== 'active') {
       throw new BadRequestException(`This lease is "${lease.status}" — no rent to record against it`);
     }
-    return this.prisma.leaseRentPayment.create({
+    const currency = dto.currency ?? lease.currency;
+    const payment = await this.prisma.leaseRentPayment.create({
       data: {
         leaseId,
         amount: dto.amount,
-        currency: dto.currency ?? lease.currency,
+        currency,
         periodStart: new Date(dto.periodStart),
         periodEnd: new Date(dto.periodEnd),
         method: dto.method ?? 'manual',
         notes: dto.notes,
       },
     });
+    const receipt = await this.prisma.receipt.create({
+      data: {
+        accountId: lease.property.accountId,
+        // Not sequential/invoice-grade (a real one would need a
+        // per-account counter to avoid gaps) — unique and traceable is
+        // enough for this scaffold, same restraint PaymentsService's own
+        // receiptNumber() already documents.
+        receiptNumber: `RCT-${new Date().getFullYear()}-${randomUUID().slice(0, 8).toUpperCase()}`,
+        leaseRentPaymentId: payment.id,
+        amount: dto.amount,
+        currency,
+      },
+    });
+    return { ...payment, receipt };
   }
 
   async endLease(propertyId: string, leaseId: string, dto: EndLeaseDto) {

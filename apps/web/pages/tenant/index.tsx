@@ -153,6 +153,11 @@ export default function TenantLeasePage() {
                     <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
                       <span>
                         {new Date(p.periodStart).toLocaleDateString()} – {new Date(p.periodEnd).toLocaleDateString()}
+                        {p.receipt && (
+                          <span className="potg-muted" style={{ fontSize: 10.5, display: "block" }}>
+                            {p.receipt.receiptNumber}
+                          </span>
+                        )}
                       </span>
                       <span style={{ fontWeight: 600 }}>{formatMoney(p.amount, p.currency)}</span>
                     </div>

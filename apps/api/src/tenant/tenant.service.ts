@@ -34,7 +34,7 @@ export class TenantService {
       where: { tenantAccountId: accountId },
       include: {
         property: { select: { id: true, name: true, addressLine: true, city: true, country: true } },
-        rentPayments: { orderBy: { periodStart: 'desc' } },
+        rentPayments: { include: { receipt: true }, orderBy: { periodStart: 'desc' } },
       },
     });
     return lease;

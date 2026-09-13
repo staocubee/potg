@@ -7545,6 +7545,62 @@ happens to hide the button.
   separately cancel or edit the request if that's what they actually
   want next.
 
+## A real receipt for rent payments (this pass)
+
+Closes the audit's own finding on Workflow 8: "`Receipt` only attaches
+to project payments/payouts — `LeaseRentPayment` has no receipt
+relation, and no receipt UI appears anywhere in the tenant or owner
+lease views." Every other real money-record in this codebase (escrow
+deposits, vendor payouts) gets a real receipt; rent, recorded since
+Module 13, never did.
+
+**What's built**:
+
+- **`Receipt.leaseRentPaymentId`** (new column, optional and unique —
+  same shape `paymentId`/`payoutId` already have; exactly one of the
+  three is ever set per receipt) plus the matching back-relation on
+  `LeaseRentPayment`.
+- **`PropertiesService.recordRentPayment`** now creates a real
+  `Receipt` alongside the `LeaseRentPayment` in the same call —
+  `accountId` is the property's own owning account (the landlord, the
+  party that actually "received" the rent), the same reasoning
+  `releaseMilestone`'s own receipt uses the vendor's account rather than
+  the project's. Same non-sequential, unique-and-traceable
+  `RCT-<year>-<8 hex>` numbering `PaymentsService`'s own `receiptNumber()`
+  already uses — duplicated rather than imported, same "duplicate small
+  pieces" convention this codebase already follows elsewhere (see the
+  maintenance photo-evidence pass's own comment on the same choice).
+- **UI**: both the owner's lease view (`properties/[id].tsx`) and the
+  tenant portal's own rent-payment history now show each payment's real
+  receipt number instead of just an amount, once one exists.
+
+**A deliberately non-retroactive fix, not a bug**: `LeaseRentPayment`
+rows recorded before this pass have no receipt — `Receipt` is a new,
+optional relation, not backfilled. The UI falls back to showing the
+amount for those older rows instead of a missing receipt number.
+
+**Verified live** against the real "14 Ocean Drive" property: recorded
+a real rent payment on the "New Auto Tenant" lease (linked to a real
+tenant account) and confirmed the API response carried a real receipt
+(`RCT-2026-2BFDD1C3`, `leaseRentPaymentId` set, `accountId` matching
+the property's own owning account) — reloaded the page and confirmed
+that exact receipt number renders on the owner's lease row in place of
+an amount. Confirmed the non-retroactive fallback is real, not assumed:
+the "Chidi Nwosu" lease's two pre-existing payments still show their
+plain amounts (`NGN 450,000` each), not a missing/blank receipt field.
+Also confirmed the tenant-facing query (`TenantService.findMyLease`'s
+own `include`) returns the same receipt correctly for the linked tenant
+account, using the exact query shape that endpoint runs.
+
+**Not done — explicit scope, not oversight**:
+
+- No PDF or downloadable receipt — same lightweight "receipt number +
+  type + date + amount" text display the Payments page's own Receipts
+  panel already uses for project receipts, not a generated document.
+- No backfill for existing rent payments — a real historical gap, left
+  as-is rather than fabricating receipts after the fact for money that
+  was already recorded without one.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

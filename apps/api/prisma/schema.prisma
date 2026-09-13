@@ -1019,13 +1019,19 @@ model Receipt {
   receiptNumber String   @unique
   paymentId     String?  @unique
   payoutId      String?  @unique
+  // The audit's own finding on Workflow 8: "Receipt only attaches to
+  // project payments/payouts — LeaseRentPayment has no receipt
+  // relation." Same optional-and-unique shape as paymentId/payoutId
+  // above — exactly one of the three is ever set per receipt.
+  leaseRentPaymentId String?  @unique
   amount        Decimal  @db.Decimal(14, 2)
   currency      String
   issuedAt      DateTime @default(now())
 
-  account Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-  payout  Payout?  @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+  account          Account           @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  payment          Payment?          @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  payout           Payout?           @relation(fields: [payoutId], references: [id], onDelete: Cascade)
+  leaseRentPayment LeaseRentPayment? @relation(fields: [leaseRentPaymentId], references: [id], onDelete: Cascade)
 
   @@map("receipts")
 }
@@ -1617,7 +1623,8 @@ model LeaseRentPayment {
   notes       String?
   paidAt      DateTime @default(now())
 
-  lease Lease @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  lease   Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  receipt Receipt?
 
   @@map("lease_rent_payments")
 }
