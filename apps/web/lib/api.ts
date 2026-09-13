@@ -491,9 +491,28 @@ export type Property = {
   branchId?: string | null;
   createdAt: string;
   updatedAt: string;
-  owners?: unknown[];
+  owners?: PropertyOwner[];
   documents?: PropertyDocument[];
   timelineEvents?: PropertyTimelineEvent[];
+};
+
+// The audit's own finding: this model has existed since Module 1, only
+// ever written as a side-effect of accepting a temporary_ownership
+// development agreement — no create/edit UI anywhere, and the frontend
+// never rendered property.owners even though it was already fetched.
+// ownerAccountId/ownerUserId are soft references, same as
+// ListingOffer.accountId — ownerName is resolved server-side
+// (PropertiesService.withOwnerNames) since there's no relation to join.
+export type PropertyOwner = {
+  id: string;
+  propertyId: string;
+  ownerType: "account" | "user" | string;
+  ownerAccountId?: string | null;
+  ownerUserId?: string | null;
+  ownerName: string;
+  ownershipPercentage: string;
+  startDate: string;
+  endDate?: string | null;
 };
 
 // Module 21 Phase 1 — "Family representative access." Wires up
@@ -1870,6 +1889,41 @@ export class ApiClient {
   // null (not a 404) when there's no grant.
   getMyAccessGrant(propertyId: string) {
     return request<AccessGrant | null>(`/properties/${propertyId}/access-grants/me`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  // Module 3 (Ownership and Governance) — the audit's own finding: this
+  // model existed with no create/edit route anywhere until this pass.
+  addPropertyOwner(
+    propertyId: string,
+    input: {
+      ownerType: "account" | "user";
+      ownerAccountId?: string;
+      ownerUserId?: string;
+      ownershipPercentage: number;
+      startDate?: string;
+      endDate?: string;
+    },
+  ) {
+    return request<PropertyOwner>(`/properties/${propertyId}/owners`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  updatePropertyOwner(propertyId: string, ownerId: string, input: { ownershipPercentage?: number; endDate?: string }) {
+    return request<PropertyOwner>(`/properties/${propertyId}/owners/${ownerId}`, {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  removePropertyOwner(propertyId: string, ownerId: string) {
+    return request<{ deleted?: boolean }>(`/properties/${propertyId}/owners/${ownerId}`, {
+      method: "DELETE",
       token: this.token,
       accountId: this.accountId,
     });

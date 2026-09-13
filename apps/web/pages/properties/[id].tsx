@@ -137,6 +137,8 @@ export default function PropertyDetailPage() {
 
           <AccessGrantsCard propertyId={property.id} />
 
+          <OwnershipCard property={property} onUpdated={setProperty} />
+
           <DevelopmentAgreementsCard propertyId={property.id} />
 
           <DeviceRegistryCard propertyId={property.id} />
@@ -966,6 +968,195 @@ function AccessGrantsCard({ propertyId }: { propertyId: string }) {
               )}
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The audit's own finding on Workflow 1: PropertyOwner (%-split
+// multi-owner) has existed since Module 1, only ever written as a
+// side-effect of accepting a temporary_ownership development agreement
+// — no create/edit UI anywhere, and this page never rendered
+// property.owners even though it was already fetched. A row here
+// represents a stake carved OUT of the property's own primary account,
+// not a replacement for it — same reasoning DevelopmentAgreementsCard's
+// own temporary_ownership stake already uses.
+function OwnershipCard({ property, onUpdated }: { property: Property; onUpdated: (p: Property) => void }) {
+  const auth = useAuth();
+  const [members, setMembers] = useState<AccountMemberSummary[] | null>(null);
+  const [ownerKind, setOwnerKind] = useState<"member" | "account">("member");
+  const [selectedMemberId, setSelectedMemberId] = useState("");
+  const [otherAccountId, setOtherAccountId] = useState("");
+  const [percentage, setPercentage] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!auth.currentAccountId) return;
+    auth.api.listAccountMembers(auth.currentAccountId).then((r) => setMembers(r.members)).catch(() => setMembers([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  const owners = property.owners ?? [];
+
+  async function refresh() {
+    onUpdated(await auth.api.getProperty(property.id));
+  }
+
+  async function onAdd() {
+    if (!percentage || (ownerKind === "member" && !selectedMemberId) || (ownerKind === "account" && !otherAccountId)) return;
+    setBusy("add");
+    setError(null);
+    try {
+      await auth.api.addPropertyOwner(property.id, {
+        ownerType: ownerKind === "member" ? "user" : "account",
+        ownerUserId: ownerKind === "member" ? selectedMemberId : undefined,
+        ownerAccountId: ownerKind === "account" ? otherAccountId : undefined,
+        ownershipPercentage: Number(percentage),
+      });
+      setSelectedMemberId("");
+      setOtherAccountId("");
+      setPercentage("");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't add that owner.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onEndStake(ownerId: string) {
+    setBusy(ownerId);
+    setError(null);
+    try {
+      await auth.api.updatePropertyOwner(property.id, ownerId, { endDate: new Date().toISOString() });
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't end that stake.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onRemove(ownerId: string) {
+    setBusy(ownerId);
+    setError(null);
+    try {
+      await auth.api.removePropertyOwner(property.id, ownerId);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't remove that owner.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const memberOwnerIds = new Set(owners.filter((o) => o.ownerType === "user").map((o) => o.ownerUserId));
+  const addableMembers = (members ?? []).filter((m) => !memberOwnerIds.has(m.user.id));
+
+  return (
+    <div className="potg-card" style={{ padding: 18 }}>
+      <h3 style={{ fontSize: 14, marginTop: 0, marginBottom: 4 }}>Ownership structure</h3>
+      <p className="potg-muted" style={{ fontSize: 12, marginTop: 0, marginBottom: 12 }}>
+        Record a co-owner's share carved out of this property — the rest stays implicitly held by this account.
+      </p>
+      {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+
+      {owners.length === 0 && (
+        <p className="potg-muted" style={{ fontSize: 12, margin: "0 0 12px" }}>
+          No co-owners recorded — this account holds the property outright.
+        </p>
+      )}
+      {owners.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+          {owners.map((o) => (
+            <div
+              key={o.id}
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, borderTop: "1px solid var(--potg-border)", paddingTop: 8 }}
+            >
+              <div>
+                <span style={{ fontWeight: 600 }}>{o.ownerName}</span>
+                <span className="potg-badge" style={{ marginLeft: 8 }}>
+                  {Number(o.ownershipPercentage)}%
+                </span>
+                {o.endDate && new Date(o.endDate) <= new Date() && (
+                  <span className="potg-badge" style={{ marginLeft: 6 }}>
+                    ended
+                  </span>
+                )}
+                <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                  from {new Date(o.startDate).toLocaleDateString()}
+                  {o.endDate && ` to ${new Date(o.endDate).toLocaleDateString()}`}
+                </div>
+              </div>
+              {auth.hasPermission("property:write") && (!o.endDate || new Date(o.endDate) > new Date()) && (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={() => onEndStake(o.id)}>
+                    {busy === o.id ? "…" : "End stake"}
+                  </button>
+                  <button className="potg-btn potg-btn-danger" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={() => onRemove(o.id)}>
+                    Remove
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {auth.hasPermission("property:write") && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              className={ownerKind === "member" ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
+              style={{ padding: "4px 9px", fontSize: 11 }}
+              onClick={() => setOwnerKind("member")}
+            >
+              Family/company member
+            </button>
+            <button
+              className={ownerKind === "account" ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
+              style={{ padding: "4px 9px", fontSize: 11 }}
+              onClick={() => setOwnerKind("account")}
+            >
+              Another account
+            </button>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {ownerKind === "member" ? (
+              <select className="potg-input" style={{ flex: 1 }} value={selectedMemberId} onChange={(e) => setSelectedMemberId(e.target.value)}>
+                <option value="">Choose a member…</option>
+                {addableMembers.map((m) => (
+                  <option key={m.user.id} value={m.user.id}>
+                    {m.user.name} ({m.role.name})
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className="potg-input"
+                style={{ flex: 1 }}
+                placeholder="Other account's ID"
+                value={otherAccountId}
+                onChange={(e) => setOtherAccountId(e.target.value)}
+              />
+            )}
+            <input
+              className="potg-input"
+              type="number"
+              min={0.01}
+              max={100}
+              step={0.01}
+              style={{ width: 100 }}
+              placeholder="% share"
+              value={percentage}
+              onChange={(e) => setPercentage(e.target.value)}
+            />
+            <button className="potg-btn potg-btn-primary" disabled={busy !== null} onClick={onAdd}>
+              {busy === "add" ? "…" : "Add owner"}
+            </button>
+          </div>
         </div>
       )}
     </div>

@@ -24,6 +24,8 @@ import { UpdateMaintenanceRequestDto } from './dto/update-maintenance-request.dt
 import { StartMaintenanceRequestDto } from './dto/start-maintenance-request.dto';
 import { ResolveMaintenanceRequestDto } from './dto/resolve-maintenance-request.dto';
 import { SetMaintenanceApprovalDto } from './dto/set-maintenance-approval.dto';
+import { AddPropertyOwnerDto } from './dto/add-property-owner.dto';
+import { UpdatePropertyOwnerDto } from './dto/update-property-owner.dto';
 
 // Service categories where a real license is what "licensed" means in
 // this scaffold's own terms — see the schema comment on
@@ -223,8 +225,8 @@ export class PropertiesService {
     });
   }
 
-  findOne(id: string) {
-    return this.prisma.property.findUnique({
+  async findOne(id: string) {
+    const property = await this.prisma.property.findUnique({
       where: { id },
       include: {
         owners: true,
@@ -232,6 +234,30 @@ export class PropertiesService {
         timelineEvents: { orderBy: { occurredAt: 'asc' } },
       },
     });
+    if (!property) return property;
+    return { ...property, owners: await this.withOwnerNames(property.owners) };
+  }
+
+  // ownerAccountId/ownerUserId are soft references (no Prisma relation —
+  // same reasoning ListingOffer.accountId's own schema comment gives),
+  // so a plain `include` can't join them. Resolved here instead of left
+  // as bare ids the UI would otherwise have nothing to display.
+  private async withOwnerNames(owners: { ownerType: string; ownerAccountId: string | null; ownerUserId: string | null }[]) {
+    const accountIds = owners.filter((o) => o.ownerType === 'account' && o.ownerAccountId).map((o) => o.ownerAccountId!);
+    const userIds = owners.filter((o) => o.ownerType === 'user' && o.ownerUserId).map((o) => o.ownerUserId!);
+    const [accounts, users] = await Promise.all([
+      accountIds.length ? this.prisma.account.findMany({ where: { id: { in: accountIds } }, select: { id: true, name: true } }) : [],
+      userIds.length ? this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [],
+    ]);
+    const accountNames = new Map(accounts.map((a) => [a.id, a.name]));
+    const userNames = new Map(users.map((u) => [u.id, u.name]));
+    return owners.map((o) => ({
+      ...o,
+      ownerName:
+        o.ownerType === 'account'
+          ? (o.ownerAccountId && accountNames.get(o.ownerAccountId)) ?? 'Unknown account'
+          : (o.ownerUserId && userNames.get(o.ownerUserId)) ?? 'Unknown user',
+    }));
   }
 
   // Module 21 Phase 1 — "Family representative access." Upsert on the
@@ -1103,5 +1129,106 @@ export class PropertiesService {
       throw new BadRequestException(`This request is already "${request.status}"`);
     }
     return this.prisma.maintenanceRequest.update({ where: { id: requestId }, data: { status: 'cancelled' } });
+  }
+
+  // The audit's own finding: PropertyOwner (%-split multi-owner) has
+  // existed since Module 1, only ever written as a side-effect of
+  // accepting a temporary_ownership development agreement
+  // (DevelopmentAgreementsService.applyAccept) — no create/edit endpoint
+  // anywhere, and the frontend never rendered property.owners even
+  // though GET /properties/:id already fetches it. A PropertyOwner row
+  // represents a stake carved OUT of the property's own primary
+  // accountId, not a replacement for it — the primary account implicitly
+  // holds whatever isn't explicitly split off here, same as how a
+  // temporary_ownership agreement's own developer stake works today.
+  async addPropertyOwner(propertyId: string, dto: AddPropertyOwnerDto) {
+    const property = await this.prisma.property.findUnique({ where: { id: propertyId } });
+    if (!property) throw new NotFoundException('Property not found');
+
+    if (dto.ownerType === 'account' && !dto.ownerAccountId) {
+      throw new BadRequestException('ownerAccountId is required when ownerType is "account"');
+    }
+    if (dto.ownerType === 'user' && !dto.ownerUserId) {
+      throw new BadRequestException('ownerUserId is required when ownerType is "user"');
+    }
+    if (dto.ownerType === 'user') {
+      // Restricted to a real member of this property's own owning
+      // account — "which family member holds this % stake," not an
+      // arbitrary user anywhere on the platform. ownerType "account" has
+      // no such restriction, matching the development-agreement
+      // precedent where the co-owner is a genuinely different account.
+      const member = await this.prisma.accountMember.findFirst({
+        where: { userId: dto.ownerUserId, accountId: property.accountId },
+      });
+      if (!member) throw new BadRequestException("That user is not a member of this property's own account");
+    }
+
+    const activeTotal = await this.getActiveOwnershipTotal(propertyId);
+    if (activeTotal + dto.ownershipPercentage > 100) {
+      throw new BadRequestException(
+        `Adding ${dto.ownershipPercentage}% would bring shares carved out to other owners to ${(activeTotal + dto.ownershipPercentage).toFixed(2)}% — already ${activeTotal.toFixed(2)}% is held by other owners`,
+      );
+    }
+
+    return this.prisma.propertyOwner.create({
+      data: {
+        propertyId,
+        ownerType: dto.ownerType,
+        ownerAccountId: dto.ownerType === 'account' ? dto.ownerAccountId : null,
+        ownerUserId: dto.ownerType === 'user' ? dto.ownerUserId : null,
+        ownershipPercentage: dto.ownershipPercentage,
+        startDate: dto.startDate ? new Date(dto.startDate) : undefined,
+        endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+      },
+    });
+  }
+
+  // Sum of every currently-active (no endDate, or one still in the
+  // future) co-owner share on this property — the same "compute on
+  // read" restraint this codebase already applies elsewhere (project
+  // spend, vendor trust score) rather than a stored running total that
+  // would drift the moment a stake is added, edited, or ends.
+  private async getActiveOwnershipTotal(propertyId: string, excludeOwnerId?: string) {
+    const now = new Date();
+    const owners = await this.prisma.propertyOwner.findMany({
+      where: {
+        propertyId,
+        id: excludeOwnerId ? { not: excludeOwnerId } : undefined,
+        OR: [{ endDate: null }, { endDate: { gt: now } }],
+      },
+      select: { ownershipPercentage: true },
+    });
+    return owners.reduce((sum, o) => sum + Number(o.ownershipPercentage), 0);
+  }
+
+  async updatePropertyOwner(propertyId: string, ownerId: string, dto: UpdatePropertyOwnerDto) {
+    const owner = await this.prisma.propertyOwner.findFirst({ where: { id: ownerId, propertyId } });
+    if (!owner) throw new NotFoundException('Owner not found on this property');
+    if (dto.ownershipPercentage != null) {
+      const activeTotal = await this.getActiveOwnershipTotal(propertyId, ownerId);
+      if (activeTotal + dto.ownershipPercentage > 100) {
+        throw new BadRequestException(
+          `Raising this owner's share to ${dto.ownershipPercentage}% would bring shares carved out to other owners to ${(activeTotal + dto.ownershipPercentage).toFixed(2)}%`,
+        );
+      }
+    }
+    return this.prisma.propertyOwner.update({
+      where: { id: ownerId },
+      data: {
+        ownershipPercentage: dto.ownershipPercentage ?? undefined,
+        endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+      },
+    });
+  }
+
+  // A hard delete, not just setting endDate — correcting a mistaken
+  // entry is a different real action from a stake genuinely ending on a
+  // real date, the same distinction cancelMaintenanceRequest's own
+  // status vs. a real edit already draws.
+  async removePropertyOwner(propertyId: string, ownerId: string) {
+    const owner = await this.prisma.propertyOwner.findFirst({ where: { id: ownerId, propertyId } });
+    if (!owner) throw new NotFoundException('Owner not found on this property');
+    await this.prisma.propertyOwner.delete({ where: { id: ownerId } });
+    return { deleted: true };
   }
 }

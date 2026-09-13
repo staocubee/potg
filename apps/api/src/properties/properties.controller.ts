@@ -24,6 +24,8 @@ import { UpdateMaintenanceRequestDto } from './dto/update-maintenance-request.dt
 import { StartMaintenanceRequestDto } from './dto/start-maintenance-request.dto';
 import { ResolveMaintenanceRequestDto } from './dto/resolve-maintenance-request.dto';
 import { SetMaintenanceApprovalDto } from './dto/set-maintenance-approval.dto';
+import { AddPropertyOwnerDto } from './dto/add-property-owner.dto';
+import { UpdatePropertyOwnerDto } from './dto/update-property-owner.dto';
 
 type AccountMemberCtx = { accountId: string };
 type UserCtx = { id: string };
@@ -120,6 +122,33 @@ export class PropertiesController {
   @Delete(':propertyId/access-grants/:grantId')
   revokeAccessGrant(@Param('propertyId') propertyId: string, @Param('grantId') grantId: string) {
     return this.properties.revokeAccessGrant(propertyId, grantId);
+  }
+
+  // Module 3 (Ownership and Governance) — the audit's own finding:
+  // PropertyOwner has existed since Module 1 with no create/edit route
+  // anywhere. property:write, same as the property record itself and
+  // access-grant config above — recording who else owns a share is
+  // standing property configuration, not everyday data.
+  @RequirePermissions('property:write')
+  @Post(':propertyId/owners')
+  addPropertyOwner(@Param('propertyId') propertyId: string, @Body() dto: AddPropertyOwnerDto) {
+    return this.properties.addPropertyOwner(propertyId, dto);
+  }
+
+  @RequirePermissions('property:write')
+  @Patch(':propertyId/owners/:ownerId')
+  updatePropertyOwner(
+    @Param('propertyId') propertyId: string,
+    @Param('ownerId') ownerId: string,
+    @Body() dto: UpdatePropertyOwnerDto,
+  ) {
+    return this.properties.updatePropertyOwner(propertyId, ownerId, dto);
+  }
+
+  @RequirePermissions('property:write')
+  @Delete(':propertyId/owners/:ownerId')
+  removePropertyOwner(@Param('propertyId') propertyId: string, @Param('ownerId') ownerId: string) {
+    return this.properties.removePropertyOwner(propertyId, ownerId);
   }
 
   // Module 22 Phase 1 — the device registry ("architecture that allows

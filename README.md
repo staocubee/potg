@@ -7789,6 +7789,81 @@ vendor, or order two-party resolve) is used.
   that rework was the decision is real progress on the audit's own
   finding; a full rework workflow is a separate, larger feature.
 
+## Ownership structure — a real create/edit UI for co-owner shares (this pass)
+
+Closes the audit's own finding on Workflow 1: "`PropertyOwner` (%-split
+multi-owner) exists in the schema but is completely inert — no create/
+edit endpoint anywhere, and `properties/[id].tsx` never renders
+`property.owners` even though it's fetched. Only ever written as a
+side-effect of accepting a development agreement." The model has
+existed since Module 1; this is the first time anything other than
+`DevelopmentAgreementsService.applyAccept` ever wrote to it, and the
+first time the frontend ever read it back.
+
+**What's built**:
+
+- **`POST/PATCH/DELETE /properties/:propertyId/owners`** (new,
+  `property:write` — same permission the property record and its access
+  grants already sit behind). A `PropertyOwner` row represents a stake
+  carved *out of* the property's own primary account, not a replacement
+  for it — the primary account implicitly holds whatever isn't
+  explicitly split off, the same shape a `temporary_ownership`
+  development agreement's own developer stake already uses.
+- **A real 100%-ceiling validation** — the one thing that makes this a
+  functioning ownership ledger rather than a free-text list: adding or
+  raising a share is rejected if the sum of every currently-active
+  co-owner share (no `endDate`, or one still in the future) would
+  exceed 100%. Computed live on every write, not a stored running
+  total — same "compute on read" restraint `ProjectsService.getSpend`
+  already uses for project budget tracking.
+- **`ownerType: 'user'` is restricted to a real member of the
+  property's own owning account** — "which family member holds this %
+  stake," not an arbitrary user anywhere on the platform.
+  `ownerType: 'account'` has no such restriction, matching the
+  development-agreement precedent where the co-owner is a genuinely
+  different account.
+- **`ownerName` resolved server-side** (`PropertiesService.
+  withOwnerNames`) — `ownerAccountId`/`ownerUserId` are soft references
+  (no Prisma relation, same convention `ListingOffer.accountId`'s own
+  schema comment documents), so a plain `include` can't join them; the
+  frontend would otherwise have nothing but a bare id to show.
+- **UI**: a real "Ownership structure" card on the property page —
+  add a co-owner (a dropdown of the account's own members, or a raw
+  account id for a genuinely different account), see every owner's
+  resolved name/percentage/dates, "End stake" (sets `endDate` to now)
+  or "Remove" (a hard delete, for correcting a mistaken entry — a
+  different real action from a stake genuinely ending on a real date).
+
+**Verified live** on the real "14 Ocean Drive" property, which already
+had one real `PropertyOwner` row from an earlier, unrelated pass's
+accepted `temporary_ownership` development agreement ("Dev Test
+Developer Co," 20%) — confirmed it now renders with its real resolved
+account name where the page previously showed nothing at all. Added a
+real 30% stake for a real account member ("Third User") and confirmed
+it rendered correctly; confirmed the 100% ceiling genuinely rejects an
+over-allocation (`POST` with a further 51% returned a real 400 quoting
+the exact resulting total, 101%); confirmed the "must be a member of
+this account" guard rejects an unrelated user id. Ended the 30% stake
+(`PATCH` with `endDate`) and confirmed a *new* 75% stake was then
+accepted — proving an ended stake genuinely stops counting toward the
+100% ceiling, not just cosmetically. Removed that verification-only
+stake afterward; the real "Dev Test Developer Co" (active) and "Third
+User" (ended) rows were left as real evidence, the same convention
+earlier passes this session already established.
+
+**Not done — explicit scope, not oversight**:
+
+- No UI to edit an existing owner's percentage directly — only adding,
+  ending, and removing. The backend (`PATCH .../owners/:ownerId`)
+  already accepts `ownershipPercentage`; only the form is missing.
+- No picker for `ownerType: 'account'` — a raw account id text field,
+  since there's no "search accounts" feature anywhere else in this
+  codebase either (development agreements use an email-based invite,
+  not an account picker).
+- No UI surfacing of the *implicit* remaining share held by the
+  property's own primary account (e.g. "60% unaccounted for") — only
+  the explicitly recorded co-owner rows are shown.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
