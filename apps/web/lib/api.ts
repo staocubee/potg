@@ -2833,6 +2833,7 @@ export class ApiClient {
     propertyType?: string;
     minPrice?: string;
     maxPrice?: string;
+    currency?: string;
     verificationStatus?: string;
     q?: string;
   }) {

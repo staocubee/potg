@@ -44,6 +44,7 @@ export default function PropertyMarketplacePage() {
   const [city, setCity] = useState("");
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
+  const [currency, setCurrency] = useState("");
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +60,7 @@ export default function PropertyMarketplacePage() {
           city: city || undefined,
           minPrice: minPrice || undefined,
           maxPrice: maxPrice || undefined,
+          currency: currency || undefined,
           verificationStatus: verifiedOnly ? "verified" : undefined,
           q: q || undefined,
         })
@@ -67,9 +69,9 @@ export default function PropertyMarketplacePage() {
     }, 250);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.currentAccountId, listingType, propertyType, city, minPrice, maxPrice, verifiedOnly, q]);
+  }, [auth.currentAccountId, listingType, propertyType, city, minPrice, maxPrice, currency, verifiedOnly, q]);
 
-  const hasActiveFilters = !!(city || listingType || propertyType || minPrice || maxPrice || verifiedOnly || q);
+  const hasActiveFilters = !!(city || listingType || propertyType || minPrice || maxPrice || currency || verifiedOnly || q);
 
   return (
     <AppShell
@@ -138,6 +140,13 @@ export default function PropertyMarketplacePage() {
           value={maxPrice}
           onChange={(e) => setMaxPrice(e.target.value)}
         />
+        <input
+          className="potg-input"
+          style={{ width: 90 }}
+          placeholder="Currency"
+          value={currency}
+          onChange={(e) => setCurrency(e.target.value)}
+        />
         <label className="potg-muted" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 13 }}>
           <input type="checkbox" checked={verifiedOnly} onChange={(e) => setVerifiedOnly(e.target.checked)} />
           Verified only
@@ -150,6 +159,13 @@ export default function PropertyMarketplacePage() {
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
+
+      {(minPrice || maxPrice) && !currency && (
+        <p className="potg-muted" style={{ fontSize: 12, marginTop: -10, marginBottom: 16 }}>
+          Enter a currency (e.g. NGN, USD) to apply the price filter — listings in different
+          currencies aren't comparable as raw numbers, so price alone won't narrow results.
+        </p>
+      )}
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
       {!listings && !error && <p className="potg-muted">Loading listings…</p>}

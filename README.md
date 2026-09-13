@@ -7185,9 +7185,10 @@ the "✓ verified" badge appeared only on that listing; checking
 "Verified only" narrowed the browse view to exactly that one listing
 and unchecking it restored the rest; setting a min/max price range
 correctly narrowed results across listings in different currencies (a
-raw numeric compare, not currency-aware — see "Not done"); and the
-empty-state message correctly read "match those filters" once any
-filter was active, not just city/type/search as before.
+raw numeric compare, not currency-aware at the time — since closed, see
+"Not done"); and the empty-state message correctly read "match those
+filters" once any filter was active, not just city/type/search as
+before.
 
 **Not done — explicit scope, not oversight**:
 
@@ -7200,9 +7201,10 @@ filter was active, not just city/type/search as before.
   there; it doesn't add a way to change that value. Closed in a later
   pass — see "A real listing:verify action for the neutral reviewer"
   below.
-- No currency-aware price filtering — `minPrice`/`maxPrice` compare
+- ~~No currency-aware price filtering — `minPrice`/`maxPrice` compare
   `askingPrice` as a raw number regardless of the listing's own
-  `currency`, an existing backend limitation this pass didn't touch.
+  `currency`~~ — closed; see "Currency-scoped price filtering on the
+  marketplace" below.
 - ~~No propertyType filter exposed in the UI, even though the backend
   already accepts one~~ — closed; see "Marketplace propertyType filter"
   below.
@@ -7305,9 +7307,9 @@ than silently matching everything.
 
 **Not done — explicit scope, not oversight**:
 
-- No currency-aware or combined price+type faceting beyond what already
-  exists — this pass only adds the one missing dropdown, same scope
-  boundary the price/verification pass drew for itself.
+- ~~No currency-aware or combined price+type faceting beyond what
+  already exists~~ — the currency half is closed; see "Currency-scoped
+  price filtering on the marketplace" below.
 
 ## Vendor marketplace location/rating/verification filters (this pass)
 
@@ -7410,6 +7412,58 @@ that project exactly.
 - Not surfaced on the projects list view, only the single-project
   fetch — the list view has no per-project financial detail today
   beyond the budget figure it already showed.
+
+## Currency-scoped price filtering on the marketplace (this pass)
+
+Closes a real correctness gap the marketplace price/verification-status
+filters pass named in its own "Not done" list and the audit's own
+finding restated since: `minPrice`/`maxPrice` compared `askingPrice` as
+a raw number regardless of a listing's own `currency` — a NGN 500,000
+listing and a USD 500,000 listing matched the same price search, even
+though those are wildly different amounts of money.
+
+**What's built**:
+
+- **`SearchListingsQuery.currency`** (new, optional query param) —
+  applied in `ListingsService.findAll`'s `where` clause as an exact,
+  case-insensitive match against `PropertyListing.currency`, the same
+  shape `city` already uses.
+- **The actual fix**: `askingPrice`'s range filter now only applies
+  when `currency` is *also* specified. This codebase has no FX-
+  conversion infrastructure anywhere, so rather than fake precision
+  with a made-up exchange rate, a price range with no currency attached
+  is simply not applied — an unfiltered-but-correct result instead of a
+  silently wrong one. A direct API caller who omits `currency` gets
+  every listing back, not a comparison across incompatible currencies.
+- **A "Currency" input on the marketplace filter bar** (freeform text,
+  same convention `City` already uses — `currency` has no fixed enum
+  anywhere in this schema, just like `city`) plus a muted hint line that
+  appears whenever a price bound is set without a currency, explaining
+  why the price filter isn't narrowing anything: "listings in different
+  currencies aren't comparable as raw numbers."
+
+**Verified live** against the real seeded listings (2 USD: 90,000 and
+180,000; 2 NGN: 200,000,000 and 220,000,000). Setting `minPrice=100000,
+maxPrice=200000` with no currency left all 4 listings showing (the hint
+text rendered, and the network request confirmed via direct inspection
+sent the price params but the server correctly did not filter by them);
+adding `currency=USD` to that same range narrowed correctly to just the
+180,000 USD listing; switching to `currency=NGN, minPrice=210000000,
+maxPrice=250000000` narrowed correctly to just the 220,000,000 NGN
+listing — excluding both the 200,000,000 NGN listing (below the floor)
+and both USD listings (wrong currency) at once.
+
+**Not done — explicit scope, not oversight**:
+
+- No live currency conversion — this closes the "comparing incompatible
+  numbers" bug, not "let me search in NGN across a USD listing." A real
+  FX-rate integration is a genuinely different, larger feature this
+  scaffold doesn't attempt.
+- No fixed currency dropdown — freeform text, matching `city`'s own
+  shape; a typo (`ngn` vs `NGN`) still matches via the same
+  case-insensitive compare `city` already relies on, but a currency
+  spelled differently between listings (`USD` vs `US Dollars`) would
+  not unify. Not observed in real seeded data, not defended against.
 
 ## Not built yet
 

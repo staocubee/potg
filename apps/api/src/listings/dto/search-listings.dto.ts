@@ -8,6 +8,12 @@ export interface SearchListingsQuery {
   propertyType?: string;
   minPrice?: string;
   maxPrice?: string;
+  // The audit's own finding: minPrice/maxPrice compared askingPrice as a
+  // raw number regardless of a listing's own currency — a NGN 500,000
+  // listing and a USD 500,000 listing matched the same price search. See
+  // ListingsService.findAll's own comment for how this and the price
+  // range now work together to close that.
+  currency?: string;
   // The audit's own finding: verification-status filtering didn't exist
   // anywhere, frontend or backend, even though PropertyListing has
   // always carried a real verificationStatus (already used for ranking —

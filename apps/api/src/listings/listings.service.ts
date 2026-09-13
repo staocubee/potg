@@ -110,8 +110,20 @@ export class ListingsService {
           propertyType: query.propertyType,
           city: query.city ? { equals: query.city, mode: 'insensitive' } : undefined,
         },
+        currency: query.currency ? { equals: query.currency, mode: 'insensitive' } : undefined,
+        // The audit's own finding: comparing askingPrice as a raw number
+        // regardless of currency let a NGN 500,000 listing and a USD
+        // 500,000 listing match the same price search — not just a
+        // missing control, a real correctness gap, since this codebase
+        // has no FX-conversion infrastructure to make cross-currency
+        // comparison meaningful in the first place. Rather than fake
+        // precision with a made-up exchange rate, the price range only
+        // ever applies once a currency is also specified — the frontend
+        // always pairs them (see marketplace/index.tsx's own hint text),
+        // and a direct API caller who omits currency gets an unfiltered-
+        // but-correct result instead of a silently wrong one.
         askingPrice:
-          minPrice != null || maxPrice != null
+          (minPrice != null || maxPrice != null) && query.currency
             ? { gte: minPrice, lte: maxPrice }
             : undefined,
       },
