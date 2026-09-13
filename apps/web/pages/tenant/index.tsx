@@ -221,6 +221,12 @@ export default function TenantLeasePage() {
                           ))}
                         </div>
                       )}
+                      {r.status === "open" && r.approvalStatus !== "not_requested" && (
+                        <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
+                          {r.approvalStatus === "approved" ? "Approved — work can begin" : "Rejected"}
+                          {r.approvalNotes && `: ${r.approvalNotes}`}
+                        </div>
+                      )}
                       {r.resolutionNotes && (
                         <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
                           Resolution: {r.resolutionNotes}

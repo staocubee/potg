@@ -783,6 +783,10 @@ export type MaintenanceRequest = {
     | string;
   priority: "low" | "normal" | "high" | "urgent" | string;
   status: "open" | "in_progress" | "resolved" | "cancelled" | string;
+  // Own field from status — gates whether work can start at all (see
+  // PropertiesService.startMaintenanceRequest's own comment).
+  approvalStatus: "not_requested" | "approved" | "rejected" | string;
+  approvalNotes?: string | null;
   reportedBy?: string | null;
   assignedVendorId?: string | null;
   assignedVendor?: AssignedVendor | null;
@@ -2138,6 +2142,14 @@ export class ApiClient {
     input: { title?: string; description?: string; category?: string; priority?: string; photoUrls?: string[] },
   ) {
     return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests/${requestId}`, {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  setMaintenanceApproval(propertyId: string, requestId: string, input: { status: "approved" | "rejected"; notes?: string }) {
+    return request<MaintenanceRequest>(`/properties/${propertyId}/maintenance-requests/${requestId}/approval`, {
       method: "PATCH",
       body: input,
       token: this.token,

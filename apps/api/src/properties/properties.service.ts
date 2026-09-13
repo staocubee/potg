@@ -22,6 +22,7 @@ import { ReportMaintenanceRequestDto } from './dto/report-maintenance-request.dt
 import { UpdateMaintenanceRequestDto } from './dto/update-maintenance-request.dto';
 import { StartMaintenanceRequestDto } from './dto/start-maintenance-request.dto';
 import { ResolveMaintenanceRequestDto } from './dto/resolve-maintenance-request.dto';
+import { SetMaintenanceApprovalDto } from './dto/set-maintenance-approval.dto';
 
 // Service categories where a real license is what "licensed" means in
 // this scaffold's own terms — see the schema comment on
@@ -939,11 +940,51 @@ export class PropertiesService {
     });
   }
 
+  // The audit's own finding: unlike ProjectMilestone, nothing here ever
+  // gated work starting on an explicit sign-off. Own permission
+  // (maintenance:approve) — tenant holds maintenance:write to report its
+  // own requests but never maintenance:approve, the same self-approval
+  // lockout payment:approve/vendor:verify already enforce. Only while
+  // "open": once work has started (or the request is resolved/
+  // cancelled), a status flip here would just be historical revisionism.
+  async setMaintenanceApproval(propertyId: string, requestId: string, dto: SetMaintenanceApprovalDto) {
+    const request = await this.prisma.maintenanceRequest.findFirst({ where: { id: requestId, propertyId } });
+    if (!request) throw new NotFoundException('Maintenance request not found on this property');
+    if (request.status !== 'open') {
+      throw new BadRequestException(`This request is already "${request.status}" — approval only applies before work starts`);
+    }
+    const updated = await this.prisma.maintenanceRequest.update({
+      where: { id: requestId },
+      data: { approvalStatus: dto.status, approvalNotes: dto.notes },
+    });
+    if (request.leaseId) {
+      const lease = await this.prisma.lease.findUnique({ where: { id: request.leaseId }, select: { tenantAccountId: true } });
+      if (lease?.tenantAccountId) {
+        this.notifications.notify(
+          lease.tenantAccountId,
+          'maintenance_approval',
+          `Maintenance request ${dto.status}`,
+          `"${request.title}" was ${dto.status}${dto.notes ? `: ${dto.notes}` : '.'}`,
+          '/tenant',
+        );
+      }
+    }
+    return updated;
+  }
+
+  // The gate the audit finding above asks for: starting work on an
+  // unapproved request used to be indistinguishable from starting work
+  // on one nobody ever reviewed — approvalStatus existed nowhere, so
+  // there was nothing to check. Mirrors releaseMilestone's own
+  // `approvalStatus !== 'approved'` guard exactly.
   async startMaintenanceRequest(propertyId: string, requestId: string, dto: StartMaintenanceRequestDto) {
     const request = await this.prisma.maintenanceRequest.findFirst({ where: { id: requestId, propertyId } });
     if (!request) throw new NotFoundException('Maintenance request not found on this property');
     if (request.status !== 'open') {
       throw new BadRequestException(`This request is already "${request.status}"`);
+    }
+    if (request.approvalStatus !== 'approved') {
+      throw new BadRequestException('This request must be approved before work can start');
     }
     if (dto.assignedVendorId) await this.requireVendor(dto.assignedVendorId);
     return this.prisma.maintenanceRequest.update({

@@ -16,6 +16,13 @@ const PERMISSIONS = [
   { key: 'lease:write', label: 'Create a lease, record rent, or end a lease' },
   { key: 'maintenance:read', label: 'View property maintenance requests' },
   { key: 'maintenance:write', label: 'Report, start, resolve, or cancel a maintenance request' },
+  // The audit's own finding: unlike ProjectMilestone, nothing ever gated
+  // starting work on an explicit sign-off. Deliberately its own
+  // permission, not folded into maintenance:write — tenant holds
+  // maintenance:write (it reports its own requests) but must never be
+  // able to approve its own request, the same self-approval lockout
+  // payment:approve/vendor:verify already enforce elsewhere.
+  { key: 'maintenance:approve', label: 'Approve or reject a maintenance request before work can start' },
   { key: 'document:read', label: 'View documents' },
   { key: 'document:write', label: 'Upload documents' },
   { key: 'document:verify', label: "Approve or reject an uploaded document's verification status" },
@@ -122,6 +129,7 @@ const ROLES: Record<string, string[]> = {
     'lease:write',
     'maintenance:read',
     'maintenance:write',
+    'maintenance:approve',
     'document:read',
     'document:write',
     'document:verify',
@@ -167,6 +175,7 @@ const ROLES: Record<string, string[]> = {
     'lease:write',
     'maintenance:read',
     'maintenance:write',
+    'maintenance:approve',
     'document:read',
     'document:write',
     'document:verify',
@@ -212,6 +221,7 @@ const ROLES: Record<string, string[]> = {
     'lease:write',
     'maintenance:read',
     'maintenance:write',
+    'maintenance:approve',
     'document:read',
     'document:write',
     'document:verify',
@@ -385,6 +395,7 @@ const ROLES: Record<string, string[]> = {
     'lease:write',
     'maintenance:read',
     'maintenance:write',
+    'maintenance:approve',
     'document:read',
     'document:write',
     'vendor:read',

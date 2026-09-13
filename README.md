@@ -7465,6 +7465,86 @@ and both USD listings (wrong currency) at once.
   spelled differently between listings (`USD` vs `US Dollars`) would
   not unify. Not observed in real seeded data, not defended against.
 
+## Owner approval before maintenance work starts (this pass)
+
+Closes the audit's own finding on Workflow 7 (Maintenance Request):
+"`MaintenanceRequest.status` has no `approved`/approval-status state at
+all, unlike `ProjectMilestone`." Anyone who could start a request could
+also approve it, since there was nothing to approve — the "owner
+approves" step simply didn't exist.
+
+**What's built**:
+
+- **`MaintenanceRequest.approvalStatus`** (new column, `@default
+  ("not_requested")`) — three states, not `ProjectMilestone`'s four: no
+  `requested` here, since nothing in this codebase ever actually
+  transitions a milestone to `requested` either (its own enum comment
+  names it, but only `not_requested -> approved` is ever exercised) —
+  no reason to add a state this pass wouldn't use. Also gained
+  `approvalNotes` (freeform, same "reviewer's note" shape `verify`-style
+  actions elsewhere already carry).
+- **`PATCH /properties/:propertyId/maintenance-requests/:requestId/approval`**
+  (new route, `PropertiesService.setMaintenanceApproval`) — sets
+  `approved` or `rejected` with an optional note, gated on a new
+  **`maintenance:approve`** permission. Deliberately its own permission,
+  not folded into `maintenance:write`: `tenant` holds `maintenance:write`
+  to report its own requests, but must never be able to approve its own
+  request — the same self-approval lockout `payment:approve`/
+  `vendor:verify` already enforce. Granted to `property_owner`,
+  `family_admin`, `company_admin`, and `property_manager`; withheld from
+  `tenant` and `facility_manager` (coordinates vendors/work, not
+  financial authority — the same split `project_manager` vs.
+  `finance_approver` already draws for project money).
+- **The actual gate**: `startMaintenanceRequest` now requires
+  `approvalStatus === 'approved'` before flipping a request to
+  `in_progress` — mirrors `releaseMilestone`'s own `approvalStatus !==
+  'approved'` guard exactly. An approval that didn't block anything
+  would just be a label; this makes it load-bearing.
+- **UI**: an "Approve"/"Reject" action pair on the property page's
+  maintenance list, visible only to `maintenance:approve` holders while
+  a request is `open`; a "Needs approval before work can start" hint
+  replaces the Start button until it's approved. The tenant portal shows
+  a read-only "Approved — work can begin" / "Rejected" line once a
+  decision lands, since a tenant who reported the issue is notified of
+  the outcome either way (new `maintenance_approval` notification type,
+  reusing the same lease-linked-tenant delivery path
+  `resolveMaintenanceRequest` already established).
+
+**A real, deliberate behavior change, not a bug**: every existing
+"open" maintenance request in the real seeded/test data defaulted to
+`approvalStatus: 'not_requested'` on migration, so all of them now show
+"Needs approval before work can start" until an owner-tier account acts
+on them — confirmed live, not just for a fresh request.
+
+**Verified live**: reported a real new request ("Approval gate
+verification test leak") on the real "14 Ocean Drive" property —
+confirmed it rendered with a "Needs Approval" badge and no Start
+button, just the hint text. Clicked "Approve" (confirmed via direct
+network inspection: `PATCH .../approval → 200 OK`) and confirmed the
+Start button appeared in its place; started it for real (`POST
+.../start → 201 Created`), moving it to `in_progress`. Separately
+confirmed the backend gate isn't just a hidden button: called `POST
+.../start` directly against a different real, still-`not_requested`
+request ("Leaking pipe under sink") and got back a real `400` with
+"This request must be approved before work can start" — the same
+guard, exercised directly, not just observed through the UI that
+happens to hide the button.
+
+**Not done — explicit scope, not oversight**:
+
+- No bulk approve/reject across multiple requests — one at a time,
+  same granularity every other approval-style action in this codebase
+  (milestones, documents, listings) already uses.
+- Approval decisions aren't themselves reversible once work has
+  started — `setMaintenanceApproval` only applies while `status ===
+  "open"`, the same "before it matters" boundary `updateMaintenanceRequest`
+  already draws for edits.
+- Rejecting a request doesn't auto-cancel it — `approvalStatus` and
+  `status` stay orthogonal fields, the same relationship `ProjectMilestone`'s
+  `status`/`approvalStatus` already have; an owner who rejects can still
+  separately cancel or edit the request if that's what they actually
+  want next.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

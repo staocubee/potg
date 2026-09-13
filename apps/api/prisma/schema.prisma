@@ -1671,6 +1671,15 @@ model MaintenanceRequest {
   // conflating them would lose which photo was taken when.
   photoUrls           String[]  @default([])
   resolutionPhotoUrls String[]  @default([])
+  // The audit's own finding: unlike ProjectMilestone, nothing here ever
+  // gated work starting on an explicit sign-off — start() just flipped
+  // straight to in_progress. Three states, not ProjectMilestone's four:
+  // no "requested" here, since nothing in this codebase ever actually
+  // transitions a milestone to "requested" either (its own enum comment
+  // names it, but only not_requested -> approved is ever exercised) —
+  // no reason to add a state this pass wouldn't use.
+  approvalStatus   String    @default("not_requested") // not_requested | approved | rejected
+  approvalNotes    String?
   resolvedAt       DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt

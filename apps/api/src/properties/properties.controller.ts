@@ -23,6 +23,7 @@ import { ReportMaintenanceRequestDto } from './dto/report-maintenance-request.dt
 import { UpdateMaintenanceRequestDto } from './dto/update-maintenance-request.dto';
 import { StartMaintenanceRequestDto } from './dto/start-maintenance-request.dto';
 import { ResolveMaintenanceRequestDto } from './dto/resolve-maintenance-request.dto';
+import { SetMaintenanceApprovalDto } from './dto/set-maintenance-approval.dto';
 
 type AccountMemberCtx = { accountId: string };
 type UserCtx = { id: string };
@@ -356,6 +357,18 @@ export class PropertiesController {
   @Get(':propertyId/maintenance-requests/:requestId')
   findMaintenanceRequest(@Param('propertyId') propertyId: string, @Param('requestId') requestId: string) {
     return this.properties.findMaintenanceRequest(propertyId, requestId);
+  }
+
+  // Own permission, not maintenance:write — tenant holds maintenance:write
+  // (it reports its own requests) but must never approve its own request.
+  @RequirePermissions('maintenance:approve')
+  @Patch(':propertyId/maintenance-requests/:requestId/approval')
+  setMaintenanceApproval(
+    @Param('propertyId') propertyId: string,
+    @Param('requestId') requestId: string,
+    @Body() dto: SetMaintenanceApprovalDto,
+  ) {
+    return this.properties.setMaintenanceApproval(propertyId, requestId, dto);
   }
 
   @RequirePermissions('maintenance:write')

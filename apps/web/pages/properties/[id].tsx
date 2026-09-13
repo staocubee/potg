@@ -2691,7 +2691,20 @@ function MaintenanceRequestRow({
   const [startAssignedTo, setStartAssignedTo] = useState(request.assignedVendorId ? "" : request.assignedTo ?? "");
   const [startAssignedVendorId, setStartAssignedVendorId] = useState(request.assignedVendorId ?? "");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"start" | "resolve" | "cancel" | "edit" | null>(null);
+  const [busy, setBusy] = useState<"start" | "resolve" | "cancel" | "edit" | "approved" | "rejected" | null>(null);
+
+  async function onSetApproval(status: "approved" | "rejected") {
+    setBusy(status);
+    setError(null);
+    try {
+      await auth.api.setMaintenanceApproval(propertyId, request.id, { status });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : `Couldn't ${status === "approved" ? "approve" : "reject"} that request.`);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function onStart(e: FormEvent) {
     e.preventDefault();
@@ -2789,6 +2802,12 @@ function MaintenanceRequestRow({
               Assigned to: {request.assignedVendor ? `${request.assignedVendor.businessName} (vendor)` : request.assignedTo}
             </div>
           )}
+          {request.approvalStatus !== "not_requested" && (
+            <div className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Approval: {request.approvalStatus}
+              {request.approvalNotes && ` — ${request.approvalNotes}`}
+            </div>
+          )}
           {request.resolutionNotes && (
             <div className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
               Resolution: {request.resolutionNotes}
@@ -2805,19 +2824,61 @@ function MaintenanceRequestRow({
             </div>
           )}
         </div>
-        <span className="potg-badge" style={{ color: request.priority === "urgent" ? "var(--potg-danger)" : undefined }}>
-          {request.status.replace(/_/g, " ")}
-        </span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end", flexShrink: 0 }}>
+          <span className="potg-badge" style={{ color: request.priority === "urgent" ? "var(--potg-danger)" : undefined }}>
+            {request.status.replace(/_/g, " ")}
+          </span>
+          {request.status === "open" && (
+            <span
+              className="potg-badge"
+              style={
+                request.approvalStatus === "approved"
+                  ? { background: "#e7f3ea", borderColor: "#b7ddc3", color: "#2f7a4f" }
+                  : request.approvalStatus === "rejected"
+                    ? { background: "#fbeaea", borderColor: "#e3b3b3", color: "#b23838" }
+                    : undefined
+              }
+            >
+              {request.approvalStatus === "not_requested" ? "needs approval" : request.approvalStatus}
+            </span>
+          )}
+        </div>
       </div>
 
       {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
 
+      {request.status === "open" && auth.hasPermission("maintenance:approve") && (
+        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          <button
+            className="potg-btn potg-btn-secondary"
+            style={{ padding: "3px 8px", fontSize: 11 }}
+            disabled={busy !== null || request.approvalStatus === "approved"}
+            onClick={() => onSetApproval("approved")}
+          >
+            {busy === "approved" ? "…" : "Approve"}
+          </button>
+          <button
+            className="potg-btn potg-btn-danger"
+            style={{ padding: "3px 8px", fontSize: 11 }}
+            disabled={busy !== null || request.approvalStatus === "rejected"}
+            onClick={() => onSetApproval("rejected")}
+          >
+            {busy === "rejected" ? "…" : "Reject"}
+          </button>
+        </div>
+      )}
+
       {isOpen && !starting && !resolving && !editing && auth.hasPermission("maintenance:write") && (
         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
-          {request.status === "open" && (
+          {request.status === "open" && request.approvalStatus === "approved" && (
             <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setStarting(true)}>
               Start
             </button>
+          )}
+          {request.status === "open" && request.approvalStatus !== "approved" && (
+            <span className="potg-muted" style={{ fontSize: 11, alignSelf: "center" }}>
+              Needs approval before work can start
+            </span>
           )}
           <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setEditing(true)}>
             Edit
