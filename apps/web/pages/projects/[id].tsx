@@ -478,7 +478,14 @@ export default function ProjectDetailPage() {
                   <div key={m.id} style={{ fontSize: 13 }}>
                     <div style={{ display: "flex", justifyContent: "space-between" }}>
                       <span style={{ fontWeight: 600 }}>{m.title}</span>
-                      <span className="potg-badge">{m.status.replace(/_/g, " ")}</span>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+                        <span className="potg-badge">{m.status.replace(/_/g, " ")}</span>
+                        {m.onHold && (
+                          <span className="potg-badge" style={{ background: "#fbeaea", borderColor: "#e3b3b3", color: "#b23838" }}>
+                            ⚠ on hold
+                          </span>
+                        )}
+                      </div>
                     </div>
                     {m.description && <div className="potg-muted" style={{ fontSize: 12 }}>{m.description}</div>}
                     <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
@@ -486,6 +493,11 @@ export default function ProjectDetailPage() {
                       {m.dueDate && ` · due ${new Date(m.dueDate).toLocaleDateString()}`}
                       {m.approvalStatus !== "not_requested" && ` · approval ${m.approvalStatus}`}
                     </div>
+                    {m.onHold && (
+                      <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
+                        On hold — an open dispute references this milestone. Resolve it before funds can release.
+                      </div>
+                    )}
                     {m.paymentAmount && m.status !== "completed" && (
                       <div style={{ marginTop: 6, display: "flex", gap: 6 }}>
                         {m.approvalStatus !== "approved" && isOwningAccount && auth.hasPermission("milestone:write") && (
@@ -498,7 +510,7 @@ export default function ProjectDetailPage() {
                             {milestoneActionId === m.id ? "…" : "Approve"}
                           </button>
                         )}
-                        {m.approvalStatus === "approved" && canReleaseFunds && (
+                        {m.approvalStatus === "approved" && canReleaseFunds && !m.onHold && (
                           <button
                             className="potg-btn potg-btn-primary"
                             style={{ padding: "4px 9px", fontSize: 11 }}

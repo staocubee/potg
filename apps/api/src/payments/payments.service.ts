@@ -332,8 +332,19 @@ export class PaymentsService {
     return { payment: completed, receipt, alreadyVerified: false };
   }
 
-  findPayments(projectId: string) {
-    return this.prisma.payment.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' } });
+  // Same computed-not-stored "on hold" surfacing ProjectsService.findOne
+  // adds for milestones — see its own comment. refundPayment's own guard
+  // checks the identical open/under_review dispute set.
+  async findPayments(projectId: string) {
+    const [payments, disputes] = await Promise.all([
+      this.prisma.payment.findMany({ where: { projectId }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.dispute.findMany({
+        where: { projectId, paymentId: { not: null }, status: { in: ['open', 'under_review'] } },
+        select: { paymentId: true },
+      }),
+    ]);
+    const onHoldPaymentIds = new Set(disputes.map((d) => d.paymentId!));
+    return payments.map((p) => ({ ...p, onHold: onHoldPaymentIds.has(p.id) }));
   }
 
   // Refunds a completed deposit back out of escrow — the counterpart to

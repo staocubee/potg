@@ -7601,6 +7601,70 @@ account, using the exact query shape that endpoint runs.
   as-is rather than fabricating receipts after the fact for money that
   was already recorded without one.
 
+## A real "on hold" indicator for disputed milestones and payments (this pass)
+
+Closes the audit's own finding on Workflow 9: "Payment may be placed
+on hold — real enforcement, but implicit; there's no `on_hold` status,
+an open dispute just blocks `releaseMilestone`/`refundPayment` as a
+side-effect guard, not a first-class hold state." The guard was always
+real; there was just nothing telling anyone about it until they clicked
+"Release funds" and got a 400.
+
+**What's built**:
+
+- **`ProjectsService.getOnHoldMilestoneIds`** and the equivalent inline
+  in **`PaymentsService.findPayments`** — each computes `onHold` live
+  from the exact same `dispute.findMany({ status: { in: ['open',
+  'under_review'] } })` query `releaseMilestone`/`refundPayment`
+  themselves already run to decide whether to reject the request. Not a
+  stored status this codebase would then have to keep in sync with
+  every place a dispute opens or resolves — same "compute on read"
+  restraint `getSpend` already uses for project budget tracking.
+- **`GET /projects/:id`** now returns `onHold` on each milestone;
+  **`GET /projects/:projectId/payments`** now returns it on each
+  payment.
+- **UI**: a red "⚠ on hold" badge plus an explanatory line on any
+  milestone with an open dispute against it, and the "Release funds"
+  button is hidden entirely rather than left clickable-but-doomed to
+  fail — the same "hide the action, show why" treatment the maintenance
+  approval gate already uses. "Approve" stays available regardless: it
+  only marks evidence reviewed, which `approveMilestone` never actually
+  gated on disputes in the first place, so hiding it would have claimed
+  a restriction that doesn't exist.
+
+**Verified live** on the real "Kitchen Renovation" project. Confirmed
+baseline: the "Platform fee test milestone" (pending, already
+approved) showed a normal "Release funds" button. Raised a real dispute
+against it (`POST /projects/:id/disputes`, `201`) and confirmed on
+reload: the milestone now shows "⚠ On Hold" and the hint text in place
+of "Release funds", while the two other pending milestones on the same
+project ("Paystack payout test", "PayPal payout test") were correctly
+unaffected. Did the same for a real payment — raised a dispute against
+one of nine real payments on the project and confirmed via direct API
+inspection that only that one payment's `onHold` flipped to `true`,
+the other eight stayed `false` — then confirmed `POST .../refund`
+against it returned the same real `400` ("This payment has an open
+dispute — resolve it before refunding") the guard always gave, now
+visible ahead of time instead of only after a failed attempt. Both
+test disputes were left in place as real data, the same way earlier
+passes this session left their own verification artifacts (the
+approved maintenance request, the recorded rent payment) rather than
+cleaning up after themselves.
+
+**Not done — explicit scope, not oversight**:
+
+- No refund UI exists anywhere in the frontend to gate in the first
+  place — `Payment.onHold` is real and correct, but there's nothing on
+  the project page that calls `refundPayment` today. The computed field
+  is there for whenever that UI gets built, not decorative.
+- No `on_hold` value added to `Dispute.status` or `Payment.status`
+  itself — `onHold` stays a computed, derived signal, not a first-class
+  stored state, on purpose (see "What's built" above).
+- Payouts aren't covered — `Payout.payoutId` disputes exist in the
+  schema, but nothing in `PaymentsService` actually guards a payout
+  action on them (unlike milestones/payments), so there's no real
+  enforcement yet to surface a hold indicator for.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

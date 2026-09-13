@@ -893,6 +893,9 @@ export type ProjectMilestone = {
   status: "pending" | "in_progress" | "completed" | string;
   approvalStatus: "not_requested" | "requested" | "approved" | "rejected" | string;
   createdAt: string;
+  // Computed live from any open/under_review dispute referencing this
+  // milestone — see ProjectsService.getOnHoldMilestoneIds's own comment.
+  onHold?: boolean;
 };
 
 export type ProjectUpdate = {
@@ -1079,6 +1082,9 @@ export type Payment = {
   providerReference?: string | null;
   status: "pending" | "completed" | "failed" | "refunded" | string;
   createdAt: string;
+  // Computed live from any open/under_review dispute referencing this
+  // payment — see PaymentsService.findPayments's own comment.
+  onHold?: boolean;
 };
 
 export type EscrowLedgerEntry = {

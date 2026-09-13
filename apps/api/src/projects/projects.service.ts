@@ -81,7 +81,28 @@ export class ProjectsService {
       },
     });
     if (!project) return project;
-    return { ...project, ...(await this.getSpend(id)) };
+    const onHoldMilestoneIds = await this.getOnHoldMilestoneIds(id);
+    return {
+      ...project,
+      ...(await this.getSpend(id)),
+      milestones: project.milestones.map((m) => ({ ...m, onHold: onHoldMilestoneIds.has(m.id) })),
+    };
+  }
+
+  // The audit's own finding on Workflow 9: "Payment may be placed on
+  // hold — real enforcement, but implicit... an open dispute just
+  // blocks releaseMilestone/refundPayment as a side-effect guard, not a
+  // first-class hold state." Computed live from the same open/
+  // under_review disputes releaseMilestone itself checks — not a stored
+  // status this codebase would then have to keep in sync with every
+  // place a dispute opens or resolves, same "compute on read" restraint
+  // getSpend above already uses.
+  private async getOnHoldMilestoneIds(projectId: string) {
+    const disputes = await this.prisma.dispute.findMany({
+      where: { projectId, milestoneId: { not: null }, status: { in: ['open', 'under_review'] } },
+      select: { milestoneId: true },
+    });
+    return new Set(disputes.map((d) => d.milestoneId!));
   }
 
   // The audit's own finding: "Project.budget is a static number set at
