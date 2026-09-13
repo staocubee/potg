@@ -2665,6 +2665,11 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
               </div>
             </>
           )}
+          {lease.status === "active" && lease.upcomingDueDates && lease.upcomingDueDates.length > 0 && (
+            <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
+              Upcoming due dates: {lease.upcomingDueDates.map((d) => new Date(d).toLocaleDateString()).join(", ")}
+            </div>
+          )}
           <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
             {lease.tenantAccount ? `Tenant account linked (${lease.tenantAccount.name})` : "No tenant account linked yet"}
           </div>

@@ -7864,6 +7864,64 @@ earlier passes this session already established.
   property's own primary account (e.g. "60% unaccounted for") — only
   the explicitly recorded co-owner rows are shown.
 
+## A real, visible rent schedule (this pass)
+
+Closes the audit's own finding on Workflow 8: "No `RentSchedule` model
+— just `rentFrequency` + `startDate`, with due dates derived on the fly
+wherever overdue-checking happens to run." The math already existed
+and was already trusted for real reminders (`InAppNotificationsService.
+checkLeaseReminders`); it just never surfaced anywhere a person could
+actually look ahead and see it.
+
+**What's built**:
+
+- **`computeUpcomingRentDueDates`** (new shared util,
+  `apps/api/src/common/rent-schedule.util.ts`) — the exact same
+  anchor-date math the real reminder cron already runs (last recorded
+  payment's `periodEnd`, or `startDate` if none yet, plus
+  `rentFrequency`'s own day-count), projected forward instead of only
+  ever checked against "now." Stops early at the lease's own `endDate`
+  if one exists, so a fixed-term lease never projects a due date past
+  its own end.
+- **`GET /properties/:propertyId/leases`** (and the single-lease
+  fetch) and **`GET /tenant/lease`** now return `upcomingDueDates` on
+  every active lease — computed live on read, not a stored schedule
+  this codebase would then have to keep in sync every time a payment is
+  recorded or a lease is edited, same restraint `getSpend`/
+  `getActiveOwnershipTotal` already use elsewhere this session.
+- **UI**: both the owner's lease view and the tenant's own portal show
+  the projected due dates — the tenant portal gets its own "Upcoming
+  rent due dates" card (its "next due" date is the single most
+  actionable thing on that page), the owner's view shows the same list
+  inline per lease.
+
+**Verified live** against all six real active leases on "14 Ocean
+Drive," each a genuinely different real case: "New Auto Tenant" (one
+real recorded payment, `01/09–30/09/2026`) correctly projected its
+first upcoming date as `30/10/2026` — exactly 30 days after the real
+payment's own `periodEnd`, not just its `startDate`. The two real
+"Reminder Verification Tenant" leases (fixed-term, `03/08–02/10/2026`,
+no payments recorded) correctly projected only 2 dates
+(`02/09/2026, 02/10/2026`) instead of the requested 6 — confirming the
+end-date truncation is real, not cosmetic. "Demo Tenant" (annually)
+correctly projected dates roughly 365 days apart. Confirmed the
+tenant-facing `GET /tenant/lease` returns the identical computed dates
+for that same "Demo Tenant" lease via its own account.
+
+**Not done — explicit scope, not oversight**:
+
+- No `RentSchedule` model, by design — a stored schedule would need to
+  be regenerated every time a payment posts or a lease is edited; a
+  live projection off the same trusted anchor math can't drift out of
+  sync with reality the way a stored one eventually would.
+- Not calendar-precise — `rentFrequency`'s own day-count
+  (30 for monthly, 365 for annually) is the same approximation the real
+  reminder cron already accepts; a due date can drift a day or two
+  across months of different lengths, unchanged from before this pass.
+- No "upcoming due date" push notification — only the existing
+  overdue/lease-ending-soon reminders push proactively; a forward
+  schedule with nothing yet actually due doesn't need one.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

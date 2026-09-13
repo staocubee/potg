@@ -26,6 +26,7 @@ import { ResolveMaintenanceRequestDto } from './dto/resolve-maintenance-request.
 import { SetMaintenanceApprovalDto } from './dto/set-maintenance-approval.dto';
 import { AddPropertyOwnerDto } from './dto/add-property-owner.dto';
 import { UpdatePropertyOwnerDto } from './dto/update-property-owner.dto';
+import { computeUpcomingRentDueDates } from '../common/rent-schedule.util';
 
 // Service categories where a real license is what "licensed" means in
 // this scaffold's own terms — see the schema comment on
@@ -839,8 +840,8 @@ export class PropertiesService {
     });
   }
 
-  findLeases(propertyId: string) {
-    return this.prisma.lease.findMany({
+  async findLeases(propertyId: string) {
+    const leases = await this.prisma.lease.findMany({
       where: { propertyId },
       include: {
         rentPayments: { include: { receipt: true }, orderBy: { periodStart: 'desc' } },
@@ -848,16 +849,22 @@ export class PropertiesService {
       },
       orderBy: { startDate: 'desc' },
     });
+    return leases.map((lease) => ({
+      ...lease,
+      upcomingDueDates: lease.status === 'active' ? computeUpcomingRentDueDates(lease) : [],
+    }));
   }
 
-  findLease(propertyId: string, leaseId: string) {
-    return this.prisma.lease.findFirst({
+  async findLease(propertyId: string, leaseId: string) {
+    const lease = await this.prisma.lease.findFirst({
       where: { id: leaseId, propertyId },
       include: {
         rentPayments: { include: { receipt: true }, orderBy: { periodStart: 'desc' } },
         tenantAccount: { select: { id: true, name: true } },
       },
     });
+    if (!lease) return lease;
+    return { ...lease, upcomingDueDates: lease.status === 'active' ? computeUpcomingRentDueDates(lease) : [] };
   }
 
   // The audit's own finding on Workflow 8: "Receipt only attaches to

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReportTenantMaintenanceRequestDto } from './dto/report-tenant-maintenance-request.dto';
+import { computeUpcomingRentDueDates } from '../common/rent-schedule.util';
 
 // The tenant-facing counterpart to PropertiesService's landlord-facing
 // lease/maintenance routes — deliberately its own module rather than
@@ -37,7 +38,8 @@ export class TenantService {
         rentPayments: { include: { receipt: true }, orderBy: { periodStart: 'desc' } },
       },
     });
-    return lease;
+    if (!lease) return lease;
+    return { ...lease, upcomingDueDates: lease.status === 'active' ? computeUpcomingRentDueDates(lease) : [] };
   }
 
   async findMyMaintenanceRequests(accountId: string) {

@@ -138,6 +138,20 @@ export default function TenantLeasePage() {
             </div>
           </div>
 
+          {lease.status === "active" && lease.upcomingDueDates && lease.upcomingDueDates.length > 0 && (
+            <div className="potg-card" style={{ padding: 18 }}>
+              <h3 style={{ fontSize: 14, marginBottom: 10 }}>Upcoming rent due dates</h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {lease.upcomingDueDates.map((d, i) => (
+                  <div key={d} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                    <span className="potg-muted">{i === 0 ? "Next due" : `Then`}</span>
+                    <span style={{ fontWeight: i === 0 ? 700 : 400 }}>{new Date(d).toLocaleDateString()}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="potg-card" style={{ padding: 18 }}>
             <h3 style={{ fontSize: 14, marginBottom: 10 }}>Rent payment history</h3>
             {(!lease.rentPayments || lease.rentPayments.length === 0) && (

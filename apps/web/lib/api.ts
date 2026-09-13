@@ -788,6 +788,12 @@ export type Lease = {
   updatedAt: string;
   rentPayments?: LeaseRentPayment[];
   property?: { id: string; name: string; addressLine: string; city?: string | null; country: string };
+  // The audit's own finding: "No RentSchedule model — just rentFrequency
+  // + startDate, with due dates derived on the fly." Computed live off
+  // the same anchor-date math the real reminder cron already trusts
+  // (see PropertiesService.findLease's own comment) — only present for
+  // an active lease, empty for ended/terminated ones.
+  upcomingDueDates?: string[];
 };
 
 export type MaintenanceRequest = {
