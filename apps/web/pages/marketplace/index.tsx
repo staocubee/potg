@@ -5,6 +5,24 @@ import { ApiError, Listing } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 const LISTING_TYPES = ["sale", "rent", "short_let"];
+// Mirrors CreatePropertyDto's PROPERTY_TYPES (apps/api/src/properties/dto) —
+// freeform on the backend's own query param, kept as a fixed list here
+// purely for a usable filter dropdown, same convention the vendor
+// marketplace's own SERVICE_CATEGORIES list already follows.
+const PROPERTY_TYPES = [
+  "land",
+  "residential_house",
+  "apartment",
+  "short_let",
+  "commercial_building",
+  "office",
+  "shop",
+  "warehouse",
+  "estate",
+  "farm",
+  "industrial",
+  "mixed_use",
+];
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -22,6 +40,7 @@ export default function PropertyMarketplacePage() {
   const auth = useAuth();
   const [listings, setListings] = useState<Listing[] | null>(null);
   const [listingType, setListingType] = useState("");
+  const [propertyType, setPropertyType] = useState("");
   const [city, setCity] = useState("");
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
@@ -36,6 +55,7 @@ export default function PropertyMarketplacePage() {
       auth.api
         .searchListings({
           listingType: listingType || undefined,
+          propertyType: propertyType || undefined,
           city: city || undefined,
           minPrice: minPrice || undefined,
           maxPrice: maxPrice || undefined,
@@ -47,9 +67,9 @@ export default function PropertyMarketplacePage() {
     }, 250);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.currentAccountId, listingType, city, minPrice, maxPrice, verifiedOnly, q]);
+  }, [auth.currentAccountId, listingType, propertyType, city, minPrice, maxPrice, verifiedOnly, q]);
 
-  const hasActiveFilters = !!(city || listingType || minPrice || maxPrice || verifiedOnly || q);
+  const hasActiveFilters = !!(city || listingType || propertyType || minPrice || maxPrice || verifiedOnly || q);
 
   return (
     <AppShell
@@ -77,6 +97,17 @@ export default function PropertyMarketplacePage() {
         <select className="potg-input" style={{ width: 160 }} value={listingType} onChange={(e) => setListingType(e.target.value)}>
           <option value="">Any</option>
           {LISTING_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t.replace(/_/g, " ")}
+            </option>
+          ))}
+        </select>
+        <label className="potg-label" style={{ margin: 0 }}>
+          Property type
+        </label>
+        <select className="potg-input" style={{ width: 170 }} value={propertyType} onChange={(e) => setPropertyType(e.target.value)}>
+          <option value="">Any</option>
+          {PROPERTY_TYPES.map((t) => (
             <option key={t} value={t}>
               {t.replace(/_/g, " ")}
             </option>

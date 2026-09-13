@@ -7201,9 +7201,9 @@ filter was active, not just city/type/search as before.
 - No currency-aware price filtering — `minPrice`/`maxPrice` compare
   `askingPrice` as a raw number regardless of the listing's own
   `currency`, an existing backend limitation this pass didn't touch.
-- No propertyType filter exposed in the UI, even though the backend
-  already accepts one (same as price before this pass) — narrower scope
-  than the full audit finding, left for a follow-up.
+- ~~No propertyType filter exposed in the UI, even though the backend
+  already accepts one~~ — closed; see "Marketplace propertyType filter"
+  below.
 
 ## A real listing:verify action for the neutral reviewer (this pass)
 
@@ -7268,6 +7268,44 @@ confirmed the panel doesn't render for it at all.
 - No trust-score or audit-trail equivalent — this closes the one-field
   gate `vendor:verify`/`supplier:verify` provide, not the deeper
   audit-history system built specifically for vendors.
+
+## Marketplace propertyType filter (this pass)
+
+Closes the narrower-scope gap the marketplace price/verification-status
+filters pass left explicit: "No propertyType filter exposed in the UI,
+even though the backend already accepts one." No backend change at
+all — `SearchListingsQuery.propertyType` and `ListingsService.findAll`'s
+own `property: { propertyType: ... }` where-clause already existed from
+before this pass; only the UI never exposed it.
+
+**What's built**:
+
+- A "Property type" dropdown on the marketplace page, listing all 12
+  values `CreatePropertyDto` accepts (land, residential_house,
+  apartment, short_let, commercial_building, office, shop, warehouse,
+  estate, farm, industrial, mixed_use) — same fixed-list-for-a-usable-
+  dropdown treatment the vendor service-category filter already uses
+  for its own freeform-on-the-backend field.
+- Wired into the existing `searchListings` call and the page's
+  `hasActiveFilters` check, alongside the pre-existing type/city/price/
+  verified/search filters.
+
+**Verified live**: confirmed all 12 options render correctly. Selecting
+"residential_house" sent `GET /listings?propertyType=residential_house`
+(confirmed via direct network inspection) and returned all 4 seeded
+test listings unchanged — genuinely correct, not a no-op, since every
+seeded test listing is in fact `residential_house`. To get a real
+negative case, selected "land" instead (a type none of the seeded
+listings have) and confirmed the browse view correctly narrowed to zero
+results with the existing "No active listings match those filters"
+empty state — proving the filter genuinely restricts results rather
+than silently matching everything.
+
+**Not done — explicit scope, not oversight**:
+
+- No currency-aware or combined price+type faceting beyond what already
+  exists — this pass only adds the one missing dropdown, same scope
+  boundary the price/verification pass drew for itself.
 
 ## Not built yet
 
