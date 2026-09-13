@@ -68,8 +68,8 @@ export class ProjectsService {
     });
   }
 
-  findOne(id: string) {
-    return this.prisma.project.findUnique({
+  async findOne(id: string) {
+    const project = await this.prisma.project.findUnique({
       where: { id },
       include: {
         stages: { orderBy: { sortOrder: 'asc' } },
@@ -80,6 +80,42 @@ export class ProjectsService {
         reviews: true,
       },
     });
+    if (!project) return project;
+    return { ...project, ...(await this.getSpend(id)) };
+  }
+
+  // The audit's own finding: "Project.budget is a static number set at
+  // creation, only ever read for AI comparison — nothing decrements it
+  // against real spend." Computed live on every read, not a stored,
+  // mutable running total this codebase would then have to keep in sync
+  // across every place money actually moves — same "compute on read"
+  // restraint the document checklist and vendor trust score already use
+  // for exactly this reason. Two real spend sources, summed separately
+  // so the breakdown means something, not just a total:
+  //  - Payout.grossAmount — the milestone's own full paymentAmount, i.e.
+  //    what's actually debited from escrow (see Payout's own schema
+  //    comment: this is "the owner's real project cost", unaffected by
+  //    the platform fee that only reduces the vendor's own take-home) —
+  //    only counting status 'paid': pending/processing money hasn't left
+  //    escrow yet and 'failed' never left it at all, so summing every
+  //    status (as a first pass here did) overcounts spend by exactly the
+  //    stalled/failed test payouts this project happens to carry.
+  //  - Order.totalAmount for every materials order tied to this project,
+  //    excluding cancelled ones — a cancelled order was never really
+  //    spent against.
+  private async getSpend(projectId: string) {
+    const [payouts, orders] = await Promise.all([
+      this.prisma.payout.aggregate({ where: { projectId, status: 'paid' }, _sum: { grossAmount: true } }),
+      this.prisma.order.aggregate({ where: { projectId, status: { not: 'cancelled' } }, _sum: { totalAmount: true } }),
+    ]);
+    const milestonesReleased = payouts._sum.grossAmount ?? 0;
+    const materialsSpent = orders._sum.totalAmount ?? 0;
+    const totalSpent = Number(milestonesReleased) + Number(materialsSpent);
+    return {
+      milestonesReleased,
+      materialsSpent,
+      totalSpent,
+    };
   }
 
   // The gap the Reports & Permissions audit flagged: ProjectStage.status

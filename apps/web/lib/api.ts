@@ -1028,6 +1028,12 @@ export type Project = {
   quotes?: VendorQuote[];
   assignments?: ProjectVendorAssignment[];
   reviews?: VendorReview[];
+  // Computed live on every GET, not a stored running total — see
+  // ProjectsService.getSpend's own comment. Only present on the single-
+  // project fetch (GET /projects/:id), not the list view.
+  milestonesReleased?: string;
+  materialsSpent?: string;
+  totalSpent?: number;
 };
 
 export type Payout = {

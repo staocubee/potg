@@ -283,6 +283,21 @@ export default function ProjectDetailPage() {
               <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <span className="potg-badge">{project.status.replace(/_/g, " ")}</span>
                 {project.budget && <div style={{ fontWeight: 700, fontSize: 14, marginTop: 6 }}>{formatMoney(project.budget, project.currency)}</div>}
+                {project.totalSpent != null && project.totalSpent > 0 && (
+                  <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                    {formatMoney(String(project.totalSpent), project.currency)} spent
+                    {project.budget != null &&
+                      (() => {
+                        const remaining = Number(project.budget) - project.totalSpent!;
+                        return remaining >= 0
+                          ? ` · ${formatMoney(String(remaining), project.currency)} remaining`
+                          : ` · ${formatMoney(String(Math.abs(remaining)), project.currency)} over budget`;
+                      })()}
+                    {(Number(project.milestonesReleased) > 0 || Number(project.materialsSpent) > 0) && (
+                      <> ({formatMoney(project.milestonesReleased, project.currency)} milestones, {formatMoney(project.materialsSpent, project.currency)} materials)</>
+                    )}
+                  </div>
+                )}
                 {project.status !== "completed" && project.status !== "cancelled" && isOwningAccount && auth.hasPermission("project:write") && (
                   <div style={{ marginTop: 8 }}>
                     <button className="potg-btn potg-btn-secondary" onClick={onComplete} disabled={completing}>

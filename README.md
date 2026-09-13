@@ -7352,6 +7352,65 @@ correctly back to the full list.
   freeform substring match against existing text, not coordinate-based.
 - No saved filter presets or URL-shareable filter state.
 
+## Project budget vs. real spend tracking (this pass)
+
+Closes an audit finding on the project financial model: `Project.budget`
+is a static number set at creation, read only for AI budget-comparison
+narration — nothing anywhere ever decremented it against real spend, so
+an owner had no way to see how much of a project's budget was actually
+gone.
+
+**What's built**:
+
+- **`GET /projects/:id`** now returns `milestonesReleased`,
+  `materialsSpent`, and `totalSpent` alongside the existing fields —
+  computed live on every read via `ProjectsService.getSpend`, not a
+  stored running total this codebase would then have to keep in sync
+  across every place money actually moves. Same "compute on read"
+  restraint the document checklist and vendor trust score already use
+  for exactly this reason.
+- Two real spend sources, summed separately so the breakdown means
+  something: `Payout.grossAmount` (the milestone's own full payment
+  value actually debited from escrow, unaffected by the platform fee
+  that only reduces the vendor's take-home) for payouts with
+  `status: 'paid'`, and `Order.totalAmount` for every materials order
+  tied to the project excluding cancelled ones.
+- The project detail page now shows "`X` spent · `Y` remaining" (or
+  "`X` over budget" when spend exceeds budget) directly under the
+  existing budget figure, with a milestones/materials breakdown
+  parenthetical.
+
+**A real bug caught during verification, not by inspection**: the first
+version aggregated `Payout.grossAmount` across every status. On the real
+"Kitchen Renovation" project, that summed to 906,000 — but only three
+payouts were actually `status: 'paid'` (800,000 + 100,000 + 2,000 =
+902,000); the other 4,000 came from `processing` and `failed` test
+payouts that never actually moved money out of escrow. Confirmed via a
+direct read of the real `Payout` rows for that project, then fixed the
+aggregation to filter on `status: 'paid'` and re-verified live: the page
+now shows 902,000 milestones released, matching the 3 real "Paid"
+payouts exactly.
+
+**Verified live** on "Kitchen Renovation" (budget NGN 2,500,000): after
+the fix, shows "NGN 1,242,000 spent · NGN 1,258,000 remaining
+(NGN 902,000 milestones, NGN 340,000 materials)" — internally
+consistent (902,000 + 340,000 = 1,242,000; 2,500,000 − 1,242,000 =
+1,258,000) and matching the real underlying `Payout`/`Order` rows for
+that project exactly.
+
+**Not done — explicit scope, not oversight**:
+
+- No "over budget" alerting beyond the existing `assess_project_risk`
+  AI skill, which already flags "spend released exceeding the project's
+  own budget" separately — this pass only makes the same underlying
+  numbers visible on the project page itself.
+- No currency conversion — `totalSpent` sums `grossAmount`/`totalAmount`
+  as raw numbers, assumed to already share the project's own currency
+  (true for every real payout/order path in this codebase).
+- Not surfaced on the projects list view, only the single-project
+  fetch — the list view has no per-project financial detail today
+  beyond the budget figure it already showed.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
