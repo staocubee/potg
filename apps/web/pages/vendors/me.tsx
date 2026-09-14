@@ -29,6 +29,8 @@ const SERVICE_CATEGORIES = [
   "general_contracting",
   "security_installation",
   "cleaning",
+  "architect",
+  "engineer",
 ];
 
 function formatMoney(value?: string | null, currency?: string) {

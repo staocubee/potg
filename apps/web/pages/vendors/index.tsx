@@ -18,6 +18,8 @@ const SERVICE_CATEGORIES = [
   "general_contracting",
   "security_installation",
   "cleaning",
+  "architect",
+  "engineer",
 ];
 
 export default function VendorMarketplacePage() {

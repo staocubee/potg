@@ -8355,6 +8355,54 @@ to schedule"`.
   Harmless, and no existing action-button pattern in this codebase
   (e.g. "+ Request quote") guards against a duplicate click either.
 
+## Architect and engineer vendor categories (this pass)
+
+Closes the audit's own finding on Workflow 4: "No architect/engineer
+role, permission, or vendor category anywhere. The fixed service-
+category dropdown has no such option — hiring one would silently
+reuse the generic contractor flow."
+
+**Deliberately the smallest fix that closes the actual gap.** The
+audit's own two sentences describe two different things: the missing
+*category* (a real, named bug — the dropdown genuinely had no such
+option) and hiring one *reusing the generic contractor flow* (stated
+as the current behavior, not a complaint about it — every other
+category, from `plumbing` to `security_installation`, already goes
+through that same shared quote/assignment flow). Building a distinct
+architect/engineer-specific hiring workflow would be answering a
+question this audit never actually asked.
+
+**What's built**: `architect` and `engineer` added to the one
+`SERVICE_CATEGORIES` source of truth (`CreateVendorDto`) and its two
+duplicated frontend copies (`vendors/index.tsx`'s own filter dropdown,
+`vendors/me.tsx`'s own profile-creation form) — the same three-file
+shape every prior category-list edit in this codebase has needed,
+since `Vendor.serviceCategory` is a plain, freeform `String` column
+with no database-level enum to migrate.
+
+**Verified live**, real data: created a real VENDOR-type account and a
+real vendor profile ("Lagos Structural Engineers," `serviceCategory:
+"engineer"`) through the actual API — no seed-script shortcut.
+Confirmed `GET /vendors?serviceCategory=engineer` returns exactly that
+one vendor, and confirmed on the real, live vendor-marketplace browse
+page that "engineer" appears as a real option in the category filter
+and the new vendor renders correctly on the grid.
+
+**Not done — explicit scope, not oversight**:
+
+- Not added to `PropertiesService`'s own `LICENSE_REQUIRED_CATEGORIES`
+  (`electrical`, `security_installation`, `general_contracting`) —
+  that list's own comment already states it's deliberately narrow
+  ("nothing here decides which of those are genuinely regulated
+  trades in a given jurisdiction"), not a comprehensive licensing
+  policy this pass should extend on its own judgment.
+- No distinct architect/engineer hiring workflow — as the audit's own
+  language already anticipated, hiring one still reuses the same
+  quote-request/accept flow every other vendor category uses. A
+  separate professional-services flow (scoped drawings, stamped
+  engineering approval, etc.) is real, unbuilt scope beyond just
+  having the category exist.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
