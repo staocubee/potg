@@ -6853,10 +6853,12 @@ refused with "This sale is already completed."
   `@unique` constraint) — `respondToOffer` itself still doesn't prevent
   a second "accepted" call on a different offer for the same listing;
   it just can't create a second sale once one exists.
-- No UI surfaces `PropertyOwner` (the separate, still-inert
-  multi-owner/%-split model the audit flagged) as part of this flow —
-  the transfer is a clean single-owner handoff via `Property.accountId`,
-  deliberately not conflated with that separate gap.
+- No UI surfaces `PropertyOwner` (~~the separate, still-inert
+  multi-owner/%-split model the audit flagged~~ — that model got a real
+  create/edit/remove CRUD in a later pass, see "Ownership structure — a
+  real create/edit UI for co-owner shares" below) as part of this flow
+  — the transfer is a clean single-owner handoff via `Property.accountId`,
+  deliberately not conflated with that separate feature.
 
 ## Counter-offers on marketplace offers (this pass)
 
