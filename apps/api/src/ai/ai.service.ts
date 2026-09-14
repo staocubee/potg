@@ -12,6 +12,8 @@ import { ListingsService } from '../listings/listings.service';
 import { ReportsService } from '../reports/reports.service';
 import { MaterialsService } from '../materials/materials.service';
 import { findCheapestMatchedProducts } from './skills/boq-to-order.skill';
+import { DocumentsService } from '../documents/documents.service';
+import { StorageService } from '../storage/storage.service';
 import { AI_SKILLS, LLM_PROVIDER } from './llm/llm.constants';
 import { AiSkill } from './skills/ai-skill.interface';
 import { AiSkillInputSchema } from './skills/ai-skill-input-schema';
@@ -45,6 +47,8 @@ export class AiService {
     private readonly listings: ListingsService,
     private readonly reports: ReportsService,
     private readonly materials: MaterialsService,
+    private readonly documents: DocumentsService,
+    private readonly storage: StorageService,
     @Inject(AI_SKILLS) skills: AiSkill[],
     @Inject(LLM_PROVIDER) private readonly llm: LlmProvider,
   ) {
@@ -252,11 +256,11 @@ export class AiService {
     });
   }
 
-  // Three switch arms now prove the pattern; every other actionType is
+  // Four switch arms now prove the pattern; every other actionType is
   // still draft-only — see the README's "Not built yet" for what
   // chaining the rest would need (most of them are advisory by design,
   // not a deferred real action — compare_vendor_quotes says so in its
-  // own comment; boq_to_order used to as well, until this pass).
+  // own comment; boq_to_order used to as well, until an earlier pass).
   private async applyChainedAction(
     aiRequest: { actionType: string; moduleContext: string; accountId: string },
     output: { draftBody: unknown },
@@ -319,6 +323,35 @@ export class AiService {
           });
         }
       }
+    }
+
+    if (aiRequest.actionType === 'generate_lease_agreement') {
+      // The audit's own finding on Workflow 8: "Generation (template,
+      // e-sign) doesn't exist anywhere." Unlike generate_listing_
+      // description's own text field, there's nowhere on Lease itself to
+      // write agreement prose into — the real destination is a new
+      // Document, the same real, existing pipeline every other lease
+      // paperwork already goes through (Document.leaseId). Uploads the
+      // accepted draft text to real object storage (StorageService,
+      // already used for AI-visualization output — this is the same
+      // "backend generates content, not just accepts a client file"
+      // shape, just text instead of an image) rather than inventing a
+      // second, parallel place for generated documents to live.
+      // run() already required lease:write — no separate re-check needed,
+      // same reasoning generate_listing_description's own comment gives.
+      const leaseId = aiRequest.moduleContext.split(':')[1];
+      const [agreementText] = (output.draftBody as { items: string[] }).items;
+      const fileUrl = await this.storage.upload(
+        Buffer.from(agreementText, 'utf-8'),
+        'text/plain',
+        'lease-agreements',
+        `lease-agreement-${leaseId}.txt`,
+      );
+      await this.documents.create(aiRequest.accountId, userId, {
+        documentType: 'lease_agreement',
+        fileUrl,
+        leaseId,
+      });
     }
   }
 }

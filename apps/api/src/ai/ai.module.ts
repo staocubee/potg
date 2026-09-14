@@ -4,6 +4,8 @@ import { ProjectsModule } from '../projects/projects.module';
 import { ListingsModule } from '../listings/listings.module';
 import { ReportsModule } from '../reports/reports.module';
 import { MaterialsModule } from '../materials/materials.module';
+import { DocumentsModule } from '../documents/documents.module';
+import { StorageModule } from '../storage/storage.module';
 import { AiService } from './ai.service';
 import { ChatService } from './chat.service';
 import { AiController } from './ai.controller';
@@ -41,9 +43,10 @@ import { summarizeDisputeSkill } from './skills/summarize-dispute.skill';
 import { estimateCarbonFootprintSkill } from './skills/estimate-carbon-footprint.skill';
 import { suggestGreenChecklistSkill } from './skills/suggest-green-checklist.skill';
 import { generateProjectScopeSkill } from './skills/generate-project-scope.skill';
+import { generateLeaseAgreementSkill } from './skills/generate-lease-agreement.skill';
 
 @Module({
-  imports: [ProjectsModule, ListingsModule, ReportsModule, MaterialsModule],
+  imports: [ProjectsModule, ListingsModule, ReportsModule, MaterialsModule, DocumentsModule, StorageModule],
   controllers: [AiController],
   providers: [
     AiService,
@@ -96,6 +99,7 @@ import { generateProjectScopeSkill } from './skills/generate-project-scope.skill
         estimateCarbonFootprintSkill,
         suggestGreenChecklistSkill,
         generateProjectScopeSkill,
+        generateLeaseAgreementSkill,
       ],
     },
   ],

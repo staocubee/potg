@@ -8747,6 +8747,84 @@ milestone did.
 - No PDF or downloadable document — the contract's real terms render
   on the project page; there's no export/print path yet.
 
+## AI-generated lease agreement (this pass)
+
+Closes the audit's own finding on Workflow 8: "Lease agreement is
+uploaded or generated — Upload: real, via `Document.leaseId`.
+Generation (template, e-sign) doesn't exist anywhere." Generation is
+real now; e-signature stays out on purpose (see below).
+
+**Every fact in the draft comes from real rows, not the model.** Same
+split every other draft skill in this registry uses: the LLM only
+writes the agreement's own prose, never a figure. The skill's system
+prompt explicitly forbids inventing any figure, date, or term not
+given — telling it to write `[to be specified]` for anything ordinarily
+in a lease (like a notice period) that isn't recorded, rather than
+making one up.
+
+**First skill in the 33-skill registry keyed on the lease itself**
+(`moduleContextPrefix: "lease"`) rather than the property — every other
+lease-adjacent skill (`summarize_lease_status`) is keyed on the
+property because it summarizes every lease on it at once. Reached
+directly via `POST /ai/actions` from a purpose-built button on the
+lease row, the same "call `runAction` directly, skip the generic
+Ask-AI skill list" shape `generate_project_scope` already established.
+
+**Accept chains a real write to a new `Document`, not a text field.**
+Unlike `generate_listing_description`'s own field, there's nowhere on
+`Lease` to write agreement prose into — and `Document.fileUrl` is
+required, not nullable, so a generated document can't just live as raw
+text in the database either. Accept uploads the draft text to real
+object storage (`StorageService`, the same Cloudflare R2 service
+already used for AI-visualization images — this is the same "backend
+generates content, uploads it, gets a real URL" shape, just text
+instead of an image this time) and creates a real `Document` row
+(`documentType: "lease_agreement"`, `leaseId` set) pointing at it,
+through the same pipeline every other piece of lease paperwork already
+goes through.
+
+**What's built**:
+
+- `generate_lease_agreement` AI skill (`lease:write`) — drafts a full
+  structured agreement (Parties, Property, Term, Rent, Security
+  Deposit, standard obligations) from the real `Lease`/`Property` rows.
+- Accept chains a real write: uploads the accepted text to R2 via
+  `StorageService.upload`, then creates a real `Document`
+  (`documentType: "lease_agreement"`) via `DocumentsService.create`.
+- A "✦ Generate lease agreement" button on each active lease row
+  (`lease:write`), rendering the standard `AiDraftCard` (Accept / Edit
+  / Discard) with a confirmation pointing at the page's own Documents
+  section once accepted.
+
+**Verified live** on the real "Demo Tenant" lease (`14 Ocean Drive`,
+NGN 2,400,000/annually, deposit NGN 200,000): ran the skill via direct
+`fetch()`, confirmed the draft's every fact matched the real lease and
+property rows exactly, accepted it, and confirmed a real `Document` row
+was created with a real R2 `fileUrl`
+(`https://pub-7a3c8019a4734a16a8463e3097877624.r2.dev/lease-agreements/
+…txt`) — fetched that URL directly and confirmed it served the exact
+accepted text back. Separately verified the real UI: clicked the real
+"Generate lease agreement" button on the lease row, clicked "Draft
+agreement," confirmed the real `AiDraftCard` rendered the same draft,
+clicked the real Accept button, confirmed the "Accepted" badge and the
+"see it in Documents below" note, and confirmed a `lease agreement`
+row (`Not Verified`) really appeared in the property page's own
+Documents section afterward.
+
+**Not done — explicit scope, not oversight**:
+
+- No e-signature — a real third-party integration (DocuSign or
+  similar) this scaffold doesn't attempt anywhere else either. The
+  audit's own finding named this as a separate gap from generation;
+  closing generation doesn't imply closing this one too.
+- The generated document is plain text, not a formatted PDF — same
+  "real content, no formatting pipeline" scope every other
+  AI-generated artifact in this codebase (portfolio reports, project
+  scopes) already stops at.
+- No re-generation or versioning — accepting a second draft creates a
+  second `Document` row rather than replacing the first; nothing
+  merges or supersedes prior generated agreements.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

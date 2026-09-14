@@ -2,9 +2,10 @@ import { ChangeEvent, FormEvent, PointerEvent as ReactPointerEvent, useEffect, u
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { AccessGrant, AccountMemberSummary, ApiError, Branch, ComparableValuation, DevelopmentAgreement, Lease, MaintenanceRequest, Project, Property, PropertyDevice, PropertyInspection, PropertyTourAsset, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
+import { AccessGrant, AccountMemberSummary, AiActionResult, ApiError, Branch, ComparableValuation, DevelopmentAgreement, Lease, MaintenanceRequest, Project, Property, PropertyDevice, PropertyInspection, PropertyTourAsset, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
+import AiDraftCard, { DraftDecision } from "../../components/AiDraftCard";
 import ProjectStageBar from "../../components/ProjectStageBar";
 
 function formatMoney(value?: string | null, currency?: string) {
@@ -2647,6 +2648,40 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"record" | "end" | "edit" | "link" | null>(null);
 
+  // Same "toggle reveals a draft flow, Accept chains a real write" shape
+  // generate_project_scope's own NewProjectForm established — except here
+  // Accept has nowhere on this form to copy text into (a lease has no
+  // agreement-text field), so the real destination is a new Document row,
+  // written server-side by AiService.applyChainedAction on Accept. The
+  // confirmation just points at the page's own Documents section below.
+  const [showAgreementDraft, setShowAgreementDraft] = useState(false);
+  const [agreementDraft, setAgreementDraft] = useState<AiActionResult | null>(null);
+  const [agreementDecision, setAgreementDecision] = useState<DraftDecision | null>(null);
+  const [generatingAgreement, setGeneratingAgreement] = useState(false);
+  const [agreementSaved, setAgreementSaved] = useState(false);
+
+  async function onGenerateLeaseAgreement() {
+    setGeneratingAgreement(true);
+    setError(null);
+    try {
+      const result = await auth.api.runAiAction(`lease:${lease.id}`, "generate_lease_agreement", {});
+      setAgreementDraft(result);
+      setAgreementDecision(null);
+      setAgreementSaved(false);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't draft a lease agreement.");
+    } finally {
+      setGeneratingAgreement(false);
+    }
+  }
+
+  async function onDecideAgreement(decision: DraftDecision, notes?: string) {
+    if (!agreementDraft) return;
+    await auth.api.decideAiOutput(agreementDraft.outputId, decision, notes);
+    setAgreementDecision(decision);
+    if (decision === "accepted") setAgreementSaved(true);
+  }
+
   async function onLinkTenant() {
     setBusy("link");
     setError(null);
@@ -2785,6 +2820,42 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
           <button className="potg-btn potg-btn-danger" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={() => onEnd("ended")}>
             End lease
           </button>
+          <button
+            className="potg-btn potg-btn-secondary"
+            style={{ padding: "3px 8px", fontSize: 11 }}
+            onClick={() => setShowAgreementDraft((v) => !v)}
+          >
+            {showAgreementDraft ? "Hide AI draft" : "✦ Generate lease agreement"}
+          </button>
+        </div>
+      )}
+
+      {lease.status === "active" && showAgreementDraft && (
+        <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+          {!agreementDraft && (
+            <button
+              className="potg-btn potg-btn-secondary"
+              style={{ padding: "3px 8px", fontSize: 11 }}
+              disabled={generatingAgreement}
+              onClick={onGenerateLeaseAgreement}
+            >
+              {generatingAgreement ? "Drafting…" : "Draft agreement"}
+            </button>
+          )}
+          {agreementDraft && (
+            <AiDraftCard
+              draftLabel={agreementDraft.draftLabel}
+              items={agreementDraft.items}
+              warn={agreementDraft.warn}
+              decision={agreementDecision}
+              onDecide={onDecideAgreement}
+            />
+          )}
+          {agreementSaved && (
+            <div className="potg-muted" style={{ fontSize: 11 }}>
+              Saved as a real document attached to this lease — see it in Documents below.
+            </div>
+          )}
         </div>
       )}
 
