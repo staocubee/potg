@@ -6,6 +6,7 @@ import {
   Dispute,
   DisputeEvidence,
   DISPUTE_TYPES,
+  MaintenanceRequest,
   Payout,
   PaystackBank,
   ProjectVendorAssignment,
@@ -55,11 +56,16 @@ export default function VendorDashboardPage() {
   // reach GET /projects/:projectId and post updates, this dashboard just
   // never linked to it.
   const [projects, setProjects] = useState<ProjectVendorAssignment[]>([]);
+  // The maintenance-side counterpart to projects above — same
+  // discoverability gap, same fix. Closes the workflow audit's own
+  // Workflow 7 finding: "no quote mechanism for a maintenance ticket
+  // exists."
+  const [maintenanceRequests, setMaintenanceRequests] = useState<MaintenanceRequest[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Tells "you can't see this" (403/404 on the underlying route) apart
   // from a genuinely empty section — mirrors projects/[id].tsx's own
   // forbidden state for the same reason.
-  const [forbidden, setForbidden] = useState({ quotes: false, payouts: false, disputes: false, projects: false });
+  const [forbidden, setForbidden] = useState({ quotes: false, payouts: false, disputes: false, projects: false, maintenanceRequests: false });
 
   function load() {
     if (!auth.currentAccountId) return;
@@ -81,7 +87,8 @@ export default function VendorDashboardPage() {
             auth.api.myPayouts(),
             auth.api.myDisputes(),
             auth.api.myProjects(),
-          ]).then(([q, p, d, pr]) => {
+            auth.api.myMaintenanceRequests(),
+          ]).then(([q, p, d, pr, mr]) => {
             const isForbidden = (result: PromiseSettledResult<unknown>) =>
               result.status === "rejected" &&
               result.reason instanceof ApiError &&
@@ -90,7 +97,14 @@ export default function VendorDashboardPage() {
             if (p.status === "fulfilled") setPayouts(p.value);
             if (d.status === "fulfilled") setDisputes(d.value);
             if (pr.status === "fulfilled") setProjects(pr.value);
-            setForbidden({ quotes: isForbidden(q), payouts: isForbidden(p), disputes: isForbidden(d), projects: isForbidden(pr) });
+            if (mr.status === "fulfilled") setMaintenanceRequests(mr.value);
+            setForbidden({
+              quotes: isForbidden(q),
+              payouts: isForbidden(p),
+              disputes: isForbidden(d),
+              projects: isForbidden(pr),
+              maintenanceRequests: isForbidden(mr),
+            });
           });
         }
       })
@@ -215,6 +229,21 @@ export default function VendorDashboardPage() {
                   </Link>
                 );
               })}
+            </div>
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <h3 style={{ fontSize: 14, marginBottom: 10 }}>Maintenance requests assigned to you</h3>
+            {forbidden.maintenanceRequests && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view maintenance requests here.</p>
+            )}
+            {!forbidden.maintenanceRequests && maintenanceRequests.length === 0 && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>No maintenance requests yet — once an owner assigns one to you, it'll show up here.</p>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {maintenanceRequests.map((r) => (
+                <MaintenanceQuoteRow key={r.id} request={r} onSubmitted={load} />
+              ))}
             </div>
           </div>
 
@@ -378,6 +407,77 @@ function QuoteRow({ quote, onSubmitted }: { quote: VendorQuote; onSubmitted: () 
             {busy ? "…" : "Submit"}
           </button>
         </form>
+      )}
+    </div>
+  );
+}
+
+// Mirrors QuoteRow above almost exactly — see MaintenanceRequest.
+// quotedAmount's own schema comment for why this writes to the request
+// itself instead of a VendorQuote row. Quoting stays available for
+// "open"/"in_progress" only, same window submitMaintenanceQuote itself
+// enforces server-side.
+function MaintenanceQuoteRow({ request, onSubmitted }: { request: MaintenanceRequest; onSubmitted: () => void }) {
+  const auth = useAuth();
+  const [amount, setAmount] = useState("");
+  const [notes, setNotes] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const canQuote = (request.status === "open" || request.status === "in_progress") && auth.hasPermission("quote:write");
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await auth.api.submitMaintenanceQuote({ maintenanceRequestId: request.id, amount: Number(amount), notes: notes || undefined });
+      setAmount("");
+      setNotes("");
+      onSubmitted();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't submit that quote.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ borderBottom: "1px solid var(--potg-border)", paddingBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+        <div>
+          <span style={{ fontWeight: 600 }}>{request.title}</span>
+          {request.property && <div className="potg-muted" style={{ fontSize: 11 }}>{request.property.name}</div>}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {request.quotedAmount != null && (
+            <span style={{ fontWeight: 700 }}>{formatMoney(request.quotedAmount, request.quotedCurrency ?? undefined)}</span>
+          )}
+          <span className="potg-badge">{request.status.replace(/_/g, " ")}</span>
+        </div>
+      </div>
+      {canQuote && (
+        <form onSubmit={onSubmit} style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          {error && <div className="potg-error" style={{ flexBasis: "100%" }}>{error}</div>}
+          <input
+            className="potg-input"
+            type="number"
+            min={0}
+            required
+            placeholder={request.quotedAmount != null ? "Revise your quote" : "Your quote"}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            style={{ maxWidth: 140 }}
+          />
+          <input className="potg-input" placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ flexShrink: 0 }}>
+            {busy ? "…" : "Submit"}
+          </button>
+        </form>
+      )}
+      {request.quotedNotes && (
+        <p className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
+          Your note: {request.quotedNotes}
+        </p>
       )}
     </div>
   );

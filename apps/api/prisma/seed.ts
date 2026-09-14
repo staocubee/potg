@@ -266,7 +266,12 @@ const ROLES: Record<string, string[]> = {
   // project:update_progress IS granted — see that permission's own
   // comment — but only ever reaches a project this vendor is actually
   // assigned to, via PermissionsGuard's @AllowAssignedVendor() ABAC check,
-  // not RBAC alone.
+  // not RBAC alone. maintenance:read is new — same reasoning as
+  // project:read: a vendor needs to see the maintenance ticket it's
+  // assignedVendorId'd onto before it can quote or work on it, reached
+  // only through VendorsController's own :propertyId-free "me" routes,
+  // never maintenance:write/approve (start/resolve/approve stay the
+  // owner/manager's own actions).
   vendor: [
     'document:read',
     'ai:act',
@@ -276,6 +281,7 @@ const ROLES: Record<string, string[]> = {
     'project:update_progress',
     'quote:read',
     'quote:write',
+    'maintenance:read',
     'payout:read',
     'dispute:read',
     'dispute:write',

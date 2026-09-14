@@ -8,6 +8,7 @@ import { VendorsService } from './vendors.service';
 import { PaymentsService } from '../payments/payments.service';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { SubmitQuoteDto } from './dto/submit-quote.dto';
+import { SubmitMaintenanceQuoteDto } from './dto/submit-maintenance-quote.dto';
 import { RaiseDisputeAsVendorDto } from './dto/raise-dispute-as-vendor.dto';
 import { ResolveDisputeDto } from '../payments/dto/resolve-dispute.dto';
 import { SubmitDisputeEvidenceDto } from '../payments/dto/submit-dispute-evidence.dto';
@@ -144,6 +145,25 @@ export class VendorsController {
   @Post('me/quotes')
   submitQuote(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: SubmitQuoteDto) {
     return this.vendors.submitQuote(member.accountId, dto);
+  }
+
+  // The maintenance-side counterpart to me/projects above — see
+  // VendorsService.myMaintenanceRequests's own comment.
+  @RequirePermissions('maintenance:read')
+  @Get('me/maintenance-requests')
+  myMaintenanceRequests(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.vendors.myMaintenanceRequests(member.accountId);
+  }
+
+  // The audit's own finding on Workflow 7: "VendorQuote ties only to
+  // Project, never to a MaintenanceRequest — no quote mechanism for a
+  // maintenance ticket exists." Reuses quote:write, same permission
+  // me/quotes already checks — same reasoning: this is a quote, just on a
+  // different resource, not a new capability.
+  @RequirePermissions('quote:write')
+  @Post('me/maintenance-quotes')
+  submitMaintenanceQuote(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: SubmitMaintenanceQuoteDto) {
+    return this.vendors.submitMaintenanceQuote(member.accountId, dto);
   }
 
   // Vendor-side dispute access — same reasoning as submitQuote above:

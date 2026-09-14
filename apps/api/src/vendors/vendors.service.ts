@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { SubmitQuoteDto } from './dto/submit-quote.dto';
+import { SubmitMaintenanceQuoteDto } from './dto/submit-maintenance-quote.dto';
 import { CreateVendorReviewDto } from './dto/create-vendor-review.dto';
 import { UpdateVendorReviewDto } from './dto/update-vendor-review.dto';
 import { ReplyToReviewDto } from './dto/reply-to-review.dto';
@@ -354,6 +355,54 @@ export class VendorsService {
         },
       },
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // The maintenance-side counterpart to myProjects — same discoverability
+  // gap, same fix shape: a vendor was already reachable as
+  // MaintenanceRequest.assignedVendorId with zero way to actually find that
+  // request, since every maintenance route lived under PropertiesController
+  // (:propertyId-scoped, ABAC-blocked for a non-owning account). Read-only,
+  // scoped to "assigned to me," the same shape every other vendor "me"
+  // route already uses.
+  myMaintenanceRequests(accountId: string) {
+    return this.prisma.maintenanceRequest.findMany({
+      where: { assignedVendor: { accountId } },
+      include: { property: { select: { id: true, name: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // Vendor-initiated, mirroring submitQuote's own reasoning: deliberately
+  // doesn't go through the :propertyId ABAC check in PermissionsGuard (a
+  // vendor's account doesn't own the property) — the only check here is
+  // "this account has a vendor profile, and that profile is the one this
+  // request is actually assigned to." Upserts on the request itself (see
+  // MaintenanceRequest.quotedAmount's own schema comment for why this
+  // isn't a VendorQuote row) rather than creating a new record, so
+  // re-quoting just overwrites the last figure, same as submitQuote's own
+  // upsert-by-(projectId, vendorId) behavior.
+  async submitMaintenanceQuote(accountId: string, dto: SubmitMaintenanceQuoteDto) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { accountId } });
+    if (!vendor) {
+      throw new BadRequestException('This account has no vendor profile yet — create one with POST /vendors first');
+    }
+    const request = await this.prisma.maintenanceRequest.findUnique({ where: { id: dto.maintenanceRequestId } });
+    if (!request) throw new NotFoundException('Maintenance request not found');
+    if (request.assignedVendorId !== vendor.id) {
+      throw new BadRequestException('This maintenance request is not assigned to you');
+    }
+    if (request.status !== 'open' && request.status !== 'in_progress') {
+      throw new BadRequestException(`This request is already "${request.status}" — no quote to submit against it`);
+    }
+    return this.prisma.maintenanceRequest.update({
+      where: { id: dto.maintenanceRequestId },
+      data: {
+        quotedAmount: dto.amount,
+        quotedCurrency: dto.currency ?? 'USD',
+        quotedNotes: dto.notes,
+        quotedAt: new Date(),
+      },
     });
   }
 

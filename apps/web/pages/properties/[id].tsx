@@ -3038,6 +3038,12 @@ function MaintenanceRequestRow({
               Assigned to: {request.assignedVendor ? `${request.assignedVendor.businessName} (vendor)` : request.assignedTo}
             </div>
           )}
+          {request.quotedAmount != null && (
+            <div className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Vendor's quote: {formatMoney(request.quotedAmount, request.quotedCurrency ?? undefined)}
+              {request.quotedNotes && ` — ${request.quotedNotes}`}
+            </div>
+          )}
           {request.approvalStatus !== "not_requested" && (
             <div className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
               Approval: {request.approvalStatus}

@@ -830,6 +830,17 @@ export type MaintenanceRequest = {
   // Module 24's "Maintenance report" (cost) — set alongside
   // resolutionNotes at resolution time, null otherwise.
   cost?: string | null;
+  // The assigned vendor's own pre-work estimate — distinct from cost
+  // above (the actual figure, known only at resolution). See
+  // MaintenanceRequest.quotedAmount's own schema comment.
+  quotedAmount?: string | null;
+  quotedCurrency?: string | null;
+  quotedNotes?: string | null;
+  quotedAt?: string | null;
+  // Only populated by GET /vendors/me/maintenance-requests — same "reverse
+  // direction" shape ProjectVendorAssignment.project's own comment
+  // documents for the analogous vendor-facing list.
+  property?: { id: string; name: string };
   photoUrls: string[];
   resolutionPhotoUrls: string[];
   resolvedAt?: string | null;
@@ -2437,6 +2448,17 @@ export class ApiClient {
   }
   myProjects() {
     return request<ProjectVendorAssignment[]>("/vendors/me/projects", { token: this.token, accountId: this.accountId });
+  }
+  myMaintenanceRequests() {
+    return request<MaintenanceRequest[]>("/vendors/me/maintenance-requests", { token: this.token, accountId: this.accountId });
+  }
+  submitMaintenanceQuote(input: { maintenanceRequestId: string; amount: number; currency?: string; notes?: string }) {
+    return request<MaintenanceRequest>("/vendors/me/maintenance-quotes", {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
   }
   listBanks(provider?: string) {
     const qs = provider ? `?provider=${encodeURIComponent(provider)}` : "";

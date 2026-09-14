@@ -1710,6 +1710,20 @@ model MaintenanceRequest {
   // conflating them would lose which photo was taken when.
   photoUrls           String[]  @default([])
   resolutionPhotoUrls String[]  @default([])
+  // The audit's own finding: "VendorQuote ties only to Project, never to
+  // a MaintenanceRequest — no quote mechanism for a maintenance ticket
+  // exists." Deliberately flat fields here, not a VendorQuote row: a
+  // project's quotes are several vendors competing for one job before
+  // any is picked; a maintenance ticket already has one assigned vendor
+  // (assignedVendorId, chosen from the category-filtered picker) before
+  // a quote is ever relevant, so there's nothing to compare. Distinct
+  // from `cost` above: quotedAmount is the vendor's own pre-work
+  // estimate the owner can weigh before approving; cost is the actual
+  // figure recorded at resolution, possibly different.
+  quotedAmount   Decimal?  @db.Decimal(14, 2)
+  quotedCurrency String?
+  quotedNotes    String?
+  quotedAt       DateTime?
   // The audit's own finding: unlike ProjectMilestone, nothing here ever
   // gated work starting on an explicit sign-off — start() just flipped
   // straight to in_progress. Three states, not ProjectMilestone's four:

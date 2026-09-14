@@ -8118,6 +8118,102 @@ exact two selected product ids through to the comparison URL.
   string — reloading or sharing the link reproduces the same
   comparison, but there's no named "saved comparison" feature.
 
+## A real quote mechanism for maintenance tickets (this pass)
+
+Closes the audit's own finding on Workflow 7: "Quote is submitted —
+`VendorQuote` ties only to `Project`, never to a `MaintenanceRequest` —
+no quote mechanism for a maintenance ticket exists." Before this pass,
+a vendor assigned to a maintenance request had no way to tell the owner
+what the job would cost before work started — only `cost`, a field set
+alongside `resolutionNotes` at *resolution* time, after the fact.
+
+**Deliberately not a `VendorQuote` row.** A project's quotes are
+several vendors competing for one job before any is picked, which is
+why `VendorQuote` exists as its own comparable-rows model. A
+maintenance ticket already has exactly one assigned vendor
+(`assignedVendorId`, chosen from the category-filtered picker an
+earlier pass built) before a quote is ever relevant — there's nothing
+to compare. So this is four flat fields on `MaintenanceRequest` itself
+— `quotedAmount`/`quotedCurrency`/`quotedNotes`/`quotedAt` — a single
+number the assigned vendor can set and revise, not a list. Same
+"don't force a shape the data doesn't need" reasoning `Order.
+approvalStatus` and `MaintenanceRequest.approvalStatus` already used
+rather than inventing a heavier mechanism for a lightweight ticket.
+
+**What's built**:
+
+- `MaintenanceRequest.quotedAmount`/`quotedCurrency`/`quotedNotes`/
+  `quotedAt` (migration `20260914010000_add_maintenance_quote`), all
+  nullable — a request nobody's quoted on yet just has nulls.
+- `POST /vendors/me/maintenance-quotes` (`VendorsService.
+  submitMaintenanceQuote`) — vendor-initiated, deliberately not
+  `/properties/:propertyId/...` so it never hits PermissionsGuard's
+  `:propertyId` ABAC check, the exact same reasoning `submitQuote`'s
+  own comment already gives for the project-quote route. Checked in
+  order: the account has a vendor profile at all; that vendor is the
+  request's own `assignedVendorId` (not just any vendor); the request
+  is still `open`/`in_progress` (no quoting a resolved or cancelled
+  ticket). Upserts on the request itself — re-quoting overwrites the
+  last figure, same as `submitQuote`'s own upsert-by-`(projectId,
+  vendorId)` behavior.
+- A real discoverability fix bundled with it, not scope creep: before
+  this pass a vendor assigned to a maintenance request had *no way to
+  find it* — every maintenance route lived under
+  `PropertiesController` (`:propertyId`-scoped, ABAC-blocked for a
+  non-owning account), the exact same gap an earlier pass already
+  fixed for projects via `GET /vendors/me/projects`. `GET /vendors/
+  me/maintenance-requests` (`VendorsService.myMaintenanceRequests`) is
+  the maintenance-side twin — without it, the quote endpoint above
+  would've been unreachable in practice.
+- `maintenance:read` granted to the `vendor` role (seed.ts) — new,
+  since a vendor previously had zero maintenance permissions at all.
+  Reached only through the two `:propertyId`-free "me" routes above,
+  never `maintenance:write`/`maintenance:approve` (start/resolve/
+  approve stay the owner/manager's own actions, unchanged).
+  `POST /vendors/me/maintenance-quotes` itself reuses `quote:write` —
+  the same permission `me/quotes` already checks, since this is a
+  quote, just on a different resource, not a new capability.
+- `vendors/me.tsx` — a new "Maintenance requests assigned to you"
+  section, mirroring "Your projects" exactly: the assigned request's
+  title, property, and status, with a quote form (amount + optional
+  notes) that becomes "revise your quote" once one's on file.
+- `properties/[id].tsx` — the owner's own maintenance request row now
+  shows "Vendor's quote: ⟨amount⟩ — ⟨notes⟩" whenever one exists,
+  surfaced right above the approval status so an owner sees the
+  proposed cost before approving, not just after.
+
+**Verified live** against the real seeded "Test vendor-assigned issue"
+maintenance request (assigned to the real "Lekki Renovations Co."
+vendor, both under the demo account). Submitted a real quote as that
+vendor — `NGN 45,000`, "Replace the corroded fitting and re-test the
+line — half-day job." — confirmed it round-tripped through
+`GET /vendors/me/maintenance-requests` and rendered correctly on the
+vendor dashboard, then confirmed the owner's own
+`GET /properties/:id/maintenance-requests` returns the identical
+`quotedAmount`/`quotedNotes` for the same request. Separately verified
+the ownership guard for real: attempted to submit a quote as this same
+vendor against a *different* maintenance request assigned to a
+different vendor ("Precision Plumbing Ltd," on "Leaking pipe under
+kitchen sink") and got a real 400 — `"This maintenance request is not
+assigned to you"` — not a silent overwrite.
+
+**Not done — explicit scope, not oversight**:
+
+- No notification when a quote is submitted — the owner sees it the
+  same way they see category/approval status, by visiting the
+  property page. `Module 19's` own "maintenance updates" trigger only
+  fires on resolution (see `resolveMaintenanceRequest`'s own comment:
+  "the one status change the reporting side actually needs to hear
+  about") — adding a second trigger here would be a new, separate
+  decision, not part of closing this gap.
+- Quoting isn't a gate on approval — an owner can still approve a
+  maintenance request with no quote on file, same as before this
+  pass. The audit's own Workflow 7 lists "Quote is submitted" and
+  "Owner approves" as two separate steps; this only builds the first.
+- No currency default beyond `'USD'` when the vendor omits one — same
+  restraint `SubmitQuoteDto`'s own project-quote counterpart already
+  takes, not a new gap this feature introduces.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
