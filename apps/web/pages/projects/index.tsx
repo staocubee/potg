@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Project, Property } from "../../lib/api";
+import { AiActionResult, ApiError, Project, Property } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import ProjectStageBar from "../../components/ProjectStageBar";
+import AiDraftCard, { DraftDecision } from "../../components/AiDraftCard";
 
 const PROJECT_TYPES = ["renovation", "new_build", "maintenance", "landscaping", "interior_design"];
 
@@ -125,6 +126,48 @@ function NewProjectForm({ properties, onCreated }: { properties: Property[]; onC
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // The audit's own finding on Workflow 3: "AI-generated scope doesn't
+  // exist." No chained write on Accept, unlike most draft skills — this
+  // form's own scopeDescription state (and the real POST /projects call
+  // below) is already the real destination, so Accept/Edit just copies
+  // the draft text in; the owner still has to submit the form
+  // themselves, the strongest human-in-the-loop shape available.
+  const [showScopeDraft, setShowScopeDraft] = useState(false);
+  const [goals, setGoals] = useState("");
+  const [scopeDraft, setScopeDraft] = useState<AiActionResult | null>(null);
+  const [scopeDraftDecision, setScopeDraftDecision] = useState<DraftDecision | null>(null);
+  const [draftingScope, setDraftingScope] = useState(false);
+
+  async function onDraftScope() {
+    if (!propertyId) return;
+    setDraftingScope(true);
+    setError(null);
+    try {
+      const result = await auth.api.runAiAction(`property:${propertyId}`, "generate_project_scope", { projectType, goals: goals || undefined });
+      setScopeDraft(result);
+      setScopeDraftDecision(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't draft a scope.");
+    } finally {
+      setDraftingScope(false);
+    }
+  }
+
+  async function onDecideScope(decision: DraftDecision, notes?: string) {
+    if (!scopeDraft) return;
+    await auth.api.decideAiOutput(scopeDraft.outputId, decision, notes);
+    setScopeDraftDecision(decision);
+    // Only "accepted" copies the draft text in — same reasoning
+    // AiService.decide's own comment gives for never chaining "edited":
+    // the notes on an edit describe what the human changed, not the
+    // corrected text itself, so there's nothing safe to copy in here
+    // either. An "edited" decision leaves the scope textarea as-is for
+    // the owner to type their own correction directly.
+    if (decision === "accepted") {
+      setScopeDescription(scopeDraft.items[0]);
+    }
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -175,8 +218,48 @@ function NewProjectForm({ properties, onCreated }: { properties: Property[]; onC
         <input className="potg-input" required autoFocus placeholder="e.g. Kitchen renovation" value={title} onChange={(e) => setTitle(e.target.value)} />
       </div>
       <div>
-        <label className="potg-label">Scope (optional)</label>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <label className="potg-label" style={{ margin: 0 }}>
+            Scope (optional)
+          </label>
+          {auth.hasPermission("project:write") && (
+            <button
+              type="button"
+              className="potg-muted"
+              style={{ fontSize: 11, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}
+              onClick={() => setShowScopeDraft((v) => !v)}
+            >
+              {showScopeDraft ? "Hide AI draft" : "✦ AI-draft scope"}
+            </button>
+          )}
+        </div>
         <textarea className="potg-input" rows={2} value={scopeDescription} onChange={(e) => setScopeDescription(e.target.value)} />
+        {showScopeDraft && (
+          <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+            {!scopeDraft && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  className="potg-input"
+                  placeholder="Your goals, in your own words (optional)"
+                  value={goals}
+                  onChange={(e) => setGoals(e.target.value)}
+                />
+                <button className="potg-btn potg-btn-secondary" type="button" disabled={draftingScope || !propertyId} onClick={onDraftScope}>
+                  {draftingScope ? "…" : "Draft"}
+                </button>
+              </div>
+            )}
+            {scopeDraft && (
+              <AiDraftCard
+                draftLabel={scopeDraft.draftLabel}
+                items={scopeDraft.items}
+                warn={scopeDraft.warn}
+                decision={scopeDraftDecision}
+                onDecide={onDecideScope}
+              />
+            )}
+          </div>
+        )}
       </div>
       <div>
         <label className="potg-label">Budget (optional)</label>

@@ -39,6 +39,7 @@ import { assessSupplierRiskSkill } from './skills/assess-supplier-risk.skill';
 import { summarizeDisputeSkill } from './skills/summarize-dispute.skill';
 import { estimateCarbonFootprintSkill } from './skills/estimate-carbon-footprint.skill';
 import { suggestGreenChecklistSkill } from './skills/suggest-green-checklist.skill';
+import { generateProjectScopeSkill } from './skills/generate-project-scope.skill';
 
 @Module({
   imports: [ProjectsModule, ListingsModule, ReportsModule],
@@ -93,6 +94,7 @@ import { suggestGreenChecklistSkill } from './skills/suggest-green-checklist.ski
         summarizeDisputeSkill,
         estimateCarbonFootprintSkill,
         suggestGreenChecklistSkill,
+        generateProjectScopeSkill,
       ],
     },
   ],

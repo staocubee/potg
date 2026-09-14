@@ -8460,6 +8460,71 @@ remaining option, not just the count.
 - Filters reset on form close/reopen, same as every other field in
   these forms — no persisted "last filter used" preference.
 
+## A real AI-generated project scope (this pass)
+
+Closes the audit's own finding on Workflow 3: "Defines scope, or AI
+generates it — AI-generated scope doesn't exist — the AI skills that
+touch scope only read an existing one to estimate budget or draft a
+materials list; none writes it."
+
+**Keyed on the property, not the project — deliberately.** Every other
+draft skill in this registry (`draft_project_status_update`,
+`generate_listing_description`) runs against a resource that already
+exists. Scope has to be defined *before* a project exists — filling
+out the "New Project" form is the one point in this app where there's
+a real property but no `Project` row yet — so `generate_project_scope`
+is the first skill in this registry with `moduleContextPrefix:
+"property"` that isn't actually a property-level concern; it's what
+the form has on hand at the moment scope is needed.
+
+**No chained write on Accept — a deliberate difference from the two
+skills that do chain one.** `AiService.applyChainedAction`'s own
+comment already names the reason edited drafts never chain ("the notes
+on an edit describe what the human changed, not the corrected text
+itself"); the same reasoning extends further here. The scope textarea
+on that same "New Project" form is already the real destination for
+this text, and the owner still has to fill in a title and click
+"Create project" themselves — a stronger human-in-the-loop guarantee
+than a chained write would give, not a weaker one, since nothing
+becomes real until the owner's own separate, pre-existing action.
+
+**What's built**:
+
+- `apps/api/src/ai/skills/generate-project-scope.skill.ts` — a real
+  input schema (`projectType`, optional freeform `goals`), the second
+  skill in this registry (after `model_roi_scenario`) to declare one
+  rather than reading an untyped `input: {}`. Grounds the draft in the
+  property's own real `propertyType`/location, same "facts from the
+  database, LLM only writes the paragraph around them" split every
+  other draft skill here uses.
+- `projects/index.tsx`'s own "New Project" form — a "✦ AI-draft scope"
+  toggle next to the Scope field reveals a goals input and a real
+  `AiDraftCard` (the same accept/edit/discard component every other
+  skill's draft uses). Accepting copies the draft text into the
+  existing `scopeDescription` state; editing deliberately does not
+  (see above) — the owner types their own correction directly into the
+  textarea instead.
+
+**Verified live**, real data throughout: drafted a scope for a real
+renovation project on the real "14 Ocean Drive" property with real
+goals ("Replace the leaking roof and repaint the exterior"), confirmed
+the draft correctly grounded itself in the property's real
+`propertyType`/location ("residential house in Lagos, NG"), clicked
+Accept, and confirmed via the DOM that the scope textarea was
+populated with the exact accepted text — ready for the existing, real
+`POST /projects` call to persist once the owner fills in a title and
+submits.
+
+**Not done — explicit scope, not oversight**:
+
+- No AI-generated BOQ/materials-list wiring here — `boq_to_order`
+  already exists as its own separate skill and stays separate; scope
+  generation and BOQ generation are two different steps in the
+  audit's own workflow (steps 3 and 5), not one feature.
+- Draft doesn't persist if the owner navigates away before creating
+  the project — same as every field in this form already behaves,
+  not a new gap this feature introduces.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
