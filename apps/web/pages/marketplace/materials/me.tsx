@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../../lib/auth";
-import { ApiError, MaterialOrder, Product, RentalBooking, Supplier, SupplierReview, SupplierVerificationEvidence } from "../../../lib/api";
+import { ApiError, BulkQuoteRequest, MaterialOrder, Product, RentalBooking, Supplier, SupplierReview, SupplierVerificationEvidence } from "../../../lib/api";
 import AppShell from "../../../components/AppShell";
 
 const SUPPLIER_CATEGORIES = ["materials", "tools", "equipment"];
@@ -19,6 +19,7 @@ export default function SupplierDashboardPage() {
   const [supplier, setSupplier] = useState<Supplier | null | undefined>(undefined);
   const [orders, setOrders] = useState<MaterialOrder[] | null>(null);
   const [rentalBookings, setRentalBookings] = useState<RentalBooking[] | null>(null);
+  const [bulkQuoteRequests, setBulkQuoteRequests] = useState<BulkQuoteRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showProductForm, setShowProductForm] = useState(false);
 
@@ -32,6 +33,7 @@ export default function SupplierDashboardPage() {
         if (s) {
           auth.api.findOrdersForSupplier().then(setOrders).catch(() => setOrders([]));
           auth.api.supplierRentalBookings().then(setRentalBookings).catch(() => setRentalBookings([]));
+          auth.api.supplierBulkQuoteRequests().then(setBulkQuoteRequests).catch(() => setBulkQuoteRequests([]));
         }
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load your supplier profile."));
@@ -149,6 +151,19 @@ export default function SupplierDashboardPage() {
                   </div>
                   <span className="potg-badge">{o.status.replace(/_/g, " ")}</span>
                 </Link>
+              ))}
+            </div>
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <h3 style={{ fontSize: 14, marginBottom: 10 }}>Bulk quote requests</h3>
+            {bulkQuoteRequests && bulkQuoteRequests.length === 0 && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>No bulk quote requests yet.</p>
+            )}
+            {!bulkQuoteRequests && <p className="potg-muted" style={{ fontSize: 12 }}>Loading…</p>}
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {bulkQuoteRequests?.map((r) => (
+                <SupplierBulkQuoteRow key={r.id} request={r} onResponded={load} />
               ))}
             </div>
           </div>
@@ -542,6 +557,72 @@ function SupplierRentalBookingRow({ booking, onChanged }: { booking: RentalBooki
             {busy === "cancel" ? "…" : "Cancel"}
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+// The audit's own finding on Workflow 6: "Bulk-quote/RFQ doesn't exist
+// for suppliers." Setting a real unitPrice is the "quote" itself — same
+// "the other party responds" shape SupplierRentalBookingRow's own
+// confirm action uses, just with a real negotiated price attached
+// instead of a bare status flip.
+function SupplierBulkQuoteRow({ request, onResponded }: { request: BulkQuoteRequest; onResponded: () => void }) {
+  const auth = useAuth();
+  const [unitPrice, setUnitPrice] = useState("");
+  const [notes, setNotes] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onRespond(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.respondToBulkQuote(request.id, { unitPrice: Number(unitPrice), notes: notes || undefined });
+      onResponded();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't respond to that request.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ borderTop: "1px solid var(--potg-border)", paddingTop: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontWeight: 700 }}>{request.product?.name ?? "Product"}</div>
+          <div className="potg-muted" style={{ fontSize: 11 }}>
+            {request.quantity} {request.product?.unit ?? "unit(s)"} requested
+            {request.notes && ` — ${request.notes}`}
+          </div>
+          {request.quotedUnitPrice && (
+            <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
+              Your quote: {formatMoney(request.quotedUnitPrice, request.product?.currency)} / {request.product?.unit ?? "unit"}
+            </div>
+          )}
+        </div>
+        <span className="potg-badge">{request.status}</span>
+      </div>
+      {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
+      {request.status === "requested" && auth.hasPermission("order:write") && (
+        <form onSubmit={onRespond} style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          <input
+            className="potg-input"
+            type="number"
+            min={0}
+            step="0.01"
+            required
+            placeholder="Unit price"
+            value={unitPrice}
+            onChange={(e) => setUnitPrice(e.target.value)}
+            style={{ width: 100 }}
+          />
+          <input className="potg-input" placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11, flexShrink: 0 }}>
+            {busy ? "…" : "Send quote"}
+          </button>
+        </form>
       )}
     </div>
   );

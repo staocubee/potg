@@ -16,6 +16,8 @@ import { SetSupplierVerificationDto } from './dto/set-supplier-verification.dto'
 import { SubmitSupplierVerificationEvidenceDto } from './dto/submit-supplier-verification-evidence.dto';
 import { SubmitSupplierTrustAuditDto } from './dto/submit-supplier-trust-audit.dto';
 import { CreateRentalBookingDto } from './dto/create-rental-booking.dto';
+import { RequestBulkQuoteDto } from './dto/request-bulk-quote.dto';
+import { RespondBulkQuoteDto } from './dto/respond-bulk-quote.dto';
 import { UpsertCartItemDto } from './dto/upsert-cart-item.dto';
 import { CheckoutCartDto } from './dto/checkout-cart.dto';
 import { getSupplierTrustScore } from './trust-score';
@@ -482,6 +484,108 @@ export class MaterialsService {
     );
 
     return order;
+  }
+
+  // --- Bulk quote requests (Module 10) ------------------------------------
+  //
+  // The audit's own finding on Workflow 6: "Places an order or requests a
+  // bulk quote — Placing an order is real. Bulk-quote/RFQ doesn't exist
+  // for suppliers — VendorQuote is renovation-only." Buyer-initiated,
+  // mirroring createRentalBooking's own reasoning: deliberately not
+  // scoped through :propertyId/:projectId ABAC, since the buyer's
+  // account doesn't own the supplier or the product.
+
+  async requestBulkQuote(accountId: string, productId: string, dto: RequestBulkQuoteDto) {
+    const product = await this.prisma.product.findUnique({ where: { id: productId } });
+    if (!product) throw new NotFoundException('Product not found');
+    return this.prisma.bulkQuoteRequest.create({
+      data: {
+        accountId,
+        supplierId: product.supplierId,
+        productId,
+        projectId: dto.projectId,
+        quantity: dto.quantity,
+        notes: dto.notes,
+      },
+    });
+  }
+
+  myBulkQuoteRequests(accountId: string) {
+    return this.prisma.bulkQuoteRequest.findMany({
+      where: { accountId },
+      include: { product: { select: { id: true, name: true, unit: true, currency: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findSupplierBulkQuoteRequests(accountId: string) {
+    const supplier = await this.requireOwnSupplier(accountId);
+    return this.prisma.bulkQuoteRequest.findMany({
+      where: { supplierId: supplier.id },
+      include: { product: { select: { id: true, name: true, unit: true, currency: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // Supplier-only: setting a real negotiated price is the "quote" itself —
+  // same "the other party approves/responds" shape RentalBooking's own
+  // confirm step uses, just with a real price attached rather than a bare
+  // status flip.
+  async respondToBulkQuote(accountId: string, requestId: string, dto: RespondBulkQuoteDto) {
+    const supplier = await this.requireOwnSupplier(accountId);
+    const bulkRequest = await this.prisma.bulkQuoteRequest.findFirst({ where: { id: requestId, supplierId: supplier.id } });
+    if (!bulkRequest) throw new NotFoundException('Bulk quote request not found');
+    if (bulkRequest.status !== 'requested') {
+      throw new BadRequestException(`This request is already "${bulkRequest.status}"`);
+    }
+    return this.prisma.bulkQuoteRequest.update({
+      where: { id: requestId },
+      data: { status: 'quoted', quotedUnitPrice: dto.unitPrice, quotedNotes: dto.notes },
+    });
+  }
+
+  // Buyer-only: converts a quoted request into a real Order at the
+  // negotiated price, not the product's own current catalog unitPrice —
+  // the entire reason this doesn't just reuse createOrder above. Not
+  // wrapped in one $transaction with the stock decrement/status update,
+  // same restraint createOrder's own comment already documents for this
+  // codebase.
+  async acceptBulkQuote(accountId: string, requestId: string) {
+    const bulkRequest = await this.prisma.bulkQuoteRequest.findFirst({ where: { id: requestId, accountId } });
+    if (!bulkRequest) throw new NotFoundException('Bulk quote request not found');
+    if (bulkRequest.status !== 'quoted') {
+      throw new BadRequestException(`This request is "${bulkRequest.status}" — no quote to accept`);
+    }
+    const product = await this.prisma.product.findUniqueOrThrow({ where: { id: bulkRequest.productId } });
+    if (product.stockQuantity < bulkRequest.quantity) {
+      throw new BadRequestException('Insufficient stock to fulfill this quote anymore');
+    }
+    const unitPrice = Number(bulkRequest.quotedUnitPrice);
+    const lineTotal = unitPrice * bulkRequest.quantity;
+
+    const order = await this.prisma.order.create({
+      data: {
+        accountId,
+        supplierId: bulkRequest.supplierId,
+        projectId: bulkRequest.projectId,
+        totalAmount: lineTotal,
+        currency: product.currency,
+        items: { create: [{ productId: product.id, quantity: bulkRequest.quantity, unitPrice, lineTotal }] },
+      },
+      include: { items: true },
+    });
+    await this.prisma.product.update({ where: { id: product.id }, data: { stockQuantity: { decrement: bulkRequest.quantity } } });
+    await this.prisma.bulkQuoteRequest.update({ where: { id: requestId }, data: { status: 'accepted' } });
+    return order;
+  }
+
+  async declineBulkQuote(accountId: string, requestId: string) {
+    const bulkRequest = await this.prisma.bulkQuoteRequest.findFirst({ where: { id: requestId, accountId } });
+    if (!bulkRequest) throw new NotFoundException('Bulk quote request not found');
+    if (bulkRequest.status !== 'quoted') {
+      throw new BadRequestException(`This request is "${bulkRequest.status}" — nothing to decline`);
+    }
+    return this.prisma.bulkQuoteRequest.update({ where: { id: requestId }, data: { status: 'declined' } });
   }
 
   findOrdersForBuyer(accountId: string) {

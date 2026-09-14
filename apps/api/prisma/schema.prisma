@@ -86,6 +86,7 @@ model Account {
   developmentAgreementsProposed PropertyDevelopmentAgreement[]
   packageSubscriptions PackageSubscription[]
   branches Branch[]
+  bulkQuoteRequests BulkQuoteRequest[]
 
   @@map("accounts")
 }
@@ -771,6 +772,7 @@ model Project {
   orders        Order[]
   inspections   PropertyInspection[]
   visualizations RenovationVisualization[]
+  bulkQuoteRequests BulkQuoteRequest[]
 
   @@map("projects")
 }
@@ -1247,6 +1249,7 @@ model Supplier {
   reviews  SupplierReview[]
   trustAudits SupplierTrustAudit[]
   verificationEvidence SupplierVerificationEvidence[]
+  bulkQuoteRequests BulkQuoteRequest[]
 
   @@map("suppliers")
 }
@@ -1308,8 +1311,39 @@ model Product {
   orderItems     OrderItem[]
   rentalBookings RentalBooking[]
   cartItems      CartItem[]
+  bulkQuoteRequests BulkQuoteRequest[]
 
   @@map("products")
+}
+
+// The audit's own finding on Workflow 6: "Places an order or requests a
+// bulk quote — Placing an order is real. Bulk-quote/RFQ doesn't exist
+// for suppliers — VendorQuote is renovation-only." Mirrors
+// RentalBooking's own request/confirm shape (one buyer asking one
+// supplier, not several vendors competing for one job the way
+// VendorQuote assumes) — the one thing RentalBooking doesn't need that
+// this does is a real negotiated price, since a catalog's own
+// unitPrice is exactly what a bulk buyer is asking to move off of.
+model BulkQuoteRequest {
+  id              String   @id @default(uuid())
+  accountId       String // the buyer
+  supplierId      String
+  productId       String
+  projectId       String?
+  quantity        Int
+  notes           String?
+  status          String   @default("requested") // requested | quoted | accepted | declined
+  quotedUnitPrice Decimal? @db.Decimal(14, 2)
+  quotedNotes     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  account  Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  project  Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@map("bulk_quote_requests")
 }
 
 // Module 10's tool/equipment rental booking flow — a product's stock is

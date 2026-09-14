@@ -27,6 +27,8 @@ import { SubmitSupplierTrustAuditDto } from './dto/submit-supplier-trust-audit.d
 import { CreateRentalBookingDto } from './dto/create-rental-booking.dto';
 import { UpsertCartItemDto } from './dto/upsert-cart-item.dto';
 import { CheckoutCartDto } from './dto/checkout-cart.dto';
+import { RequestBulkQuoteDto } from './dto/request-bulk-quote.dto';
+import { RespondBulkQuoteDto } from './dto/respond-bulk-quote.dto';
 
 type AccountMemberCtx = { accountId: string };
 type UserCtx = { id: string };
@@ -171,6 +173,52 @@ export class MaterialsController {
   @Post('orders')
   createOrder(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: CreateOrderDto) {
     return this.materials.createOrder(member.accountId, dto);
+  }
+
+  // --- Bulk quote requests -------------------------------------------------
+
+  @RequirePermissions('order:write')
+  @Post('products/:productId/bulk-quote-requests')
+  requestBulkQuote(
+    @Param('productId') productId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Body() dto: RequestBulkQuoteDto,
+  ) {
+    return this.materials.requestBulkQuote(member.accountId, productId, dto);
+  }
+
+  @RequirePermissions('order:read')
+  @Get('bulk-quote-requests/me')
+  myBulkQuoteRequests(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.materials.myBulkQuoteRequests(member.accountId);
+  }
+
+  @RequirePermissions('order:read')
+  @Get('suppliers/me/bulk-quote-requests')
+  findSupplierBulkQuoteRequests(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.materials.findSupplierBulkQuoteRequests(member.accountId);
+  }
+
+  @RequirePermissions('order:write')
+  @Patch('bulk-quote-requests/:requestId/respond')
+  respondToBulkQuote(
+    @Param('requestId') requestId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Body() dto: RespondBulkQuoteDto,
+  ) {
+    return this.materials.respondToBulkQuote(member.accountId, requestId, dto);
+  }
+
+  @RequirePermissions('order:write')
+  @Post('bulk-quote-requests/:requestId/accept')
+  acceptBulkQuote(@Param('requestId') requestId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.materials.acceptBulkQuote(member.accountId, requestId);
+  }
+
+  @RequirePermissions('order:write')
+  @Post('bulk-quote-requests/:requestId/decline')
+  declineBulkQuote(@Param('requestId') requestId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.materials.declineBulkQuote(member.accountId, requestId);
   }
 
   // --- Cart (server-side) --------------------------------------------------

@@ -8525,6 +8525,73 @@ submits.
   the project — same as every field in this form already behaves,
   not a new gap this feature introduces.
 
+## Real bulk quote requests for materials suppliers (this pass)
+
+Closes the audit's own finding on Workflow 6: "Places an order or
+requests a bulk quote — Placing an order is real. Bulk-quote/RFQ
+doesn't exist for suppliers — VendorQuote is renovation-only."
+
+**Mirrors `RentalBooking`, not `VendorQuote`.** `VendorQuote` assumes
+several vendors competing for one project before an owner picks one —
+a bulk quote is always one buyer asking one supplier about one
+product, structurally a booking, not a bid. The one real difference
+from `RentalBooking`: this needs an actual negotiated price the
+supplier sets, since a catalog's own `unitPrice` is exactly what a
+bulk buyer is asking to move off of — `createOrder` always reads
+`product.unitPrice` directly, with no way to override it, which is
+why this couldn't just reuse that endpoint either.
+
+**What's built**:
+
+- A real `BulkQuoteRequest` model (migration
+  `20260915000000_add_bulk_quote_requests`) —
+  `requested → quoted → accepted/declined`, with `quotedUnitPrice`/
+  `quotedNotes` set only at the "quoted" step.
+- `POST /products/:productId/bulk-quote-requests` (buyer), `PATCH
+  /bulk-quote-requests/:id/respond` (supplier, sets the real price),
+  `POST .../accept` and `.../decline` (buyer) — all reusing
+  `order:read`/`order:write`, the same permissions every other
+  buyer/supplier materials action already uses, no new permission
+  keys. `MaterialsService.acceptBulkQuote` creates a real `Order` +
+  `OrderItem` at the *negotiated* price and decrements stock exactly
+  like `createOrder` does, just sourcing `unitPrice` from the accepted
+  quote instead of the catalog.
+- Buyer UI: a "Request bulk quote" toggle on every product row (the
+  product detail page), a new "My bulk quotes" page listing real
+  requests with Accept/Decline once quoted. Supplier UI: a "Bulk quote
+  requests" card on the supplier dashboard with a real respond form
+  (set a unit price, optional notes).
+
+**Verified live**, real data and a real negotiated discount
+throughout: requested a real bulk quote for 20 units of "Interior
+Emulsion Paint (20L)" (catalog price NGN 45,000), responded as the
+real "Lagos BuildMart" supplier with a real discounted bulk rate of
+NGN 39,500, then accepted as the buyer — confirmed the resulting real
+`Order` carried `unitPrice: 39500` (not the catalog 45,000) and
+`totalAmount: 790000` (39,500 × 20, exact), confirmed the product's
+real stock dropped from 53 to 33, and confirmed a second accept
+attempt on the same request got a real 400 ("no quote to accept").
+Separately verified the full UI round trip: clicked "Request bulk
+quote" on a real product, submitted a real quantity, confirmed the
+request rendered correctly on both "My bulk quotes" (buyer) and the
+supplier dashboard's own "Bulk quote requests" card, respond form and
+all.
+
+**Not done — explicit scope, not oversight**:
+
+- No expiry on a "quoted" request — a supplier's own negotiated price
+  stays acceptable indefinitely until the buyer accepts or declines.
+  Real RFQ systems often time-box a quote; this scaffold doesn't model
+  time-limited pricing anywhere else either (a listing's own
+  `askingPrice` doesn't expire), so adding it here alone would be a
+  one-off, not a consistent pattern.
+- No multi-item bulk quotes — one request is always one product, same
+  granularity `RentalBooking` already uses. A buyer wanting bulk
+  pricing on several products submits several requests.
+- Supplier can't counter-decline with a reason beyond `quotedNotes` at
+  the quoting step — there's no separate "we can't fulfill this"
+  action; a supplier simply not responding is the closest equivalent.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

@@ -1539,6 +1539,26 @@ export type RentalBooking = {
   product?: { id: string; name: string; supplierId?: string };
 };
 
+// The audit's own finding on Workflow 6: "Bulk-quote/RFQ doesn't exist
+// for suppliers — VendorQuote is renovation-only." Mirrors RentalBooking's
+// own request/confirm shape, plus a real negotiated price the supplier
+// sets in "quoted".
+export type BulkQuoteRequest = {
+  id: string;
+  accountId: string;
+  supplierId: string;
+  productId: string;
+  projectId?: string | null;
+  quantity: number;
+  notes?: string | null;
+  status: "requested" | "quoted" | "accepted" | "declined" | string;
+  quotedUnitPrice?: string | null;
+  quotedNotes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  product?: { id: string; name: string; unit: string; currency: string };
+};
+
 export type CartItem = {
   id: string;
   accountId: string;
@@ -3230,6 +3250,42 @@ export class ApiClient {
   }
   cancelRentalBooking(bookingId: string) {
     return request<RentalBooking>(`/rental-bookings/${bookingId}/cancel`, {
+      method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  requestBulkQuote(productId: string, input: { quantity: number; notes?: string; projectId?: string }) {
+    return request<BulkQuoteRequest>(`/products/${productId}/bulk-quote-requests`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  myBulkQuoteRequests() {
+    return request<BulkQuoteRequest[]>("/bulk-quote-requests/me", { token: this.token, accountId: this.accountId });
+  }
+  supplierBulkQuoteRequests() {
+    return request<BulkQuoteRequest[]>("/suppliers/me/bulk-quote-requests", { token: this.token, accountId: this.accountId });
+  }
+  respondToBulkQuote(requestId: string, input: { unitPrice: number; notes?: string }) {
+    return request<BulkQuoteRequest>(`/bulk-quote-requests/${requestId}/respond`, {
+      method: "PATCH",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  acceptBulkQuote(requestId: string) {
+    return request<MaterialOrder>(`/bulk-quote-requests/${requestId}/accept`, {
+      method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  declineBulkQuote(requestId: string) {
+    return request<BulkQuoteRequest>(`/bulk-quote-requests/${requestId}/decline`, {
       method: "POST",
       token: this.token,
       accountId: this.accountId,

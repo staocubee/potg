@@ -183,7 +183,10 @@ export default function SupplierDetailPage() {
                       />
                     )}
                   </div>
-                  {!isSupplierAccount && auth.hasPermission("rental:write") && p.isRentable && p.stockQuantity > 0 && <RentProductWidget product={p} />}
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {!isSupplierAccount && auth.hasPermission("rental:write") && p.isRentable && p.stockQuantity > 0 && <RentProductWidget product={p} />}
+                    {!isSupplierAccount && auth.hasPermission("order:write") && <BulkQuoteWidget product={p} />}
+                  </div>
                 </div>
               ))}
             </div>
@@ -373,6 +376,74 @@ function RentProductWidget({ product }: { product: Product }) {
         onClick={() => setOpen(false)}
         style={{ padding: "4px 9px", fontSize: 11 }}
       >
+        Cancel
+      </button>
+    </form>
+  );
+}
+
+// The audit's own finding on Workflow 6: "Bulk-quote/RFQ doesn't exist
+// for suppliers — VendorQuote is renovation-only." Same toggleable
+// inline-form shape RentProductWidget already uses, for the same
+// reason — a bulk quote is its own lifecycle (requested/quoted/accepted/
+// declined), not a one-shot cart addition.
+function BulkQuoteWidget({ product }: { product: Product }) {
+  const auth = useAuth();
+  const [open, setOpen] = useState(false);
+  const [quantity, setQuantity] = useState("");
+  const [notes, setNotes] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await auth.api.requestBulkQuote(product.id, { quantity: Number(quantity), notes: notes || undefined });
+      setSuccess(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't request that quote.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (success) {
+    return (
+      <p style={{ fontSize: 12, color: "var(--potg-success)", margin: 0 }}>
+        Quote requested — check "My bulk quotes" for the supplier's response.
+      </p>
+    );
+  }
+
+  if (!open) {
+    return (
+      <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11, alignSelf: "flex-start" }} onClick={() => setOpen(true)}>
+        Request bulk quote
+      </button>
+    );
+  }
+
+  return (
+    <form onSubmit={onSubmit} style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      {error && <div className="potg-error" style={{ width: "100%" }}>{error}</div>}
+      <input
+        className="potg-input"
+        style={{ width: 80 }}
+        type="number"
+        min={1}
+        required
+        placeholder="Qty"
+        value={quantity}
+        onChange={(e) => setQuantity(e.target.value)}
+      />
+      <input className="potg-input" style={{ width: 200 }} placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+      <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ padding: "4px 9px", fontSize: 11 }}>
+        {busy ? "Requesting…" : "Request quote"}
+      </button>
+      <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setOpen(false)} style={{ padding: "4px 9px", fontSize: 11 }}>
         Cancel
       </button>
     </form>
