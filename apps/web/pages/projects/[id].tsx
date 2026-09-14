@@ -16,6 +16,22 @@ function formatMoney(value?: string | null, currency?: string) {
   return currency ? `${currency} ${formatted}` : formatted;
 }
 
+// What a `land` property can actually become once a new_build project
+// finishes — mirrors CreatePropertyDto's own PROPERTY_TYPES (apps/api/
+// src/properties/dto), minus "land" itself, since that's the "from"
+// state this picker exists to move a property out of.
+const COMPLETED_BUILDING_TYPES = [
+  "residential_house",
+  "apartment",
+  "short_let",
+  "commercial_building",
+  "office",
+  "shop",
+  "warehouse",
+  "estate",
+  "mixed_use",
+];
+
 export default function ProjectDetailPage() {
   const auth = useAuth();
   const router = useRouter();
@@ -41,6 +57,7 @@ export default function ProjectDetailPage() {
   const [completing, setCompleting] = useState(false);
   const [callbackNotice, setCallbackNotice] = useState<string | null>(null);
   const [stageUpdatingId, setStageUpdatingId] = useState<string | null>(null);
+  const [completingConstruction, setCompletingConstruction] = useState(false);
   // Which of the secondary cards below came back 403, vs. genuinely
   // empty — a vendor now reaching this page (see @AllowAssignedVendor())
   // doesn't hold payment:read/payout:read/dispute:read the way the
@@ -133,6 +150,27 @@ export default function ProjectDetailPage() {
       setError(err instanceof ApiError ? err.message : "Couldn't update that stage.");
     } finally {
       setStageUpdatingId(null);
+    }
+  }
+
+  // The audit's own finding on Workflow 4: "propertyType is a flat
+  // category list ... nothing ever mutates it on project completion."
+  // UpdatePropertyDto already accepted propertyType (this was never a
+  // backend gap) — the real gaps were no edit-form control (closed on
+  // properties/[id].tsx) and no trigger at the one moment it actually
+  // matters: a new_build project's own real Handover gate (an earlier
+  // pass) just cleared.
+  async function onCompleteConstruction(newPropertyType: string) {
+    if (!property) return;
+    setError(null);
+    setCompletingConstruction(true);
+    try {
+      await auth.api.updateProperty(property.id, { propertyType: newPropertyType });
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update the property type.");
+    } finally {
+      setCompletingConstruction(false);
     }
   }
 
@@ -357,6 +395,15 @@ export default function ProjectDetailPage() {
               </div>
             )}
           </div>
+
+          {property &&
+            property.propertyType === "land" &&
+            project.projectType === "new_build" &&
+            project.stages?.find((s) => s.name === "Handover")?.status === "completed" &&
+            isOwningAccount &&
+            auth.hasPermission("property:write") && (
+              <CompleteConstructionCard busy={completingConstruction} onComplete={onCompleteConstruction} />
+            )}
 
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -1484,6 +1531,38 @@ function LeaveVendorReviewForm({
         </button>
       </div>
     </form>
+  );
+}
+
+// The audit's own finding on Workflow 4: "Property status: land ->
+// completed building ... nothing ever mutates it on project completion."
+// Only rendered once the real prerequisites this codebase already
+// tracks are true — a new_build project whose own Handover stage
+// actually passed the real inspection gate (an earlier pass) — so this
+// never offers to "complete" a property that hasn't.
+function CompleteConstructionCard({ busy, onComplete }: { busy: boolean; onComplete: (propertyType: string) => void }) {
+  const [propertyType, setPropertyType] = useState(COMPLETED_BUILDING_TYPES[0]);
+
+  return (
+    <div className="potg-card" style={{ padding: 18, borderColor: "var(--potg-teal)" }}>
+      <h3 style={{ fontSize: 14, marginBottom: 6 }}>Construction complete?</h3>
+      <p className="potg-muted" style={{ fontSize: 12, marginBottom: 10 }}>
+        This property is still recorded as <strong>land</strong>, but its development project has reached Handover. Mark what was actually built to
+        update the property record.
+      </p>
+      <div style={{ display: "flex", gap: 8 }}>
+        <select className="potg-input" style={{ maxWidth: 220 }} value={propertyType} onChange={(e) => setPropertyType(e.target.value)}>
+          {COMPLETED_BUILDING_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {t.replace(/_/g, " ")}
+            </option>
+          ))}
+        </select>
+        <button className="potg-btn potg-btn-primary" disabled={busy} onClick={() => onComplete(propertyType)}>
+          {busy ? "…" : "Mark construction complete"}
+        </button>
+      </div>
+    </div>
   );
 }
 

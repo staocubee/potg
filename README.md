@@ -8214,6 +8214,76 @@ assigned to you"` — not a silent overwrite.
   restraint `SubmitQuoteDto`'s own project-quote counterpart already
   takes, not a new gap this feature introduces.
 
+## A real property-status transition on construction completion (this pass)
+
+Closes the audit's own finding on Workflow 4: "Property status: land ->
+completed building — No such lifecycle state exists — `propertyType`
+is a flat category list (land, residential_house, ...), not a state
+machine, and nothing ever mutates it on project completion. The only
+edit form doesn't even expose the field."
+
+**The backend was never actually the gap.** `UpdatePropertyDto` has
+accepted `propertyType` since Module 3 — `PropertiesService.
+updateProperty`'s own `data: { ...dto, ... }` spread already persisted
+it. The audit's own two complaints were both real, both frontend: no
+edit-form control existed for it, and nothing ever offered to change
+it at the one moment that actually matters.
+
+**What's built**:
+
+- `properties/[id].tsx`'s own "Property details" edit form — the same
+  form this pass's companion Key Workflows audit already covers for
+  bedrooms/bathrooms/amenities/photos — gained a real "Property type"
+  dropdown (all 12 real `PROPERTY_TYPES` values, mirroring
+  `CreatePropertyDto`'s own list), first field in the form, wired
+  straight into the existing `updateProperty` call.
+- `projects/[id].tsx` — a new "Construction complete?" card, rendered
+  only when every real precondition this codebase already tracks is
+  true: the project is `projectType: "new_build"`, its own property is
+  still `propertyType: "land"`, and the project's real Handover stage
+  — gated on a genuine passing inspection since an earlier pass — is
+  `completed`. Picking a building type and confirming calls the same
+  `updateProperty` endpoint the edit form above uses; the card itself
+  disappears once the property is no longer `land`, since its own
+  render condition is no longer true.
+- Deliberately not a new lifecycle state machine — `propertyType`
+  stays the same flat category list it always was. This is a real
+  trigger wired to a real moment, not a new state model the codebase
+  didn't ask for.
+
+**Verified live**, real data throughout: created a real `land`
+property ("Epe Development Plot") and a real `new_build` project on
+it through the actual API, scheduled and completed a real
+`PropertyInspection` on that project with `overallResult: "pass"`,
+then confirmed the Handover stage transition to `completed` — blocked
+before that inspection existed, allowed once it did (an earlier
+pass's own gate, exercised for real here). The "Construction
+complete?" card appeared on the real project page as designed;
+selected "Residential house," clicked "Mark construction complete,"
+and confirmed a real `PATCH /properties/:id` fired and the property's
+`propertyType` actually changed — the card itself then correctly
+disappeared on reload, since the property was no longer `land`.
+Separately verified the edit-form half on the real, long-lived "14
+Ocean Drive" demo property: changed its type to "Apartment" through
+the new dropdown, confirmed the header's own "Type" field updated to
+match, then changed it back to "Residential House" to leave the demo
+data as found.
+
+**Not done — explicit scope, not oversight**:
+
+- No automatic transition — an owner has to actively pick the
+  building type and confirm; nothing infers it from the project's own
+  scope description or AI-drafted content. A wrong guess written
+  automatically would be worse than a real person confirming what was
+  actually built.
+- Only offered for `new_build` projects on `land` properties — a
+  `renovation` project reaching Handover never shows this card, since
+  the property's own type was never in question to begin with.
+- No history of the transition — the property's own `updatedAt`
+  changes, but nothing records "this used to be land" anywhere a user
+  can see later. Same restraint most single-field edits on this record
+  already accept.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

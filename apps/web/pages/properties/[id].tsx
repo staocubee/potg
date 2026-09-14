@@ -17,6 +17,24 @@ function formatMoney(value?: string | null, currency?: string) {
 
 const RENT_FREQUENCY_DAYS: Record<string, number> = { weekly: 7, monthly: 30, annually: 365 };
 
+// Mirrors CreatePropertyDto's own PROPERTY_TYPES (apps/api/src/properties/
+// dto) — the audit's own finding: the backend already accepted this field
+// on PATCH, only the edit form never exposed a control for it.
+const PROPERTY_TYPES = [
+  "land",
+  "residential_house",
+  "apartment",
+  "short_let",
+  "commercial_building",
+  "office",
+  "shop",
+  "warehouse",
+  "estate",
+  "farm",
+  "industrial",
+  "mixed_use",
+];
+
 // Same "more than one rent period since the last recorded payment" check
 // summarize_lease_status runs server-side — a client-side read of the same
 // definition so the badge shows without opening the AI panel, same pairing
@@ -691,6 +709,7 @@ function PropertyLiveViewCard({ property }: { property: Property }) {
 function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUpdated: (p: Property) => void }) {
   const auth = useAuth();
   const [editing, setEditing] = useState(false);
+  const [propertyType, setPropertyType] = useState(property.propertyType);
   const [bedrooms, setBedrooms] = useState(property.bedrooms?.toString() ?? "");
   const [bathrooms, setBathrooms] = useState(property.bathrooms?.toString() ?? "");
   const [squareFootage, setSquareFootage] = useState(property.squareFootage?.toString() ?? "");
@@ -708,6 +727,7 @@ function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUp
   }, []);
 
   function startEditing() {
+    setPropertyType(property.propertyType);
     setBedrooms(property.bedrooms?.toString() ?? "");
     setBathrooms(property.bathrooms?.toString() ?? "");
     setSquareFootage(property.squareFootage?.toString() ?? "");
@@ -724,6 +744,7 @@ function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUp
     setError(null);
     try {
       const updated = await auth.api.updateProperty(property.id, {
+        propertyType,
         bedrooms: bedrooms ? Number(bedrooms) : undefined,
         bathrooms: bathrooms ? Number(bathrooms) : undefined,
         squareFootage: squareFootage ? Number(squareFootage) : undefined,
@@ -761,6 +782,16 @@ function PropertyDetailsCard({ property, onUpdated }: { property: Property; onUp
 
       {editing ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div>
+            <label className="potg-label">Property type</label>
+            <select className="potg-input" style={{ maxWidth: 260 }} value={propertyType} onChange={(e) => setPropertyType(e.target.value)}>
+              {PROPERTY_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
             <div>
               <label className="potg-label">Bedrooms</label>
