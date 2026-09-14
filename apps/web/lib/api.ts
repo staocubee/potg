@@ -1564,6 +1564,11 @@ export type MaterialOrder = {
   supplierId: string;
   projectId?: string | null;
   status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled" | string;
+  // The audit's own finding: "no spend-approval routing mechanism at
+  // all." Gates whether a supplier can move the order past "pending" —
+  // see MaterialsService.updateOrderStatus's own comment.
+  approvalStatus: "not_requested" | "approved" | "rejected" | string;
+  approvalNotes?: string | null;
   totalAmount: string;
   currency: string;
   deliveryAddress?: string | null;
@@ -3203,6 +3208,14 @@ export class ApiClient {
     return request<MaterialOrder>(`/orders/${orderId}/status`, {
       method: "PATCH",
       body: { status },
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  setOrderApproval(orderId: string, input: { status: "approved" | "rejected"; notes?: string }) {
+    return request<MaterialOrder>(`/orders/${orderId}/approval`, {
+      method: "PATCH",
+      body: input,
       token: this.token,
       accountId: this.accountId,
     });

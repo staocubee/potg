@@ -7922,6 +7922,80 @@ for that same "Demo Tenant" lease via its own account.
   overdue/lease-ending-soon reminders push proactively; a forward
   schedule with nothing yet actually due doesn't need one.
 
+## A real spend-approval gate on materials orders (this pass)
+
+Closes half of the audit's own finding on Workflow 6: "`Order`/
+`Payment` are entirely disconnected — no gateway call, no charge on
+order creation, and no spend-approval routing mechanism at all." A
+real payment gateway charge on order creation is a separate, larger
+feature (this scaffold's own restraint on "real payment provider"
+scope, same boundary `Payment`/`LeaseRentPayment` already draw
+elsewhere); the spend-approval routing half is real, contained, and
+now built.
+
+**What's built**:
+
+- **`Order.approvalStatus`** (new, `not_requested | approved |
+  rejected` — same three-state shape `MaintenanceRequest.
+  approvalStatus` already uses) plus `approvalNotes`.
+- **The actual gate**: `MaterialsService.updateOrderStatus` now
+  refuses to move an order from `pending` to `confirmed` unless
+  `approvalStatus === 'approved'` — mirrors
+  `PropertiesService.startMaintenanceRequest`'s own guard exactly. A
+  supplier can still cancel a still-unapproved order; only the
+  "proceed with fulfillment" transition is gated.
+- **`PATCH /orders/:orderId/approval`** (new) — gated on
+  `payment:approve`, the same permission that already authorizes
+  releasing a project's own escrow funds, reused rather than a new
+  permission: both are "does this account's own spend authority sign
+  off on this," just for a materials order instead of a milestone. Only
+  applies while `status === 'pending'` — once a supplier has acted, a
+  late approval/rejection wouldn't mean anything real.
+- **UI**: a "needs approval" badge and real Approve/Reject buttons on
+  the buyer's own order page while pending; the supplier's own "Mark
+  confirmed" action is hidden (not just disabled) until approved, with
+  a hint explaining why — same "hide the action, show why" treatment
+  the maintenance-approval gate already uses.
+
+**Verified live** end to end. Created a real order (`POST /orders →
+201`, `Modern Kitchen Cabinet Set` from "Lagos BuildMart", NGN 380,000)
+and confirmed attempting to mark it confirmed as the supplier
+immediately failed with a real `400` ("This order must be approved by
+the buyer before it can be confirmed"). Approved it as the buyer
+(`PATCH .../approval → 200`) and confirmed the identical confirm
+attempt then succeeded (`200`, `status: confirmed`). Confirmed
+approval is genuinely locked to `pending` — attempting to reject the
+now-confirmed order returned a real `400` ("already 'confirmed' —
+approval only applies before the supplier acts on it"). Created a
+second real order and confirmed the buyer's own order page renders
+the real "Needs Approval" badge with working Approve/Reject buttons
+while pending; confirmed the already-confirmed first order correctly
+shows neither, since both only apply while `status === 'pending'`.
+Both real orders left in place — one showing the full happy path
+through to `confirmed`, the other still `pending` showing the gate
+itself.
+
+**Not done — explicit scope, not oversight**:
+
+- No real payment gateway charge on order creation — `Order`/`Payment`
+  stay disconnected, same as before this pass. This closes the
+  approval-routing half of the audit's own finding, not the
+  charge-on-creation half.
+- No spend threshold — every order requires approval unconditionally,
+  same "no configurable threshold with nothing else in this codebase
+  to back it" restraint the maintenance-approval gate already applies.
+- Today's real role grants mean the same owner-tier account usually
+  both creates and approves its own orders (`order:write` and
+  `payment:approve` are both only ever granted to `property_owner`/
+  `family_admin`/`company_admin`/`finance_approver` — no role holds
+  `order:write` without also being able to satisfy this gate itself).
+  Real, still-meaningful process discipline either way — the same
+  reasoning milestone approval already applies, where the same account
+  can hold both `milestone:write` and `payment:approve` too — and it's
+  already correctly positioned for if a future pass extends
+  `order:write` to a role like `project_manager` that doesn't hold
+  `payment:approve`.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

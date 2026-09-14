@@ -1366,6 +1366,14 @@ model Order {
   supplierId      String
   projectId       String?
   status          String   @default("pending") // pending | confirmed | shipped | delivered | cancelled
+  // The audit's own finding on Workflow 6: "Order/Payment are entirely
+  // disconnected — no gateway call, no charge on order creation, and no
+  // spend-approval routing mechanism at all." Same three-state shape
+  // MaintenanceRequest.approvalStatus already uses. Gates whether a
+  // supplier can move the order past "pending" at all — see
+  // MaterialsService.updateOrderStatus's own comment.
+  approvalStatus  String   @default("not_requested") // not_requested | approved | rejected
+  approvalNotes   String?
   totalAmount     Decimal  @db.Decimal(14, 2)
   currency        String
   deliveryAddress String?

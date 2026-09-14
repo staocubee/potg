@@ -14,6 +14,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { SetOrderApprovalDto } from './dto/set-order-approval.dto';
 import { UpdateDeliveryDto } from './dto/update-delivery.dto';
 import { CreateOrderReviewDto } from './dto/create-order-review.dto';
 import { UpdateOrderReviewDto } from './dto/update-order-review.dto';
@@ -249,6 +250,19 @@ export class MaterialsController {
     @Body() dto: UpdateOrderStatusDto,
   ) {
     return this.materials.updateOrderStatus(orderId, member.accountId, dto);
+  }
+
+  // The buyer's own side of the spend-approval gate above — payment:approve,
+  // reused rather than a new permission (see MaterialsService.
+  // setOrderApproval's own comment).
+  @RequirePermissions('payment:approve')
+  @Patch('orders/:orderId/approval')
+  setOrderApproval(
+    @Param('orderId') orderId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Body() dto: SetOrderApprovalDto,
+  ) {
+    return this.materials.setOrderApproval(orderId, member.accountId, dto);
   }
 
   @RequirePermissions('order:write')

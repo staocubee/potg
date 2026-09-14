@@ -5,6 +5,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { SetOrderApprovalDto } from './dto/set-order-approval.dto';
 import { UpdateDeliveryDto } from './dto/update-delivery.dto';
 import { CreateOrderReviewDto } from './dto/create-order-review.dto';
 import { UpdateOrderReviewDto } from './dto/update-order-review.dto';
@@ -489,11 +490,42 @@ export class MaterialsService {
     return order;
   }
 
+  // The audit's own finding on Workflow 6: "Order/Payment are entirely
+  // disconnected... no spend-approval routing mechanism at all." A
+  // supplier can't move an order past "pending" until the buyer's own
+  // spend authority approves it — mirrors PropertiesService.
+  // startMaintenanceRequest's own approvalStatus !== 'approved' guard.
+  // Only the pending -> confirmed transition is gated: shipped/delivered/
+  // cancelled only make sense once an order is already confirmed (or
+  // cancelling a still-unapproved one, which needs no permission this
+  // pass doesn't already require).
   async updateOrderStatus(orderId: string, accountId: string, dto: UpdateOrderStatusDto) {
     const supplier = await this.requireOwnSupplier(accountId);
     const order = await this.prisma.order.findFirst({ where: { id: orderId, supplierId: supplier.id } });
     if (!order) throw new NotFoundException('Order not found in your supplier account');
+    if (dto.status === 'confirmed' && order.approvalStatus !== 'approved') {
+      throw new BadRequestException('This order must be approved by the buyer before it can be confirmed');
+    }
     return this.prisma.order.update({ where: { id: orderId }, data: { status: dto.status } });
+  }
+
+  // The buyer's own side of the gate above — payment:approve, the same
+  // permission that already authorizes releasing a project's own escrow
+  // funds (PaymentsService.releaseMilestone), reused rather than a new
+  // permission: both are "does this account's own spend authority sign
+  // off on this," just for a materials order instead of a milestone.
+  // Only while "pending" — once a supplier has acted on it, a late
+  // approval/rejection wouldn't mean anything real anymore.
+  async setOrderApproval(orderId: string, accountId: string, dto: SetOrderApprovalDto) {
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, accountId } });
+    if (!order) throw new NotFoundException('Order not found in your account');
+    if (order.status !== 'pending') {
+      throw new BadRequestException(`This order is already "${order.status}" — approval only applies before the supplier acts on it`);
+    }
+    return this.prisma.order.update({
+      where: { id: orderId },
+      data: { approvalStatus: dto.status, approvalNotes: dto.notes },
+    });
   }
 
   async upsertDelivery(orderId: string, accountId: string, dto: UpdateDeliveryDto) {

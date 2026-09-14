@@ -28,6 +28,7 @@ export default function OrderDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [statusBusy, setStatusBusy] = useState(false);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [approvalBusy, setApprovalBusy] = useState<"approved" | "rejected" | null>(null);
 
   function load() {
     if (!id || !auth.currentAccountId) return;
@@ -57,6 +58,19 @@ export default function OrderDetailPage() {
       setError(err instanceof ApiError ? err.message : "Couldn't update the order status.");
     } finally {
       setStatusBusy(false);
+    }
+  }
+
+  async function onSetApproval(status: "approved" | "rejected") {
+    if (!id) return;
+    setApprovalBusy(status);
+    try {
+      const updated = await auth.api.setOrderApproval(id, { status });
+      setOrder(updated);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : `Couldn't ${status === "approved" ? "approve" : "reject"} that order.`);
+    } finally {
+      setApprovalBusy(null);
     }
   }
 
@@ -99,16 +113,56 @@ export default function OrderDetailPage() {
                   <p className="potg-muted" style={{ margin: "4px 0 0", fontSize: 12 }}>Deliver to: {order.deliveryAddress}</p>
                 )}
               </div>
-              <span className="potg-badge">{order.status.replace(/_/g, " ")}</span>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
+                <span className="potg-badge">{order.status.replace(/_/g, " ")}</span>
+                {order.status === "pending" && (
+                  <span
+                    className="potg-badge"
+                    style={
+                      order.approvalStatus === "approved"
+                        ? { background: "#e7f3ea", borderColor: "#b7ddc3", color: "#2f7a4f" }
+                        : order.approvalStatus === "rejected"
+                          ? { background: "#fbeaea", borderColor: "#e3b3b3", color: "#b23838" }
+                          : undefined
+                    }
+                  >
+                    {order.approvalStatus === "not_requested" ? "needs approval" : order.approvalStatus}
+                  </span>
+                )}
+              </div>
             </div>
 
-            {isSupplier && auth.hasPermission("order:write") && order.status !== "cancelled" && order.status !== "delivered" && (
+            {!isSupplier && order.status === "pending" && auth.hasPermission("payment:approve") && (
               <div style={{ display: "flex", gap: 6, marginTop: 14 }}>
-                {ORDER_STATUSES.filter((s) => s !== order.status).map((s) => (
+                <button
+                  className="potg-btn potg-btn-primary"
+                  disabled={approvalBusy !== null || order.approvalStatus === "approved"}
+                  onClick={() => onSetApproval("approved")}
+                >
+                  {approvalBusy === "approved" ? "…" : "Approve"}
+                </button>
+                <button
+                  className="potg-btn potg-btn-danger"
+                  disabled={approvalBusy !== null || order.approvalStatus === "rejected"}
+                  onClick={() => onSetApproval("rejected")}
+                >
+                  {approvalBusy === "rejected" ? "…" : "Reject"}
+                </button>
+              </div>
+            )}
+
+            {isSupplier && auth.hasPermission("order:write") && order.status !== "cancelled" && order.status !== "delivered" && (
+              <div style={{ display: "flex", gap: 6, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
+                {ORDER_STATUSES.filter((s) => s !== order.status && (s !== "confirmed" || order.approvalStatus === "approved")).map((s) => (
                   <button key={s} className="potg-btn potg-btn-secondary" onClick={() => onUpdateStatus(s)} disabled={statusBusy}>
                     Mark {s.replace(/_/g, " ")}
                   </button>
                 ))}
+                {order.status === "pending" && order.approvalStatus !== "approved" && (
+                  <span className="potg-muted" style={{ fontSize: 12 }}>
+                    Waiting on the buyer's approval before this can be confirmed
+                  </span>
+                )}
               </div>
             )}
           </div>
