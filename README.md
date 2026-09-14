@@ -7996,6 +7996,71 @@ itself.
   `order:write` to a role like `project_manager` that doesn't hold
   `payment:approve`.
 
+## A real inspection gate on project handover (this pass)
+
+Closes the audit's own finding on Workflows 3 & 4: "`PropertyInspection.
+projectId` links the two, but nothing wires an inspection's result to
+gate or advance a stage — they're independently updated, no automatic
+connection" / "'Handover' is just one more seeded stage name — no
+distinct sign-off/final-inspection logic beyond the generic
+stage-completion mechanism." Scoped to the one stage a final inspection
+actually belongs to, not an invented "every stage needs an inspection"
+rule this blueprint never asked for.
+
+**What's built**:
+
+- **`ProjectsService.updateStage`** now refuses to mark the "Handover"
+  stage `completed` unless the project has a real, completed
+  `PropertyInspection` with `overallResult: 'pass'` tied to it
+  (`PropertyInspection.projectId`). Every other stage transition, and
+  every other status on Handover itself, is unchanged — this is one
+  targeted check, not a general rewrite of stage-completion rules.
+- **UI**: the project page now fetches the property's own inspections
+  and shows a real proactive hint under the Handover selector — "Needs
+  a completed inspection with a 'pass' result first" — before the user
+  ever hits the error, the same "hide/explain the gate, don't just let
+  it fail" treatment the maintenance-approval and order-approval gates
+  already use.
+
+**A real bug caught during verification, not by inspection**: the
+first version of the frontend hint checked `inspections.some(i =>
+i.status === 'completed' && i.overallResult === 'pass')` without
+filtering by `i.projectId` — since `listInspections` returns every
+inspection on the *property*, not just the one project, a passing
+inspection from a completely different project on the same property
+(discovered live: "Kitchen Renovation" and "ABAC verification project"
+share "14 Ocean Drive") silently satisfied the hint for a project that
+had no qualifying inspection of its own. The real backend gate was
+never wrong — it already filtered by `projectId` correctly — only the
+proactive UI hint was. Fixed to check `i.projectId === project.id` and
+re-verified live.
+
+**Verified live** against real, pre-existing data on "Kitchen
+Renovation": its one real inspection had `overallResult: 'needs_attention'`,
+and attempting to mark Handover complete correctly failed with a real
+`400` naming the exact requirement. Confirmed a different stage
+("Materials") completes with no gate at all — no regression on the
+other four stages. Created a real inspection tied to the project,
+completed it with `overallResult: 'pass'`, and confirmed Handover then
+completed successfully (`200`). Confirmed the proactive hint renders
+on "ABAC verification project" (real project, zero inspections of its
+own, same property as Kitchen Renovation) — the exact case that caught
+the property-vs-project scoping bug above.
+
+**Not done — explicit scope, not oversight**:
+
+- No gate on any other stage — Scope/Quote/Materials/Work all complete
+  freely, matching the audit's own narrower Handover-specific finding
+  rather than the broader "gate every stage" reading.
+- The qualifying inspection can be *any* passing inspection ever
+  completed on the project, not necessarily a recent one or one
+  explicitly typed `post_renovation` — no "must be the last inspection
+  before handover" staleness check. A real, simple existence check, not
+  a chronology-aware one.
+- Development-workflow-specific inspection gating (Workflow 4's own
+  "Inspections approve stages" framing, beyond Handover) isn't built —
+  this closes the concrete, actionable half both workflows agree on.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

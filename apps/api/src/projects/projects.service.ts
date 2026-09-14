@@ -147,9 +147,27 @@ export class ProjectsService {
   // controller route, by a vendor genuinely hired onto this project — the
   // person actually doing the work is usually the one who knows a stage
   // just finished.
+  // The audit's own finding on Workflows 3 & 4: "PropertyInspection.
+  // projectId links the two, but nothing wires an inspection's result to
+  // gate or advance a stage — they're independently updated, no
+  // automatic connection" / "'Handover' is just one more seeded stage
+  // name — no distinct sign-off/final-inspection logic." Scoped to the
+  // one stage a final inspection actually belongs to, rather than an
+  // invented "every stage needs an inspection" rule this blueprint
+  // never asked for.
   async updateStage(projectId: string, stageId: string, dto: UpdateProjectStageDto) {
     const stage = await this.prisma.projectStage.findFirst({ where: { id: stageId, projectId } });
     if (!stage) throw new NotFoundException('Stage not found on this project');
+    if (stage.name === 'Handover' && dto.status === 'completed') {
+      const passingInspection = await this.prisma.propertyInspection.findFirst({
+        where: { projectId, status: 'completed', overallResult: 'pass' },
+      });
+      if (!passingInspection) {
+        throw new BadRequestException(
+          'Handover requires a completed inspection on this project with a "pass" result before it can be marked complete',
+        );
+      }
+    }
     return this.prisma.projectStage.update({ where: { id: stageId }, data: { status: dto.status } });
   }
 

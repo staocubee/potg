@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { AccessGrant, ApiError, Dispute, DisputeEvidence, DISPUTE_TYPES, EscrowAccount, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, Receipt, RESOLUTION_TYPES, Vendor, VendorReview } from "../../lib/api";
+import { AccessGrant, ApiError, Dispute, DisputeEvidence, DISPUTE_TYPES, EscrowAccount, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, PropertyInspection, Receipt, RESOLUTION_TYPES, Vendor, VendorReview } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -27,6 +27,9 @@ export default function ProjectDetailPage() {
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [disputes, setDisputes] = useState<Dispute[]>([]);
+  // Used only to show a real proactive hint on the Handover stage — see
+  // ProjectsService.updateStage's own comment for the actual gate.
+  const [inspections, setInspections] = useState<PropertyInspection[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showMilestoneForm, setShowMilestoneForm] = useState(false);
   const [showUpdateForm, setShowUpdateForm] = useState(false);
@@ -70,10 +73,11 @@ export default function ProjectDetailPage() {
           auth.api.findReceipts(id),
           auth.api.findDisputes(id),
           auth.api.getMyAccessGrant(p.propertyId),
+          auth.api.listInspections(p.propertyId),
         ]);
       })
       .then((results) => {
-        const [p, e, po, r, d, grant] = results;
+        const [p, e, po, r, d, grant, insp] = results;
         // 403 (lacks the read permission entirely, e.g. escrow/receipts
         // for the vendor role) and 404 (holds the permission, but this
         // particular route was never extended with @AllowAssignedVendor()
@@ -93,6 +97,7 @@ export default function ProjectDetailPage() {
         // real "no grant" answer.
         setMyAccessGrant(grant.status === "fulfilled" ? grant.value : null);
         if (d.status === "fulfilled") setDisputes(d.value);
+        if (insp.status === "fulfilled") setInspections(insp.value);
         setForbidden({
           escrow: isForbidden(e),
           payouts: isForbidden(po),
@@ -311,23 +316,34 @@ export default function ProjectDetailPage() {
               <div style={{ marginTop: 18 }}>
                 <ProjectStageBar stages={project.stages} />
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
-                  {[...project.stages].sort((a, b) => a.sortOrder - b.sortOrder).map((stage) => (
-                    <label key={stage.id} style={{ fontSize: 11, display: "flex", flexDirection: "column", gap: 2 }}>
-                      <span className="potg-muted">{stage.name}</span>
-                      <select
-                        className="potg-input"
-                        style={{ fontSize: 11, padding: "2px 4px" }}
-                        value={stage.status}
-                        disabled={stageUpdatingId === stage.id || !auth.hasPermission("project:update_progress")}
-                        title={auth.hasPermission("project:update_progress") ? undefined : "You don't have permission to update project stages"}
-                        onChange={(e) => onUpdateStage(stage.id, e.target.value as "not_started" | "in_progress" | "completed")}
-                      >
-                        <option value="not_started">Not started</option>
-                        <option value="in_progress">In progress</option>
-                        <option value="completed">Completed</option>
-                      </select>
-                    </label>
-                  ))}
+                  {[...project.stages].sort((a, b) => a.sortOrder - b.sortOrder).map((stage) => {
+                    const hasPassingInspection = inspections.some(
+                      (i) => i.projectId === project.id && i.status === "completed" && i.overallResult === "pass",
+                    );
+                    const needsInspection = stage.name === "Handover" && stage.status !== "completed" && !hasPassingInspection;
+                    return (
+                      <label key={stage.id} style={{ fontSize: 11, display: "flex", flexDirection: "column", gap: 2, maxWidth: 150 }}>
+                        <span className="potg-muted">{stage.name}</span>
+                        <select
+                          className="potg-input"
+                          style={{ fontSize: 11, padding: "2px 4px" }}
+                          value={stage.status}
+                          disabled={stageUpdatingId === stage.id || !auth.hasPermission("project:update_progress")}
+                          title={auth.hasPermission("project:update_progress") ? undefined : "You don't have permission to update project stages"}
+                          onChange={(e) => onUpdateStage(stage.id, e.target.value as "not_started" | "in_progress" | "completed")}
+                        >
+                          <option value="not_started">Not started</option>
+                          <option value="in_progress">In progress</option>
+                          <option value="completed">Completed</option>
+                        </select>
+                        {needsInspection && (
+                          <span className="potg-muted" style={{ fontSize: 10, lineHeight: 1.3 }}>
+                            Needs a completed inspection with a &quot;pass&quot; result first
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
             )}
