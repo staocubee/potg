@@ -1087,6 +1087,24 @@ export type Project = {
   milestonesReleased?: string;
   materialsSpent?: string;
   totalSpent?: number;
+  contract?: ProjectContract | null;
+};
+
+// The audit's own finding on Workflow 5: "No Contract model exists
+// anywhere — a 'contract' here is nothing more than the freeform scope
+// description plus milestones, no binding-terms artifact." A real,
+// immutable snapshot — deliberately not kept in sync with the project's
+// own later edits, unlike most fields this API returns.
+export type ProjectContract = {
+  id: string;
+  projectId: string;
+  vendorId: string;
+  scopeDescription?: string | null;
+  totalAmount: string;
+  currency: string;
+  milestonesSnapshot: { title: string; description?: string | null; paymentAmount: number | null; dueDate?: string | null }[];
+  createdAt: string;
+  vendor?: { businessName: string };
 };
 
 export type Payout = {
@@ -2410,6 +2428,13 @@ export class ApiClient {
   }
   acceptQuote(projectId: string, quoteId: string) {
     return request<Project>(`/projects/${projectId}/quotes/${quoteId}/accept`, {
+      method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  generateContract(projectId: string) {
+    return request<ProjectContract>(`/projects/${projectId}/contract`, {
       method: "POST",
       token: this.token,
       accountId: this.accountId,

@@ -694,6 +694,7 @@ model Vendor {
   maintenanceAssignments MaintenanceRequest[]
   trustAudits            VendorTrustAudit[]
   verificationEvidence   VendorVerificationEvidence[]
+  contracts              ProjectContract[]
 
   @@map("vendors")
 }
@@ -773,8 +774,38 @@ model Project {
   inspections   PropertyInspection[]
   visualizations RenovationVisualization[]
   bulkQuoteRequests BulkQuoteRequest[]
+  contract      ProjectContract?
 
   @@map("projects")
+}
+
+// The audit's own finding on Workflow 5: "Milestones (title/amount/due
+// date) are fully real. No Contract model exists anywhere — a
+// 'contract' here is nothing more than the freeform scope description
+// plus milestones, no binding-terms artifact." A real, immutable
+// snapshot, generated once a vendor is assigned and at least one real
+// milestone exists — deliberately the opposite of the "compute on
+// read" restraint this codebase uses everywhere else (getSpend,
+// getOnHoldMilestoneIds): a contract's whole point is to freeze what
+// was actually agreed to at generation time, not keep reflecting
+// whatever the project's own mutable state happens to say later. One
+// per project (@unique), never regenerated — a real amendment/
+// versioning workflow is a separate, larger feature this scaffold
+// doesn't attempt.
+model ProjectContract {
+  id                 String   @id @default(uuid())
+  projectId          String   @unique
+  vendorId           String
+  scopeDescription   String?
+  totalAmount        Decimal  @db.Decimal(14, 2)
+  currency           String
+  milestonesSnapshot Json
+  createdAt          DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  vendor  Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@map("project_contracts")
 }
 
 // Seeded by default on project creation, matching the wireframe exactly:

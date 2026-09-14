@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { AddMilestoneDto } from './dto/add-milestone.dto';
@@ -78,6 +78,7 @@ export class ProjectsService {
         quotes: { include: { vendor: true }, orderBy: { amount: 'asc' } },
         assignments: { include: { vendor: true } },
         reviews: true,
+        contract: { include: { vendor: { select: { businessName: true } } } },
       },
     });
     if (!project) return project;
@@ -288,6 +289,58 @@ export class ProjectsService {
     return this.prisma.project.findUnique({
       where: { id: projectId },
       include: { assignments: { include: { vendor: true } } },
+    });
+  }
+
+  // The audit's own finding on Workflow 5: "Milestones (title/amount/
+  // due date) are fully real. No Contract model exists anywhere — a
+  // 'contract' here is nothing more than the freeform scope description
+  // plus milestones, no binding-terms artifact." Deliberately not
+  // triggered automatically by acceptQuote above — no milestones exist
+  // yet at that point, and a contract with an empty terms list wouldn't
+  // be one. A real, separate, human-invoked action once both real
+  // preconditions this codebase already tracks are true: a vendor
+  // actually assigned (ProjectVendorAssignment), and at least one real
+  // milestone. Snapshots rather than computing on read (the restraint
+  // getSpend/getOnHoldMilestoneIds above use) on purpose — a contract
+  // freezes what was agreed to, it doesn't keep reflecting whatever the
+  // project's own mutable state says later.
+  async generateContract(projectId: string) {
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      include: { assignments: true, milestones: true },
+    });
+    if (!project) throw new NotFoundException('Project not found');
+
+    const existing = await this.prisma.projectContract.findUnique({ where: { projectId } });
+    if (existing) throw new ConflictException('This project already has a contract');
+
+    const primary = project.assignments.find((a) => a.role === 'primary_contractor') ?? project.assignments[0];
+    if (!primary) {
+      throw new BadRequestException('This project has no vendor assigned yet — accept a quote first');
+    }
+    if (project.milestones.length === 0) {
+      throw new BadRequestException('This project has no milestones yet — add at least one before generating a contract');
+    }
+
+    const totalAmount = project.milestones.reduce((sum, m) => sum + Number(m.paymentAmount ?? 0), 0);
+    const milestonesSnapshot = project.milestones.map((m) => ({
+      title: m.title,
+      description: m.description,
+      paymentAmount: m.paymentAmount != null ? Number(m.paymentAmount) : null,
+      dueDate: m.dueDate,
+    }));
+
+    return this.prisma.projectContract.create({
+      data: {
+        projectId,
+        vendorId: primary.vendorId,
+        scopeDescription: project.scopeDescription,
+        totalAmount,
+        currency: project.currency,
+        milestonesSnapshot,
+      },
+      include: { vendor: { select: { businessName: true } } },
     });
   }
 

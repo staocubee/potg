@@ -93,6 +93,15 @@ export class ProjectsController {
     return this.projects.acceptQuote(projectId, quoteId);
   }
 
+  // Owner-only, mirrors complete() below — a real binding-terms
+  // artifact, not something a vendor should be able to generate (or
+  // regenerate) on its own project assignment.
+  @RequirePermissions('project:write')
+  @Post(':projectId/contract')
+  generateContract(@Param('projectId') projectId: string) {
+    return this.projects.generateContract(projectId);
+  }
+
   // Owner-only, mirrors the other project-lifecycle actions above — the
   // gate ProjectsService.complete checks before flipping status, and in
   // turn what VendorsService.createReview below requires before a review

@@ -58,6 +58,8 @@ export default function ProjectDetailPage() {
   const [callbackNotice, setCallbackNotice] = useState<string | null>(null);
   const [stageUpdatingId, setStageUpdatingId] = useState<string | null>(null);
   const [completingConstruction, setCompletingConstruction] = useState(false);
+  const [generatingContract, setGeneratingContract] = useState(false);
+  const [contractError, setContractError] = useState<string | null>(null);
   // Which of the secondary cards below came back 403, vs. genuinely
   // empty — a vendor now reaching this page (see @AllowAssignedVendor())
   // doesn't hold payment:read/payout:read/dispute:read the way the
@@ -136,6 +138,20 @@ export default function ProjectDetailPage() {
       setError(err instanceof ApiError ? err.message : "Couldn't approve that milestone.");
     } finally {
       setMilestoneActionId(null);
+    }
+  }
+
+  async function onGenerateContract() {
+    if (!id) return;
+    setGeneratingContract(true);
+    setContractError(null);
+    try {
+      await auth.api.generateContract(id);
+      load();
+    } catch (err) {
+      setContractError(err instanceof ApiError ? err.message : "Couldn't generate a contract.");
+    } finally {
+      setGeneratingContract(false);
     }
   }
 
@@ -624,6 +640,58 @@ export default function ProjectDetailPage() {
                 ))}
               </div>
             </div>
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <h3 style={{ fontSize: 14, margin: 0 }}>Contract</h3>
+              {!project.contract &&
+                isOwningAccount &&
+                auth.hasPermission("project:write") &&
+                (project.assignments?.length ?? 0) > 0 &&
+                (project.milestones?.length ?? 0) > 0 && (
+                  <button className="potg-btn potg-btn-secondary" disabled={generatingContract} onClick={onGenerateContract}>
+                    {generatingContract ? "…" : "Generate contract"}
+                  </button>
+                )}
+            </div>
+            {contractError && <div className="potg-error" style={{ marginBottom: 8 }}>{contractError}</div>}
+            {!project.contract && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>
+                {(project.assignments?.length ?? 0) === 0
+                  ? "No vendor assigned yet — accept a quote first."
+                  : (project.milestones?.length ?? 0) === 0
+                    ? "No milestones yet — add at least one to generate a contract."
+                    : "No contract generated yet."}
+              </p>
+            )}
+            {project.contract && (
+              <div style={{ fontSize: 13 }}>
+                <div className="potg-muted" style={{ fontSize: 11, marginBottom: 6 }}>
+                  Generated {new Date(project.contract.createdAt).toLocaleDateString()} — a real, immutable snapshot; later edits to scope or
+                  milestones won't change it.
+                </div>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                  {formatMoney(project.contract.totalAmount, project.contract.currency)} with {project.contract.vendor?.businessName ?? "vendor"}
+                </div>
+                {project.contract.scopeDescription && (
+                  <div className="potg-muted" style={{ marginBottom: 8 }}>
+                    {project.contract.scopeDescription}
+                  </div>
+                )}
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {project.contract.milestonesSnapshot.map((m, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                      <span>{m.title}</span>
+                      <span className="potg-muted">
+                        {m.paymentAmount != null && formatMoney(String(m.paymentAmount), project.contract!.currency)}
+                        {m.dueDate && ` · due ${new Date(m.dueDate).toLocaleDateString()}`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>

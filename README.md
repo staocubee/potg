@@ -8674,6 +8674,79 @@ same real cart write the direct API calls did.
   nothing suggests the closest category or prompts the buyer to browse
   for one.
 
+## A real, immutable project contract (this pass)
+
+Closes the audit's own finding on Workflow 5: "Milestones (title/
+amount/due date) are fully real. No Contract model exists anywhere —
+a 'contract' here is nothing more than the freeform scope description
+plus milestones, no binding-terms artifact."
+
+**Deliberately the one real snapshot in a codebase that otherwise
+always computes on read.** `ProjectsService.getSpend`/
+`getOnHoldMilestoneIds` (earlier passes) both deliberately avoid a
+stored, mutable running total, computing fresh from real rows every
+time instead — the reasoning documented on both is "don't keep a
+number in sync with every place it could change." A contract is the
+opposite kind of thing: its entire point is to freeze what was
+actually agreed to at one moment, not keep reflecting whatever the
+project's own scope or milestones say later. Storing a snapshot here
+isn't a lapse in that discipline — it's the same discipline applied
+correctly to a case that calls for the opposite answer.
+
+**Not triggered automatically by `acceptQuote`.** Accepting a quote
+only fixes the vendor — no milestones exist yet at that point, and a
+"contract" with an empty terms list wouldn't be one. A real, separate,
+owner-invoked action instead, gated on the two real preconditions this
+codebase already tracks: a vendor actually assigned
+(`ProjectVendorAssignment`) and at least one real milestone.
+
+**What's built**:
+
+- A real `ProjectContract` model (migration
+  `20260916000000_add_project_contracts`) — `@unique` on `projectId`,
+  never regenerated once created. Snapshots `scopeDescription`,
+  `totalAmount` (the real sum of every milestone's own
+  `paymentAmount` at generation time), `currency`, and a full
+  `milestonesSnapshot` (title/description/amount/due date per
+  milestone) as real `JSONB`, the same column type `AiOutput.
+  draftBody` already uses in this schema.
+- `POST /projects/:projectId/contract` (`project:write`, owner-only)
+  — real 400s for "no vendor assigned yet" and "no milestones yet,"
+  a real 409 ("this project already has a contract") on a second
+  attempt.
+- A real "Contract" card on the project page: a "Generate contract"
+  button once both real preconditions are met and no contract exists
+  yet; once one does, the frozen terms — amount, vendor, scope, and
+  every milestone's own snapshotted amount — render read-only, with an
+  explicit note that later edits to scope or milestones won't change
+  it.
+
+**Verified live** on the real "Kitchen Renovation" project: generated
+a real contract and confirmed `totalAmount` (NGN 904,500) exactly
+matched the sum of its six real milestones, confirmed a second
+generation attempt got a real 409, and confirmed the real "Contract"
+card rendered every snapshotted milestone with its own real amount.
+Separately created a brand-new real project through the actual API and
+confirmed the two real guards in sequence: a real 400 ("no vendor
+assigned yet") before any quote was accepted, and — after really
+requesting, submitting, and accepting a real vendor quote on it — a
+different real 400 ("no milestones yet") once a vendor existed but no
+milestone did.
+
+**Not done — explicit scope, not oversight**:
+
+- No amendment or versioning workflow — a real contract, once
+  generated, cannot be regenerated or edited to reflect later changes.
+  Real contracts get amended through their own separate process; a
+  scaffold-appropriate v1 is "generate once, treat as final," not a
+  full contract-lifecycle system.
+- No e-signature or acceptance step on the contract itself — the
+  vendor's own real acceptance already happened earlier, at
+  `acceptQuote`. This is a real record of terms, not a second consent
+  gate on top of a decision that's already made.
+- No PDF or downloadable document — the contract's real terms render
+  on the project page; there's no export/print path yet.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
