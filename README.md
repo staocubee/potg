@@ -8592,6 +8592,88 @@ all.
   the quoting step — there's no separate "we can't fulfill this"
   action; a supplier simply not responding is the closest equivalent.
 
+## A real "import from BOQ" — Accept now writes to the cart (this pass)
+
+Closes the audit's own finding on Workflow 6: "'Imports from BOQ' is
+not a marketplace feature — `boq_to_order` only drafts a text list via
+the AI side panel; nothing writes to a cart or order."
+
+**The third skill in this registry to chain a real action on Accept,**
+after `draft_project_status_update` and `generate_listing_description`
+— same human-in-the-loop rule: nothing happens until a human decides,
+and "Edited" still never chains (the notes describe what changed, not
+a corrected value there's anything safe to write automatically).
+`AiService.applyChainedAction` now has three switch arms instead of
+two; the comment above it that named `boq_to_order` as one of the
+skills deliberately staying advisory is corrected in place, since this
+pass is exactly what makes that no longer true.
+
+**What's built**:
+
+- `findCheapestMatchedProducts` — the matching logic `boq_to_order`'s
+  own `run()` always had (keyword-match the scope description, look up
+  the cheapest active product per match) is now a shared, exported
+  helper, called both by `run()` (to build the human-readable draft)
+  and by the new `applyChainedAction` case (to know exactly which real
+  products Accept should add to the cart). Re-deriving the same real
+  query in both places rather than parsing product ids back out of the
+  draft's own display text, which is meant to be read, not parsed.
+- Accepting the draft now calls the real `MaterialsService.
+  upsertCartItem` for each matched product — reading the buyer's
+  current cart first and incrementing rather than overwriting, so
+  accepting a second time (or a project whose scope matches an item
+  already in the cart from browsing) adds to what's there instead of
+  silently resetting it back down.
+- Zero new frontend code — `boq_to_order` was already reachable
+  generically through `AskAiPanel` (every skill for a given
+  `moduleContext` renders as a quick-action button automatically), and
+  Accept/Edit/Discard already route through the one generic
+  `AiDraftCard` → `decideAiOutput` path every other skill uses. The
+  entire feature is a backend change.
+
+**Real bug caught during wiring, before it shipped**: adding
+`MaterialsService` to `AiService`'s constructor and `MaterialsModule`
+to `AiModule`'s imports passed `tsc` clean but failed at runtime — Nest
+couldn't resolve `MaterialsService` in `AiModule`'s context after a
+hot-reloaded incremental rebuild, even though the wiring was correct.
+A full dev-server restart (not just the file-watcher's own incremental
+recompile) resolved it — worth noting since `tsc` passing is not by
+itself proof a NestJS DI graph change actually works; only a real boot
+does.
+
+**Verified live** on the real "Kitchen Renovation" project, whose own
+real scope ("new cabinets, countertop, tiling, painting, plumbing, and
+electrical rework") matches four keywords, one with a real product in
+the catalog. Confirmed the cart started empty, ran the skill, accepted
+the draft, and confirmed the real cart now held exactly the one
+matched product ("Modern Kitchen Cabinet Set") at quantity 1. Ran and
+accepted a second time and confirmed the quantity became 2, not reset
+to 1 — the increment-not-overwrite guard working as designed.
+Separately verified the same flow through the real "Ask AI" panel UI:
+clicked the real "Turn scope into a materials order draft" quick
+action, confirmed the new "Accepting this draft adds 1 unit…" note
+rendered on the real `AiDraftCard`, clicked the real Accept button,
+and confirmed via a fresh `GET /cart` that the real click produced the
+same real cart write the direct API calls did.
+
+**Not done — explicit scope, not oversight**:
+
+- Still no real per-item quantity estimate — this closes Workflow 6's
+  own "nothing writes to a cart" finding, not Workflow 4's separate
+  "no quantities" one. 1 unit per matched item is a real, honest
+  starting point a buyer adjusts in their own cart, not a guessed
+  number dressed up as a BOQ-grade estimate.
+- No persisted `BillOfQuantities` record — the real, persisted
+  artifact this closes the gap with is the cart itself
+  (`CartItem` rows), not a new BOQ-specific model. A project's own
+  scope description is already the real, re-runnable source of truth
+  this feature reads from each time, so there was nothing a separate
+  persisted BOQ record would capture that scope + cart don't already.
+- Items with no matching product in the catalog are still just
+  reported as text ("no matching product in the catalog yet") —
+  nothing suggests the closest category or prompts the buyer to browse
+  for one.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

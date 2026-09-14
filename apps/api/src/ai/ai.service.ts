@@ -10,6 +10,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ProjectsService } from '../projects/projects.service';
 import { ListingsService } from '../listings/listings.service';
 import { ReportsService } from '../reports/reports.service';
+import { MaterialsService } from '../materials/materials.service';
+import { findCheapestMatchedProducts } from './skills/boq-to-order.skill';
 import { AI_SKILLS, LLM_PROVIDER } from './llm/llm.constants';
 import { AiSkill } from './skills/ai-skill.interface';
 import { AiSkillInputSchema } from './skills/ai-skill-input-schema';
@@ -42,6 +44,7 @@ export class AiService {
     private readonly projects: ProjectsService,
     private readonly listings: ListingsService,
     private readonly reports: ReportsService,
+    private readonly materials: MaterialsService,
     @Inject(AI_SKILLS) skills: AiSkill[],
     @Inject(LLM_PROVIDER) private readonly llm: LlmProvider,
   ) {
@@ -249,11 +252,11 @@ export class AiService {
     });
   }
 
-  // Two switch arms now prove the pattern; every other actionType is
+  // Three switch arms now prove the pattern; every other actionType is
   // still draft-only — see the README's "Not built yet" for what
   // chaining the rest would need (most of them are advisory by design,
-  // not a deferred real action — compare_vendor_quotes and boq_to_order
-  // say so in their own comments).
+  // not a deferred real action — compare_vendor_quotes says so in its
+  // own comment; boq_to_order used to as well, until this pass).
   private async applyChainedAction(
     aiRequest: { actionType: string; moduleContext: string; accountId: string },
     output: { draftBody: unknown },
@@ -284,6 +287,38 @@ export class AiService {
       const listingId = aiRequest.moduleContext.split(':')[1];
       const [description] = (output.draftBody as { items: string[] }).items;
       await this.listings.updateDescription(listingId, aiRequest.accountId, description);
+    }
+
+    if (aiRequest.actionType === 'boq_to_order') {
+      // The audit's own finding on Workflow 6: "nothing writes to a cart
+      // or order." boq_to_order's own run() only ever needed project:read
+      // (drafting a suggestion shouldn't require the ability to actually
+      // buy anything) — same re-check reasoning draft_project_status_
+      // update's own comment gives, since accepting this now really does
+      // add to the cart. Re-derives the exact same matched products
+      // run() itself used (findCheapestMatchedProducts, shared by both)
+      // rather than parsing them back out of the draft's own display
+      // text — the project's own scopeDescription is real, persisted
+      // state, so re-querying it here is exactly as reliable as reading
+      // it once would have been.
+      if (!permissions.has('order:write')) {
+        throw new ForbiddenException('Accepting this draft requires the "order:write" permission');
+      }
+      const projectId = aiRequest.moduleContext.split(':')[1];
+      const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+      if (project?.scopeDescription) {
+        const matches = await findCheapestMatchedProducts(this.prisma, project.scopeDescription);
+        for (const match of matches) {
+          if (!match.product) continue;
+          const existing = await this.prisma.cartItem.findUnique({
+            where: { accountId_productId: { accountId: aiRequest.accountId, productId: match.product.id } },
+          });
+          await this.materials.upsertCartItem(aiRequest.accountId, {
+            productId: match.product.id,
+            quantity: (existing?.quantity ?? 0) + 1,
+          });
+        }
+      }
     }
   }
 }

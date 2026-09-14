@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ProjectsModule } from '../projects/projects.module';
 import { ListingsModule } from '../listings/listings.module';
 import { ReportsModule } from '../reports/reports.module';
+import { MaterialsModule } from '../materials/materials.module';
 import { AiService } from './ai.service';
 import { ChatService } from './chat.service';
 import { AiController } from './ai.controller';
@@ -42,7 +43,7 @@ import { suggestGreenChecklistSkill } from './skills/suggest-green-checklist.ski
 import { generateProjectScopeSkill } from './skills/generate-project-scope.skill';
 
 @Module({
-  imports: [ProjectsModule, ListingsModule, ReportsModule],
+  imports: [ProjectsModule, ListingsModule, ReportsModule, MaterialsModule],
   controllers: [AiController],
   providers: [
     AiService,
