@@ -150,6 +150,17 @@ export class MaterialsController {
     return this.materials.findProducts(category, supplierId, q);
   }
 
+  // The audit's own finding on Workflow 6: "No compare-suppliers UI or
+  // endpoint — the product grid shows one supplier per card, no
+  // side-by-side view." Registered before :productId below so "compare"
+  // is never swallowed as a productId — Nest matches routes in
+  // registration order.
+  @RequirePermissions('product:read')
+  @Get('products/compare')
+  compareProducts(@Query('ids') ids?: string) {
+    return this.materials.compareProducts((ids ?? '').split(',').filter(Boolean));
+  }
+
   @RequirePermissions('product:read')
   @Get('products/:productId')
   findProduct(@Param('productId') productId: string) {

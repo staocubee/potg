@@ -3139,6 +3139,14 @@ export class ApiClient {
   getProduct(productId: string) {
     return request<Product>(`/products/${productId}`, { token: this.token, accountId: this.accountId });
   }
+  // The audit's own finding: "No compare-suppliers UI or endpoint —
+  // the product grid shows one supplier per card, no side-by-side
+  // view." Each product's own supplier comes back with a real computed
+  // trustScore, not just the raw rating/verification the grid card
+  // already shows.
+  compareProducts(ids: string[]) {
+    return request<Product[]>(`/products/compare?ids=${ids.join(",")}`, { token: this.token, accountId: this.accountId });
+  }
   createOrder(input: { supplierId: string; projectId?: string; items: { productId: string; quantity: number }[]; deliveryAddress?: string }) {
     return request<MaterialOrder>("/orders", { method: "POST", body: input, token: this.token, accountId: this.accountId });
   }

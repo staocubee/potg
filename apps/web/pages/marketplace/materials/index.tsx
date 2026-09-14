@@ -18,6 +18,13 @@ export default function MaterialsMarketplacePage() {
   const [category, setCategory] = useState("");
   const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // The audit's own finding: "No compare-suppliers UI or endpoint — the
+  // product grid shows one supplier per card, no side-by-side view."
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+
+  function toggleCompare(productId: string) {
+    setCompareIds((prev) => (prev.includes(productId) ? prev.filter((id) => id !== productId) : prev.length < 4 ? [...prev, productId] : prev));
+  }
 
   useEffect(() => {
     if (!auth.currentAccountId) return;
@@ -95,8 +102,50 @@ export default function MaterialsMarketplacePage() {
               <div className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
                 {p.stockQuantity > 0 ? `${p.stockQuantity} in stock` : "Out of stock"}
               </div>
+              <label className="potg-muted" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, marginTop: 10 }}>
+                <input
+                  type="checkbox"
+                  checked={compareIds.includes(p.id)}
+                  disabled={!compareIds.includes(p.id) && compareIds.length >= 4}
+                  onChange={() => toggleCompare(p.id)}
+                />
+                Compare
+              </label>
             </div>
           ))}
+        </div>
+      )}
+
+      {compareIds.length > 0 && (
+        <div
+          className="potg-card"
+          style={{
+            position: "sticky",
+            bottom: 16,
+            marginTop: 16,
+            padding: 12,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+          }}
+        >
+          <span style={{ fontSize: 13 }}>
+            {compareIds.length} product{compareIds.length === 1 ? "" : "s"} selected{compareIds.length >= 4 ? " (max 4)" : ""}
+          </span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="potg-btn potg-btn-secondary" onClick={() => setCompareIds([])}>
+              Clear
+            </button>
+            <Link
+              href={`/marketplace/materials/compare?ids=${compareIds.join(",")}`}
+              className="potg-btn potg-btn-primary"
+              aria-disabled={compareIds.length < 2}
+              style={compareIds.length < 2 ? { pointerEvents: "none", opacity: 0.5 } : undefined}
+            >
+              Compare
+            </Link>
+          </div>
         </div>
       )}
     </AppShell>

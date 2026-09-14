@@ -8061,6 +8061,61 @@ the property-vs-project scoping bug above.
   "Inspections approve stages" framing, beyond Handover) isn't built —
   this closes the concrete, actionable half both workflows agree on.
 
+## Compare products side by side (this pass)
+
+Closes the audit's own finding on Workflow 6: "No compare-suppliers UI
+or endpoint — the product grid shows one supplier per card, no
+side-by-side view."
+
+**What's built**:
+
+- **`GET /products/compare?ids=a,b,c`** (new, `product:read` — the
+  same permission product browsing already uses) — resolves each
+  product's real supplier and computes its real `trustScore` the same
+  way `GET /suppliers/:id` already does (`getSupplierTrustScore`,
+  shared, not reimplemented), not just the raw `ratingAverage`/
+  `verificationStatus` the grid card already shows. Re-sorted back into
+  the order the caller asked for, since `id IN (...)` doesn't preserve
+  it — same reasoning `ListingsService.findAll`'s own relevance re-sort
+  already documents.
+- **UI**: a "Compare" checkbox on every product card (capped at 4 at
+  once), a sticky selection bar with Clear/Compare actions, and a new
+  comparison page (`/marketplace/materials/compare?ids=...`) rendering
+  price, stock, supplier, location, verification, rating, trust score,
+  and delivered/cancelled order counts as real side-by-side rows.
+
+**Verified live** with a genuinely meaningful real-world result, not
+just a mechanically-checked one. Only one real supplier existed in the
+seeded data ("Lagos BuildMart"), so created a second real one end to
+end through the actual API — registered a new user, created a
+`SUPPLIER` account ("Abuja Hardware Co"), a real supplier profile
+(`not_verified`, no rating), and a real competing tile product
+(`NGN 7,200/sqm` vs. Lagos BuildMart's `NGN 8,500/sqm`). Comparing the
+two real tiles surfaced something the plain product grid genuinely
+doesn't: Lagos BuildMart looks strictly better on the raw fields
+(`verified`, ★5.0) but its real computed trust score is only `59/100
+"fair"` — a real `SupplierTrustAudit` on file rated `major_concerns` —
+while the unverified, unrated Abuja Hardware Co scores `50/100 "fair"`,
+genuinely close despite looking worse at a glance. Confirmed this exact
+comparison renders correctly on the real comparison page, and
+separately confirmed the grid page's own selection flow end to end:
+checked two real product cards, watched the sticky bar correctly read
+"2 products selected," and confirmed its "Compare" link carried the
+exact two selected product ids through to the comparison URL.
+
+**Not done — explicit scope, not oversight**:
+
+- Capped at 4 products per comparison — an arbitrary but real UX
+  bound, not enforced by the backend endpoint itself (which accepts any
+  number of ids), only by the grid page's own selection UI.
+- No cross-category guard — comparing a tile against a concrete mixer
+  is allowed and renders (the grid's own free-text category filter
+  already lets a buyer narrow to comparable items first, same as
+  before this pass).
+- No saved/shareable comparison beyond the URL's own `?ids=` query
+  string — reloading or sharing the link reproduces the same
+  comparison, but there's no named "saved comparison" feature.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

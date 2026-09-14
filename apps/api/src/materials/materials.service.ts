@@ -217,6 +217,32 @@ export class MaterialsService {
     return this.prisma.product.findUnique({ where: { id }, include: { supplier: true } });
   }
 
+  // The audit's own finding on Workflow 6: "No compare-suppliers UI or
+  // endpoint — the product grid shows one supplier per card, no
+  // side-by-side view." Each product's own supplier gets the same real
+  // computed trustScore GET /suppliers/:id already returns (via
+  // getSupplierTrustScore) rather than just the raw ratingAverage/
+  // verificationStatus the grid card already shows — the whole point of
+  // a comparison is seeing something the single-card view doesn't.
+  async compareProducts(ids: string[]) {
+    if (ids.length === 0) return [];
+    const products = await this.prisma.product.findMany({
+      where: { id: { in: ids } },
+      include: { supplier: true },
+    });
+    // Re-sorted back into the order the caller asked for — `id IN (...)`
+    // doesn't preserve it, same reasoning ListingsService.findAll's own
+    // relevance-order re-sort already documents.
+    const byId = new Map(products.map((p) => [p.id, p]));
+    const ordered = ids.map((id) => byId.get(id)).filter((p): p is (typeof products)[number] => !!p);
+    return Promise.all(
+      ordered.map(async (product) => ({
+        ...product,
+        supplier: { ...product.supplier, trustScore: await getSupplierTrustScore(this.prisma, product.supplier) },
+      })),
+    );
+  }
+
   // --- Rental bookings (Module 10) ---------------------------------------
   //
   // A booking's availability is checked against the sum of quantity on
