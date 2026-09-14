@@ -1027,6 +1027,32 @@ export class PaymentsService {
     return this.applyDisputeResolution(dispute, resolvingAccountId, dto);
   }
 
+  // The audit's own finding on Workflow 9: "'Rework' has no mechanism at
+  // all — no re-inspection trigger, no rework-specific milestone." A
+  // manually-invoked action, not automatic — Dispute.resolutionType's own
+  // schema comment already commits to this dispute record never itself
+  // triggering anything ("this just records what the resolution actually
+  // decided"); the same human-in-the-loop discipline refund/release
+  // already follow. This is that action's real counterpart for rework: a
+  // genuine PropertyInspection row, not just a label, created once an
+  // owner/manager actually chooses to schedule it.
+  async scheduleReworkInspection(projectId: string, disputeId: string) {
+    const dispute = await this.prisma.dispute.findFirst({ where: { id: disputeId, projectId } });
+    if (!dispute) throw new NotFoundException('Dispute not found on this project');
+    if (dispute.status !== 'resolved' || dispute.resolutionType !== 'rework') {
+      throw new BadRequestException('This dispute was not resolved with "rework" — nothing to schedule');
+    }
+    const project = await this.prisma.project.findUniqueOrThrow({ where: { id: projectId }, select: { propertyId: true } });
+    return this.prisma.propertyInspection.create({
+      data: {
+        propertyId: project.propertyId,
+        projectId,
+        inspectionType: 'post_renovation',
+        scheduledFor: new Date(),
+      },
+    });
+  }
+
   // The structured "submit more evidence" channel the under_review
   // evidence-request step was missing — see DisputeEvidence's own schema
   // comment. Shared by both parties (owner and assigned vendor), unlike

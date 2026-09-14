@@ -7787,9 +7787,12 @@ vendor, or order two-party resolve) is used.
   remove the deliberate human-in-the-loop step every money-moving
   action in this codebase already requires elsewhere.
 - "Rework" still has no tracking mechanism of its own beyond this label
-  — no re-inspection trigger, no rework-specific milestone. Recording
-  that rework was the decision is real progress on the audit's own
-  finding; a full rework workflow is a separate, larger feature.
+  — ~~no re-inspection trigger~~ (a real, manually-invoked one exists
+  now, see "A real re-inspection trigger for 'rework' disputes"
+  below), no rework-specific milestone. Recording that rework was the
+  decision is real progress on the audit's own finding; a full rework
+  workflow closing the loop back onto the milestone itself is a
+  separate, larger feature.
 
 ## Ownership structure — a real create/edit UI for co-owner shares (this pass)
 
@@ -8283,6 +8286,74 @@ data as found.
   changes, but nothing records "this used to be land" anywhere a user
   can see later. Same restraint most single-field edits on this record
   already accept.
+
+## A real re-inspection trigger for "rework" disputes (this pass)
+
+Closes the audit's own finding on Workflow 9: "Refund, rework, or
+payment release is processed — Resolving a dispute never itself moves
+money — refund/release are separate, manually-invoked endpoints once
+the guard clears. 'Rework' has no mechanism at all." `resolutionType`
+(an earlier pass) gave "rework" a real, structured label; nothing
+happened once it was set.
+
+**Deliberately not automatic.** `Dispute.resolutionType`'s own schema
+comment already commits to this: "Doesn't itself move money or trigger
+rework — the actual refund/release/rework action still happens through
+its own existing, separate endpoint once the dispute's own guard
+clears... this just records what the resolution actually decided." A
+"rework" resolution firing something automatically the instant it's
+set would break that already-documented human-in-the-loop discipline —
+the same one refund and release already follow. So this is that
+missing action's real counterpart: a genuine, separate, manually
+invoked endpoint, not a side effect.
+
+**What's built**:
+
+- `POST /projects/:projectId/disputes/:disputeId/schedule-rework-
+  inspection` (`PaymentsService.scheduleReworkInspection`) — gated on
+  `inspection:write`, the exact permission `PropertiesService.
+  scheduleInspection` already checks, since this creates the same kind
+  of row. Guarded on the dispute actually being `resolved` with
+  `resolutionType: "rework"` — a real 400 otherwise, verified against a
+  real dispute resolved `no_action` on the same project.
+- Creates a real `PropertyInspection` (`inspectionType: "post_
+  renovation"`, `scheduledFor` now, tied to the project and its
+  property) — the same model an earlier pass's Handover gate already
+  made load-bearing, not a decorative record.
+- `projects/[id].tsx` — a "Schedule rework inspection" button appears
+  on any dispute resolved with `resolutionType: "rework"`, gated on
+  `inspection:write` client-side too so it never renders for a role
+  that would 403 on it. Becomes "Re-verification inspection scheduled"
+  once clicked.
+
+**Verified live** against a real, pre-existing dispute on the real
+"Kitchen Renovation" project — "Countertop color doesn't match what
+was approved," already resolved `rework` from an earlier pass's own
+verification. Clicked the real button on the real project page;
+confirmed a real `POST` fired and returned `201`, and the button
+correctly swapped to its confirmation text. Separately confirmed the
+guard for real: called the same endpoint against a different real
+dispute on the same project resolved `no_action` instead, and got a
+real 400 — `"This dispute was not resolved with \"rework\" — nothing
+to schedule"`.
+
+**Not done — explicit scope, not oversight**:
+
+- No re-inspection ↔ dispute link — the created `PropertyInspection`
+  has no field pointing back to the dispute that triggered it, so
+  there's no way to later ask "which inspection was this rework's
+  own re-check?" beyond matching timestamps by eye. Adding that link
+  would mean widening `PropertyInspection`'s own schema for a single
+  caller, not something this pass's narrower scope called for.
+- No "rework completed" state — once the real re-inspection is itself
+  completed (an earlier pass's own real action), nothing closes the
+  loop back to the dispute or the milestone. The audit's own two named
+  gaps were "no re-inspection trigger" and "no rework-specific
+  milestone" — this closes the first; the second, a real trigger back
+  onto `ProjectMilestone`, is a separate, larger feature.
+- Clicking it twice schedules two real inspections — no dedup guard.
+  Harmless, and no existing action-button pattern in this codebase
+  (e.g. "+ Request quote") guards against a duplicate click either.
 
 ## Not built yet
 

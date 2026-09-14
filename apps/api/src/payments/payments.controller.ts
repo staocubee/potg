@@ -186,6 +186,18 @@ export class PaymentsController {
   ) {
     return this.payments.resolveDispute(projectId, disputeId, member.accountId, dto);
   }
+
+  // The audit's own finding on Workflow 9: "'Rework' has no mechanism at
+  // all — no re-inspection trigger, no rework-specific milestone." Reuses
+  // inspection:write, the same permission PropertiesController's own
+  // scheduleInspection already checks — this creates the exact same kind
+  // of row, just triggered from a resolved dispute instead of a manual
+  // form.
+  @RequirePermissions('inspection:write')
+  @Post('disputes/:disputeId/schedule-rework-inspection')
+  scheduleReworkInspection(@Param('projectId') projectId: string, @Param('disputeId') disputeId: string) {
+    return this.payments.scheduleReworkInspection(projectId, disputeId);
+  }
 }
 
 // The account-wide counterpart to PaymentsController above — everything up

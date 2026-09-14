@@ -1101,6 +1101,12 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
   const [evidenceBusy, setEvidenceBusy] = useState(false);
 
+  // The audit's own finding on Workflow 9: "'Rework' has no mechanism at
+  // all — no re-inspection trigger." A manually-invoked action, not
+  // automatic — mirrors refund/release's own separate-endpoint shape.
+  const [schedulingRework, setSchedulingRework] = useState(false);
+  const [reworkScheduled, setReworkScheduled] = useState(false);
+
   // Module 20 Phase 1's "AI dispute summary" — same per-item "✦" button
   // shape narrate_report already established on the report builder page,
   // since a dispute (like a saved report) has no sensible default id an
@@ -1133,6 +1139,19 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
       setError(err instanceof ApiError ? err.message : "Couldn't resolve that dispute.");
     } finally {
       setBusy(null);
+    }
+  }
+
+  async function onScheduleReworkInspection() {
+    setSchedulingRework(true);
+    setError(null);
+    try {
+      await auth.api.scheduleReworkInspection(projectId, dispute.id);
+      setReworkScheduled(true);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't schedule that inspection.");
+    } finally {
+      setSchedulingRework(false);
     }
   }
 
@@ -1198,6 +1217,22 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
       {dispute.status === "resolved" && dispute.resolutionType && (
         <div className="potg-muted" style={{ fontSize: 12, marginTop: 2 }}>
           Resolution: {dispute.resolutionType.replace(/_/g, " ")}
+        </div>
+      )}
+      {dispute.status === "resolved" && dispute.resolutionType === "rework" && auth.hasPermission("inspection:write") && (
+        <div style={{ marginTop: 6 }}>
+          {reworkScheduled ? (
+            <span className="potg-muted" style={{ fontSize: 11 }}>Re-verification inspection scheduled.</span>
+          ) : (
+            <button
+              className="potg-btn potg-btn-secondary"
+              style={{ padding: "4px 9px", fontSize: 11 }}
+              disabled={schedulingRework}
+              onClick={onScheduleReworkInspection}
+            >
+              {schedulingRework ? "…" : "Schedule rework inspection"}
+            </button>
+          )}
         </div>
       )}
       <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>

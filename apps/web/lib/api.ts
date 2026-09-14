@@ -2608,6 +2608,13 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  scheduleReworkInspection(projectId: string, disputeId: string) {
+    return request<PropertyInspection>(`/projects/${projectId}/disputes/${disputeId}/schedule-rework-inspection`, {
+      method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   submitDisputeEvidence(projectId: string, disputeId: string, input: { note: string; fileUrl?: string }) {
     return request<DisputeEvidence>(`/projects/${projectId}/disputes/${disputeId}/evidence`, {
       method: "POST",
