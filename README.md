@@ -8403,6 +8403,63 @@ and the new vendor renders correctly on the grid.
   engineering approval, etc.) is real, unbuilt scope beyond just
   having the category exist.
 
+## Real location/rating/verified filters on the vendor-assignment picker (this pass)
+
+Closes the remaining half of the audit's own finding on Workflow 7:
+"the picker now filters to vendors matching the request's own category
+when a real match exists, falling back to the full list otherwise.
+Still not the vendor marketplace's own full search/filter experience —
+no location, rating, or free-text search on this picker." The category
+match (an earlier pass) closed the first half; this closes the second.
+
+**One component, four call sites.** `VendorOrNameField` — the shared
+vendor/freeform-name picker `properties/[id].tsx` already reused for
+inspector assignment (schedule + edit) and maintenance-vendor
+assignment (report + start) — is where the fix lives, so all four
+pickers gained the same real filters in one change, not four separate
+ones.
+
+**Deliberately client-side, not a second server round-trip.** The
+vendor marketplace's own browse page (an earlier pass) filters via
+`GET /vendors?location=&minRating=&verificationStatus=`; this picker
+already has the full vendor directory in memory (`vendors`, fetched
+once on page load for the select itself) — the exact same data that
+endpoint would return unfiltered. Filtering it in place, the same
+`location`/`minRating`/`verificationStatus` fields, same substring/
+threshold/equality semantics, costs no extra request and no loading
+state a form control shouldn't need.
+
+**What's built**: a collapsed "Filter vendors" toggle next to the
+existing select — a location text input (substring match on
+`locationCoverage`), a "★ 4+/3+/2+" rating floor, and a "Verified
+only" checkbox, stacking on top of the existing category-preference
+match rather than replacing it. The hint line beneath the select now
+reports whichever is active — the category-only count when no filter
+is set, or "N of M vendors match your filters" once one is.
+
+**Verified live** on the real "Report a maintenance issue" form
+(reaches the same `VendorOrNameField` all four call sites share): the
+picker started with all 8 real vendors on the platform (including two
+created earlier this session — "Lagos Structural Engineers" and the
+new-category "engineer" vendor). Checking "Verified only" narrowed it
+to exactly the 2 real verified vendors ("2 of 8 vendors match your
+filters"); adding `location: "Lagos"` on top narrowed it further to
+exactly 1 — "Lekki Renovations Co.," the platform's own verified,
+Lagos-based, ★4.6 demo vendor — confirmed by reading the select's own
+remaining option, not just the count.
+
+**Not done — explicit scope, not oversight**:
+
+- No free-text search on business name — the audit's own language
+  named "location, rating, or free-text search" as the gap; location
+  and rating are real, free-text isn't, since none of the four call
+  sites this component serves have a case where searching by name
+  (rather than filtering by a real attribute) is the likely need — an
+  inspector or maintenance vendor is picked by trust signal, not
+  recalled by name.
+- Filters reset on form close/reopen, same as every other field in
+  these forms — no persisted "last filter used" preference.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

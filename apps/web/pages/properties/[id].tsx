@@ -2017,17 +2017,35 @@ function VendorOrNameField({
   namePlaceholder: string;
   // The audit's own finding: this picker was a plain, unfiltered select
   // over every vendor on the platform, unlike the vendor marketplace's
-  // own search/filter experience. A full search UI is out of scope
-  // here, but the one filter that's actually meaningful in this
-  // context — matching the maintenance issue's own category to a
-  // vendor's serviceCategory — costs nothing extra to apply, since both
-  // already exist. Falls back to the full list when nothing matches
-  // (an issue category like "structural" has no vendor equivalent),
-  // rather than showing an empty, dead-end picker.
+  // own search/filter experience. The category match below costs
+  // nothing extra to apply, since both already exist — falls back to
+  // the full list when nothing matches (an issue category like
+  // "structural" has no vendor equivalent), rather than showing an
+  // empty, dead-end picker.
   preferredCategory?: string;
 }) {
-  const matching = preferredCategory ? vendors.filter((v) => v.serviceCategory === preferredCategory) : [];
-  const options = matching.length > 0 ? matching : vendors;
+  // Since last check: real location/rating/verified-only filters, the
+  // same three fields the vendor marketplace's own browse page already
+  // filters on (vendors/index.tsx) — closing the remaining half of the
+  // audit's own finding ("no location, rating, or free-text search on
+  // this picker"). Client-side over the already-fetched vendor list
+  // rather than a second server round-trip: this picker's own list is
+  // already the full directory, same data the marketplace itself would
+  // query, just not re-fetched per keystroke.
+  const [showFilters, setShowFilters] = useState(false);
+  const [location, setLocation] = useState("");
+  const [minRating, setMinRating] = useState("");
+  const [verifiedOnly, setVerifiedOnly] = useState(false);
+
+  const categoryMatched = preferredCategory ? vendors.filter((v) => v.serviceCategory === preferredCategory) : [];
+  const base = categoryMatched.length > 0 ? categoryMatched : vendors;
+  const filtersActive = !!location || !!minRating || verifiedOnly;
+  const options = base.filter((v) => {
+    if (location && !(v.locationCoverage ?? "").toLowerCase().includes(location.toLowerCase())) return false;
+    if (minRating && !(v.ratingAverage && Number(v.ratingAverage) >= Number(minRating))) return false;
+    if (verifiedOnly && v.verificationStatus !== "verified") return false;
+    return true;
+  });
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -2054,10 +2072,37 @@ function VendorOrNameField({
           onChange={(e) => setName(e.target.value)}
         />
       </div>
-      {matching.length > 0 && (
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span className="potg-muted" style={{ fontSize: 11 }}>
-          Showing {matching.length} {preferredCategory?.replace(/_/g, " ")} vendor{matching.length === 1 ? "" : "s"} only.
+          {categoryMatched.length > 0 && !filtersActive
+            ? `Showing ${options.length} ${preferredCategory?.replace(/_/g, " ")} vendor${options.length === 1 ? "" : "s"} only.`
+            : filtersActive
+              ? `${options.length} of ${base.length} vendor${base.length === 1 ? "" : "s"} match your filters.`
+              : ""}
         </span>
+        <button
+          type="button"
+          className="potg-muted"
+          style={{ fontSize: 11, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}
+          onClick={() => setShowFilters((v) => !v)}
+        >
+          {showFilters ? "Hide filters" : "Filter vendors"}
+        </button>
+      </div>
+      {showFilters && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+          <input className="potg-input" placeholder="Any location" value={location} onChange={(e) => setLocation(e.target.value)} />
+          <select className="potg-input" value={minRating} onChange={(e) => setMinRating(e.target.value)}>
+            <option value="">Any rating</option>
+            <option value="4">★ 4+</option>
+            <option value="3">★ 3+</option>
+            <option value="2">★ 2+</option>
+          </select>
+          <label className="potg-muted" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12 }}>
+            <input type="checkbox" checked={verifiedOnly} onChange={(e) => setVerifiedOnly(e.target.checked)} />
+            Verified only
+          </label>
+        </div>
       )}
     </div>
   );
