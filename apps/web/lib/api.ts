@@ -2278,6 +2278,12 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  listAllMaintenanceRequests() {
+    return request<MaintenanceRequest[]>("/properties/maintenance-requests", {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   // Tenant-facing — see apps/api/src/tenant. Scoped to whichever lease
   // the acting TENANT-type account is linked to, never a client-supplied
   // property/lease id.

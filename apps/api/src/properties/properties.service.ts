@@ -1018,6 +1018,25 @@ export class PropertiesService {
     });
   }
 
+  // The nav audit's own finding on the Owner/Admin Sidebar: "Maintenance —
+  // missing, lives only inside each property's own detail page, no
+  // portfolio-wide view." Every maintenance action itself already existed;
+  // there was just no way to see every request across every property at
+  // once without opening each property one at a time. Same shape
+  // findForAccount already uses for documents — join through the owning
+  // property rather than a stored accountId, since MaintenanceRequest
+  // never carried one.
+  findAllMaintenanceRequestsForAccount(accountId: string) {
+    return this.prisma.maintenanceRequest.findMany({
+      where: { property: { accountId } },
+      include: {
+        assignedVendor: { select: this.vendorSummarySelect },
+        property: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   findMaintenanceRequest(propertyId: string, requestId: string) {
     return this.prisma.maintenanceRequest.findFirst({
       where: { id: requestId, propertyId },

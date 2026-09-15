@@ -57,6 +57,17 @@ export class PropertiesController {
     return this.properties.semanticSearch(member.accountId, q);
   }
 
+  // The nav audit's own finding: "Maintenance — missing, lives only
+  // inside each property's own detail page, no portfolio-wide view."
+  // Must be registered before GET :propertyId below, same reasoning
+  // 'search' above already documents, so "maintenance-requests" doesn't
+  // get swallowed as a property id.
+  @RequirePermissions('maintenance:read')
+  @Get('maintenance-requests')
+  findAllMaintenanceRequests(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.properties.findAllMaintenanceRequestsForAccount(member.accountId);
+  }
+
   // Manual backfill/reindex — see PropertiesService.reindexEmbeddings's
   // own comment on why this exists alongside the automatic on-create
   // indexing. property:write since it's a write to this account's own

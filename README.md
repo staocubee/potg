@@ -8964,6 +8964,63 @@ real "Business License" document appears.
   vendor or supplier's own uploaded documents go through the same
   review path any other document already does.
 
+## A portfolio-wide Maintenance view (this pass)
+
+Closes the nav audit's own finding on the Owner/Admin Sidebar:
+"Maintenance — missing, lives only inside each property's own detail
+page, no portfolio-wide view." Every maintenance action — report,
+start, resolve, approve — was already real; there was simply no way to
+see every request across every property in the account at once
+without opening each property one at a time.
+
+**Same shape the Documents nav item already established for a
+per-property-scoped resource.** `documents/index.tsx` already proved
+this pattern: a flat, account-wide, read-only list with an optional
+`?propertyId=` filter, each row naming its own property. `Maintenance`
+reuses it exactly, rather than inventing a second convention for the
+same kind of gap.
+
+**What's built**:
+
+- `PropertiesService.findAllMaintenanceRequestsForAccount(accountId)`
+  — joins through the owning property (`where: { property: { accountId
+  } }`), since `MaintenanceRequest` never carried its own `accountId`.
+- `GET /properties/maintenance-requests` (`maintenance:read`) —
+  registered before `GET /properties/:propertyId`, the same ordering
+  `search` above already documents doing, so the literal path doesn't
+  get swallowed as a property id.
+- A new `/maintenance` page: every request across the account, each
+  showing its own property, category, priority, assigned vendor (if
+  any), and status, linking straight through to that property's own
+  page for the real actions — this page is deliberately a view, not a
+  second place those actions live.
+- A real "Maintenance" item on the always-visible `AppShell` nav,
+  between Documents and Payments.
+
+**Verified live**: `GET /properties/maintenance-requests` as the real
+seeded owner account returned all 17 real, pre-existing maintenance
+requests across the account, each correctly carrying its own real
+property name; confirmed the pre-existing `GET /properties/search` and
+`GET /properties/:propertyId` routes still resolved correctly
+afterward — no route collision regression from the new literal path.
+Confirmed real account isolation: the same call as the vendor account
+(which owns no properties) correctly returned an empty list, not
+another account's data. Then verified the real UI: the new
+"Maintenance" nav item is present, `/maintenance` renders all 17 real
+requests with their real details, and clicking one navigates straight
+to its real property page.
+
+**Not done — explicit scope, not oversight**:
+
+- Read-only — no filter/sort UI beyond the existing `?propertyId=`
+  query param, no status or priority filter. The audit's own finding
+  was "no portfolio-wide view," not "no portfolio-wide filtering";
+  this closes the former.
+- No aggregate counts or "needs attention" callout on this new page —
+  that already exists elsewhere (the portfolio digest / reports
+  surfaces this session built earlier), and duplicating it here wasn't
+  the gap this pass closes.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

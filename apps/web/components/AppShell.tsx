@@ -27,6 +27,13 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/vendors", label: "Vendors", icon: "🧰", enabled: true },
   { href: "/marketplace", label: "Marketplace", icon: "🏷️", enabled: true },
   { href: "/documents", label: "Documents", icon: "📄", enabled: true },
+  // The nav audit's own finding: "Maintenance — missing, lives only
+  // inside each property's own detail page, no portfolio-wide view."
+  // GET /properties/maintenance-requests (this pass) backs a real
+  // account-wide list; every action itself still lives on the
+  // property's own page, same read-only-list-plus-drill-in shape
+  // Documents above already uses.
+  { href: "/maintenance", label: "Maintenance", icon: "🔧", enabled: true },
   { href: "/payments", label: "Payments", icon: "💳", enabled: true },
   { href: "/reports", label: "Reports", icon: "📊", enabled: true },
   // Visibility packages (this pass, not from the numbered blueprint) —
