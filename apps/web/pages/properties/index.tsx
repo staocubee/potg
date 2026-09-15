@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Announcement, Branch, DevelopmentAgreementMine, MaintenanceRequest, MaterialOrder, Property } from "../../lib/api";
+import { ApiError, Announcement, Branch, DevelopmentAgreementMine, Lease, MaintenanceRequest, MaterialOrder, Property } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 
@@ -126,6 +126,8 @@ export default function PortfolioPage() {
       <MyDevelopmentInvitesCard />
 
       <PendingApprovalsCard />
+
+      <UpcomingRentCard />
 
       <AnnouncementsCard properties={properties ?? []} />
 
@@ -510,6 +512,62 @@ function PendingApprovalsCard() {
                 <div className="potg-muted" style={{ fontSize: 11 }}>{formatMoney(o.totalAmount)} {o.currency} · needs approval before the supplier can confirm</div>
               </div>
               <span className="potg-badge">order</span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The Property Owner Dashboard's own finding: "Upcoming rent payments —
+// no portfolio-wide rollup exists at all, only per-property." Turns out
+// the rollup already existed one level down: findAllLeasesForAccount (the
+// account-wide GET /properties/leases this page's own sibling
+// TenantsLeasesPage already calls) already computes each active lease's
+// own real upcomingDueDates via computeUpcomingRentDueDates — the exact
+// same anchor-date math the real overdue-reminder cron trusts, not a new
+// projection invented for this card. Just the soonest date per lease
+// (not the full 6-month window that page shows), flattened across every
+// property and sorted, the same "flatten, filter, sort by soonest" shape
+// the Vendor Dashboard's own Milestones due card already established.
+function UpcomingRentCard() {
+  const auth = useAuth();
+  const [leases, setLeases] = useState<Lease[]>([]);
+
+  useEffect(() => {
+    if (!auth.currentAccountId) return;
+    auth.api.listAllLeases().then(setLeases).catch(() => setLeases([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  const rentDue = leases
+    .filter((l) => l.status === "active" && l.upcomingDueDates && l.upcomingDueDates.length > 0)
+    .map((l) => ({ lease: l, dueDate: l.upcomingDueDates![0] }))
+    .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+
+  return (
+    <div className="potg-card" style={{ padding: 16, marginBottom: 16 }}>
+      <h3 style={{ fontSize: 14, marginTop: 0, marginBottom: 8 }}>Upcoming rent payments</h3>
+      {rentDue.length === 0 ? (
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>No upcoming rent due dates across your portfolio.</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {rentDue.map(({ lease, dueDate }) => (
+            <Link
+              key={lease.id}
+              href={`/properties/${lease.propertyId}`}
+              className="potg-card"
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 10, borderColor: "var(--potg-border)" }}
+            >
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: "var(--potg-text)" }}>{lease.tenantAccount?.name ?? lease.tenantName}</div>
+                <div className="potg-muted" style={{ fontSize: 11 }}>{lease.property?.name ?? "Lease"}</div>
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <div style={{ fontSize: 12 }}>{new Date(dueDate).toLocaleDateString()}</div>
+                <div className="potg-muted" style={{ fontSize: 11 }}>{formatMoney(lease.rentAmount)} {lease.currency}</div>
+              </div>
             </Link>
           ))}
         </div>

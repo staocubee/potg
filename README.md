@@ -9562,6 +9562,48 @@ row (see above for why), and no way to approve/reject directly from
 this card — each item links to its own real approval action on its
 existing page, not a duplicated action surface.
 
+## A real "Upcoming rent payments" rollup on the Portfolio page (this pass)
+
+Closes the Property Owner Dashboard's own finding: "Upcoming rent
+payments — no portfolio-wide rollup exists at all, only per-property."
+The rollup itself turned out to already exist one level down:
+`PropertiesService.findAllLeasesForAccount` (the account-wide
+`GET /properties/leases` the `/leases` page already calls) already
+computes each active lease's own real `upcomingDueDates` via
+`computeUpcomingRentDueDates` — the same anchor-date math the real
+overdue-reminder cron trusts, not a new projection invented for this
+card. Zero backend changes; this pass is purely the "flatten, filter,
+sort by soonest" shape the Vendor Dashboard's own Milestones due card
+already established, applied to data that was one endpoint away.
+
+**What's built**:
+
+- `apps/web/pages/properties/index.tsx` gained `UpcomingRentCard`, a
+  real, always-visible, self-fetching card that takes every active
+  lease's soonest real due date (`upcomingDueDates[0]`, not the full
+  6-month window the lease's own detail view shows) across the whole
+  portfolio, sorted soonest first.
+- Each row links to the lease's own property page and shows the real
+  tenant name, real due date, and real rent amount.
+
+**Verified live**: on the real demo owner account, `GET
+/properties/leases` returned 9 leases, 6 active with real
+`upcomingDueDates` populated by the real, pre-existing computation —
+the new card rendered exactly those 6, in the exact same order a
+manual sort of the raw dates produced: Overdue Test Tenant
+(01/07/2026, a real past-due test fixture whose own anchor hasn't
+advanced — not fabricated, the same real math the lease's own page
+would show), Demo Tenant and Reminder Verification Tenant (both
+02/09/2026), Edit UI Test Tenant (01/10/2026), New Auto Tenant
+(30/10/2026), and a second Demo Tenant lease (01/06/2027) — each with
+its real rent amount and tenant name.
+
+**Not done — explicit scope, not oversight**: only the next due date
+per lease, not the full forward window — a dashboard summary that
+listed six months of every lease at once would bury the actual signal
+("what's coming up next"), and the full window is still one click away
+on the lease's own page.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
