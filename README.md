@@ -8669,6 +8669,12 @@ same real cart write the direct API calls did.
   scope description is already the real, re-runnable source of truth
   this feature reads from each time, so there was nothing a separate
   persisted BOQ record would capture that scope + cart don't already.
+  Still true of *this* feature specifically — `boq_to_order` still
+  reads free-text scope, not a structured record. A real
+  `ProjectBoqItem` model exists now (see "A real Bill of Quantities"
+  below), but it closes a different audit finding (Workflow 4's own
+  "Plans and BOQ are uploaded") and is deliberately not wired into this
+  cart-import mechanism at all.
 - Items with no matching product in the catalog are still just
   reported as text ("no matching product in the catalog yet") —
   nothing suggests the closest category or prompts the buyer to browse
@@ -8824,6 +8830,72 @@ Documents section afterward.
 - No re-generation or versioning — accepting a second draft creates a
   second `Document` row rather than replacing the first; nothing
   merges or supersedes prior generated agreements.
+
+## A real Bill of Quantities (this pass)
+
+Closes the audit's own finding on Workflow 4: "Plans and BOQ are
+uploaded — Plans: possible via the freeform document-type escape
+hatch. Real BOQ: doesn't exist. `boq_to_order` is an AI keyword-matcher
+over free-text scope with no quantities and no persisted model — not
+an upload feature."
+
+**A genuinely different gap from the one `boq_to_order` already
+closed.** That AI skill (Workflow 6, an earlier pass) turns a
+project's free-text scope into cart items, and deliberately has no
+persisted model of its own — the reasoning on record is that scope +
+cart already capture everything *that* mechanism needs. This finding
+is a different literal thing: the real take-off artifact itself, with
+real quantities, the thing the audit says doesn't exist anywhere. The
+two stay deliberately unconnected — `ProjectBoqItem` rows are not read
+by `boq_to_order`, and `boq_to_order`'s cart writes don't touch this
+table. Building one doesn't quietly reopen the other's closed scope;
+they answer two different steps in the same audit.
+
+**What's built**:
+
+- A real `ProjectBoqItem` model (migration
+  `20260917000000_add_project_boq_items`) — `description`, `quantity`,
+  an optional `unit`, an optional `estimatedUnitCost`, scoped to a
+  project.
+- `POST /projects/:projectId/boq-items` and
+  `DELETE /projects/:projectId/boq-items/:itemId` — reusing
+  `milestone:write`, not `project:write`: a BOQ line item is the same
+  kind of work-breakdown detail a milestone is, not an edit to the
+  project's own core fields, so the same narrower set of roles that
+  can add milestones can add these.
+- A real "Bill of Quantities" card on the project page: an add-item
+  form and a real delete action per line, sitting above Milestones —
+  the same card shape and permission gate (`isOwningAccount` +
+  `milestone:write`) Milestones itself already uses.
+
+**Verified live** on the real "Kitchen Renovation" project: added two
+real items via direct API calls (120 bags of cement at an estimated
+NGN 8,500/unit, 450 sq ft of ceramic tiles with no cost estimate),
+confirmed both persisted on a fresh `GET`, deleted one and confirmed
+only the other remained, and confirmed a delete through a *different*
+project's own route got a real 404 rather than silently succeeding
+cross-project. Separately verified the real UI: the "Bill of
+Quantities" card rendered the seeded item, added "Reinforcement rods
+(12mm)" (75 pieces) through the real form, confirmed it appeared
+immediately, then clicked the real "Remove" button on it and confirmed
+it was gone — both real writes confirmed against a fresh `GET
+/projects/:id` afterward, not just trusted from the client-side state.
+
+**Not done — explicit scope, not oversight**:
+
+- Not wired into `boq_to_order` or the cart — see above. A future pass
+  could have the skill prefer real BOQ items over free-text scope when
+  they exist; this pass deliberately doesn't attempt that, to keep this
+  closing one finding, not quietly redesigning another.
+- No edit action, only add/remove — correcting a quantity means
+  deleting the row and re-adding it. The same minimal shape
+  `ProjectMilestone` itself shipped with (no `PATCH` there either).
+  Milestones stayed that way; the analogy suggested this new sub-
+  resource start the same way rather than sailing past its own model.
+- No unit-price rollup or budget comparison — `estimatedUnitCost` is
+  stored and shown per line, but nothing sums it against the project's
+  own `budget` field. A real total is a small extension, not something
+  this pass claims it doesn't need.
 
 ## Not built yet
 

@@ -1088,6 +1088,7 @@ export type Project = {
   materialsSpent?: string;
   totalSpent?: number;
   contract?: ProjectContract | null;
+  boqItems?: ProjectBoqItem[];
 };
 
 // The audit's own finding on Workflow 5: "No Contract model exists
@@ -1105,6 +1106,22 @@ export type ProjectContract = {
   milestonesSnapshot: { title: string; description?: string | null; paymentAmount: number | null; dueDate?: string | null }[];
   createdAt: string;
   vendor?: { businessName: string };
+};
+
+// The audit's own finding on Workflow 4: "Real BOQ: doesn't exist...
+// no quantities and no persisted model." A genuinely different gap from
+// the one boq_to_order (Workflow 6) already closed — that AI skill
+// turns free-text scope into cart items and deliberately has no model
+// of its own; this is the real take-off artifact itself, with real
+// quantities, kept deliberately unconnected to boq_to_order or the cart.
+export type ProjectBoqItem = {
+  id: string;
+  projectId: string;
+  description: string;
+  quantity: string;
+  unit?: string | null;
+  estimatedUnitCost?: string | null;
+  createdAt: string;
 };
 
 export type Payout = {
@@ -2398,6 +2415,21 @@ export class ApiClient {
     return request<ProjectMilestone>(`/projects/${projectId}/milestones`, {
       method: "POST",
       body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  addBoqItem(projectId: string, input: { description: string; quantity: number; unit?: string; estimatedUnitCost?: number }) {
+    return request<ProjectBoqItem>(`/projects/${projectId}/boq-items`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  removeBoqItem(projectId: string, itemId: string) {
+    return request<{ deleted: boolean }>(`/projects/${projectId}/boq-items/${itemId}`, {
+      method: "DELETE",
       token: this.token,
       accountId: this.accountId,
     });

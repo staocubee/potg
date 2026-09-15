@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { AddMilestoneDto } from './dto/add-milestone.dto';
+import { AddBoqItemDto } from './dto/add-boq-item.dto';
 import { AddProjectUpdateDto } from './dto/add-project-update.dto';
 import { RequestQuoteDto } from './dto/request-quote.dto';
 import { UpdateProjectStageDto } from './dto/update-project-stage.dto';
@@ -79,6 +80,7 @@ export class ProjectsService {
         assignments: { include: { vendor: true } },
         reviews: true,
         contract: { include: { vendor: { select: { businessName: true } } } },
+        boqItems: { orderBy: { createdAt: 'asc' } },
       },
     });
     if (!project) return project;
@@ -182,6 +184,25 @@ export class ProjectsService {
         dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
       },
     });
+  }
+
+  addBoqItem(projectId: string, dto: AddBoqItemDto) {
+    return this.prisma.projectBoqItem.create({
+      data: {
+        projectId,
+        description: dto.description,
+        quantity: dto.quantity,
+        unit: dto.unit,
+        estimatedUnitCost: dto.estimatedUnitCost,
+      },
+    });
+  }
+
+  async removeBoqItem(projectId: string, itemId: string) {
+    const item = await this.prisma.projectBoqItem.findFirst({ where: { id: itemId, projectId } });
+    if (!item) throw new NotFoundException('BOQ item not found on this project');
+    await this.prisma.projectBoqItem.delete({ where: { id: itemId } });
+    return { deleted: true };
   }
 
   // Module 19 Phase 1's "Project updates" trigger. Originally owner-only

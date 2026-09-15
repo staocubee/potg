@@ -9,6 +9,7 @@ import { ProjectsService } from './projects.service';
 import { VendorsService } from '../vendors/vendors.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { AddMilestoneDto } from './dto/add-milestone.dto';
+import { AddBoqItemDto } from './dto/add-boq-item.dto';
 import { AddProjectUpdateDto } from './dto/add-project-update.dto';
 import { RequestQuoteDto } from './dto/request-quote.dto';
 import { UpdateProjectStageDto } from './dto/update-project-stage.dto';
@@ -53,6 +54,22 @@ export class ProjectsController {
   @Post(':projectId/milestones')
   addMilestone(@Param('projectId') projectId: string, @Body() dto: AddMilestoneDto) {
     return this.projects.addMilestone(projectId, dto);
+  }
+
+  // Reuses milestone:write, not project:write — a BOQ line item is the
+  // same kind of work-breakdown detail a milestone is, not a change to
+  // the project's own core fields, so the same narrower set of roles
+  // that can add milestones can add these too.
+  @RequirePermissions('milestone:write')
+  @Post(':projectId/boq-items')
+  addBoqItem(@Param('projectId') projectId: string, @Body() dto: AddBoqItemDto) {
+    return this.projects.addBoqItem(projectId, dto);
+  }
+
+  @RequirePermissions('milestone:write')
+  @Delete(':projectId/boq-items/:itemId')
+  removeBoqItem(@Param('projectId') projectId: string, @Param('itemId') itemId: string) {
+    return this.projects.removeBoqItem(projectId, itemId);
   }
 
   // project:update_progress (not project:write) — deliberately reachable

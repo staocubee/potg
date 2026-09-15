@@ -48,6 +48,8 @@ export default function ProjectDetailPage() {
   const [inspections, setInspections] = useState<PropertyInspection[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showMilestoneForm, setShowMilestoneForm] = useState(false);
+  const [showBoqForm, setShowBoqForm] = useState(false);
+  const [boqActionId, setBoqActionId] = useState<string | null>(null);
   const [showUpdateForm, setShowUpdateForm] = useState(false);
   const [showQuoteRequest, setShowQuoteRequest] = useState(false);
   const [showDepositForm, setShowDepositForm] = useState(false);
@@ -125,6 +127,20 @@ export default function ProjectDetailPage() {
         });
       })
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this project."));
+  }
+
+  async function onRemoveBoqItem(itemId: string) {
+    if (!id) return;
+    setBoqActionId(itemId);
+    setError(null);
+    try {
+      await auth.api.removeBoqItem(id, itemId);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't remove that item.");
+    } finally {
+      setBoqActionId(null);
+    }
   }
 
   async function onApproveMilestone(milestoneId: string) {
@@ -530,6 +546,55 @@ export default function ProjectDetailPage() {
             </div>
           </div>
 
+          <div className="potg-card" style={{ padding: 18 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <h3 style={{ fontSize: 14, margin: 0 }}>Bill of Quantities</h3>
+              {isOwningAccount && auth.hasPermission("milestone:write") && (
+                <button className="potg-btn potg-btn-secondary" onClick={() => setShowBoqForm((v) => !v)}>
+                  {showBoqForm ? "Cancel" : "+ Add item"}
+                </button>
+              )}
+            </div>
+            {showBoqForm && id && (
+              <AddBoqItemForm
+                projectId={id}
+                onCreated={() => {
+                  setShowBoqForm(false);
+                  load();
+                }}
+              />
+            )}
+            {(!project.boqItems || project.boqItems.length === 0) && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>No BOQ items yet — add a line item for each quantity this project needs.</p>
+            )}
+            {project.boqItems && project.boqItems.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {project.boqItems.map((item) => (
+                  <div key={item.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", fontSize: 13 }}>
+                    <div>
+                      <span style={{ fontWeight: 600 }}>{item.description}</span>
+                      <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                        {item.quantity}
+                        {item.unit && ` ${item.unit}`}
+                        {item.estimatedUnitCost && ` · est. ${formatMoney(item.estimatedUnitCost, project.currency)}/unit`}
+                      </div>
+                    </div>
+                    {isOwningAccount && auth.hasPermission("milestone:write") && (
+                      <button
+                        className="potg-btn potg-btn-danger"
+                        style={{ padding: "3px 8px", fontSize: 11 }}
+                        disabled={boqActionId !== null}
+                        onClick={() => onRemoveBoqItem(item.id)}
+                      >
+                        {boqActionId === item.id ? "…" : "Remove"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <div className="potg-card" style={{ padding: 18 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -795,6 +860,50 @@ function AddMilestoneForm({ projectId, onCreated }: { projectId: string; onCreat
       </div>
       <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
         {busy ? "Adding…" : "Add milestone"}
+      </button>
+    </form>
+  );
+}
+
+function AddBoqItemForm({ projectId, onCreated }: { projectId: string; onCreated: () => void }) {
+  const auth = useAuth();
+  const [description, setDescription] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [unit, setUnit] = useState("");
+  const [estimatedUnitCost, setEstimatedUnitCost] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await auth.api.addBoqItem(projectId, {
+        description,
+        quantity: Number(quantity),
+        unit: unit || undefined,
+        estimatedUnitCost: estimatedUnitCost ? Number(estimatedUnitCost) : undefined,
+      });
+      onCreated();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't add that item.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+      {error && <div className="potg-error">{error}</div>}
+      <input className="potg-input" required autoFocus placeholder="Description (e.g. Bags of cement)" value={description} onChange={(e) => setDescription(e.target.value)} />
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+        <input className="potg-input" type="number" min={0} required placeholder="Quantity" value={quantity} onChange={(e) => setQuantity(e.target.value)} />
+        <input className="potg-input" placeholder="Unit (optional)" value={unit} onChange={(e) => setUnit(e.target.value)} />
+        <input className="potg-input" type="number" min={0} placeholder="Est. unit cost" value={estimatedUnitCost} onChange={(e) => setEstimatedUnitCost(e.target.value)} />
+      </div>
+      <button className="potg-btn potg-btn-primary" type="submit" disabled={busy}>
+        {busy ? "Adding…" : "Add item"}
       </button>
     </form>
   );
