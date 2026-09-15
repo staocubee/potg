@@ -18,6 +18,7 @@ import { CompleteInspectionDto } from './dto/complete-inspection.dto';
 import { CreateLeaseDto } from './dto/create-lease.dto';
 import { UpdateLeaseDto } from './dto/update-lease.dto';
 import { RecordRentPaymentDto } from './dto/record-rent-payment.dto';
+import { AdjustRentScheduleEntryDto } from './dto/adjust-rent-schedule-entry.dto';
 import { EndLeaseDto } from './dto/end-lease.dto';
 import { ReportMaintenanceRequestDto } from './dto/report-maintenance-request.dto';
 import { UpdateMaintenanceRequestDto } from './dto/update-maintenance-request.dto';
@@ -376,6 +377,29 @@ export class PropertiesController {
     @Body() dto: RecordRentPaymentDto,
   ) {
     return this.properties.recordRentPayment(propertyId, leaseId, dto);
+  }
+
+  @RequirePermissions('lease:read')
+  @Get(':propertyId/leases/:leaseId/rent-schedule')
+  listRentSchedule(@Param('propertyId') propertyId: string, @Param('leaseId') leaseId: string) {
+    return this.properties.listRentSchedule(propertyId, leaseId);
+  }
+
+  @RequirePermissions('lease:write')
+  @Post(':propertyId/leases/:leaseId/rent-schedule/generate-more')
+  generateMoreRentSchedule(@Param('propertyId') propertyId: string, @Param('leaseId') leaseId: string) {
+    return this.properties.generateMoreRentSchedule(propertyId, leaseId);
+  }
+
+  @RequirePermissions('lease:write')
+  @Patch(':propertyId/leases/:leaseId/rent-schedule/:entryId')
+  adjustRentScheduleEntry(
+    @Param('propertyId') propertyId: string,
+    @Param('leaseId') leaseId: string,
+    @Param('entryId') entryId: string,
+    @Body() dto: AdjustRentScheduleEntryDto,
+  ) {
+    return this.properties.adjustRentScheduleEntry(propertyId, leaseId, entryId, dto);
   }
 
   @RequirePermissions('lease:write')

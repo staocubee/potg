@@ -26,7 +26,8 @@ import { ResolveMaintenanceRequestDto } from './dto/resolve-maintenance-request.
 import { SetMaintenanceApprovalDto } from './dto/set-maintenance-approval.dto';
 import { AddPropertyOwnerDto } from './dto/add-property-owner.dto';
 import { UpdatePropertyOwnerDto } from './dto/update-property-owner.dto';
-import { computeUpcomingRentDueDates } from '../common/rent-schedule.util';
+import { computeNextDueDates } from '../common/rent-schedule.util';
+import { AdjustRentScheduleEntryDto } from './dto/adjust-rent-schedule-entry.dto';
 
 // Service categories where a real license is what "licensed" means in
 // this scaffold's own terms — see the schema comment on
@@ -855,6 +856,11 @@ export class PropertiesService {
         label: `Lease started: ${dto.tenantName}, ${dto.rentAmount.toLocaleString()} ${lease.currency}/${dto.rentFrequency}`,
       },
     });
+    // The audit's own finding on Workflow 8: "No RentSchedule model." A
+    // real lease gets a real schedule from day one — the same 6-entry
+    // default computeUpcomingRentDueDates always surfaced, now written as
+    // real rows instead of only ever recomputed.
+    await this.generateRentSchedule(lease, lease.startDate);
     return lease;
   }
 
@@ -884,19 +890,27 @@ export class PropertiesService {
     });
   }
 
+  // upcomingDueDates is now real, persisted data — every real "due"
+  // LeaseRentScheduleEntry's own dueDate, not a fresh computation on
+  // every call. Kept as the same string[] shape the field always had, so
+  // every existing caller (the Portfolio page's own Upcoming rent
+  // payments card included) needed zero changes.
+  private static upcomingDueDates(lease: { status: string; scheduleEntries?: { dueDate: Date }[] }): string[] {
+    if (lease.status !== 'active') return [];
+    return (lease.scheduleEntries ?? []).map((e) => e.dueDate.toISOString());
+  }
+
   async findLeases(propertyId: string) {
     const leases = await this.prisma.lease.findMany({
       where: { propertyId },
       include: {
         rentPayments: { include: { receipt: true }, orderBy: { periodStart: 'desc' } },
+        scheduleEntries: { where: { status: 'due' }, orderBy: { dueDate: 'asc' } },
         tenantAccount: { select: { id: true, name: true } },
       },
       orderBy: { startDate: 'desc' },
     });
-    return leases.map((lease) => ({
-      ...lease,
-      upcomingDueDates: lease.status === 'active' ? computeUpcomingRentDueDates(lease) : [],
-    }));
+    return leases.map((lease) => ({ ...lease, upcomingDueDates: PropertiesService.upcomingDueDates(lease) }));
   }
 
   // The nav audit's own finding on the Owner/Admin Sidebar: "Tenants &
@@ -909,15 +923,13 @@ export class PropertiesService {
       where: { property: { accountId } },
       include: {
         rentPayments: { include: { receipt: true }, orderBy: { periodStart: 'desc' } },
+        scheduleEntries: { where: { status: 'due' }, orderBy: { dueDate: 'asc' } },
         tenantAccount: { select: { id: true, name: true } },
         property: { select: { id: true, name: true, addressLine: true, city: true, country: true } },
       },
       orderBy: { startDate: 'desc' },
     });
-    return leases.map((lease) => ({
-      ...lease,
-      upcomingDueDates: lease.status === 'active' ? computeUpcomingRentDueDates(lease) : [],
-    }));
+    return leases.map((lease) => ({ ...lease, upcomingDueDates: PropertiesService.upcomingDueDates(lease) }));
   }
 
   async findLease(propertyId: string, leaseId: string) {
@@ -925,11 +937,12 @@ export class PropertiesService {
       where: { id: leaseId, propertyId },
       include: {
         rentPayments: { include: { receipt: true }, orderBy: { periodStart: 'desc' } },
+        scheduleEntries: { where: { status: 'due' }, orderBy: { dueDate: 'asc' } },
         tenantAccount: { select: { id: true, name: true } },
       },
     });
     if (!lease) return lease;
-    return { ...lease, upcomingDueDates: lease.status === 'active' ? computeUpcomingRentDueDates(lease) : [] };
+    return { ...lease, upcomingDueDates: PropertiesService.upcomingDueDates(lease) };
   }
 
   // The audit's own finding on Workflow 8: "Receipt only attaches to
@@ -948,6 +961,19 @@ export class PropertiesService {
     if (lease.status !== 'active') {
       throw new BadRequestException(`This lease is "${lease.status}" — no rent to record against it`);
     }
+    // The audit's own finding on Workflow 8: "No RentSchedule model."
+    // Optional — a payment can still be recorded free-form with no
+    // schedule entry, same as before this pass — but when one is given,
+    // it has to actually be a real, still-"due" entry on this same
+    // lease, same referential-integrity check every other optional
+    // cross-reference in this service already makes.
+    if (dto.scheduleEntryId) {
+      const entry = await this.prisma.leaseRentScheduleEntry.findFirst({ where: { id: dto.scheduleEntryId, leaseId } });
+      if (!entry) throw new BadRequestException('That schedule entry does not belong to this lease');
+      if (entry.status !== 'due') {
+        throw new BadRequestException(`That schedule entry is already "${entry.status}" — only a due entry can be paid`);
+      }
+    }
     const currency = dto.currency ?? lease.currency;
     const payment = await this.prisma.leaseRentPayment.create({
       data: {
@@ -958,8 +984,12 @@ export class PropertiesService {
         periodEnd: new Date(dto.periodEnd),
         method: dto.method ?? 'manual',
         notes: dto.notes,
+        scheduleEntryId: dto.scheduleEntryId,
       },
     });
+    if (dto.scheduleEntryId) {
+      await this.prisma.leaseRentScheduleEntry.update({ where: { id: dto.scheduleEntryId }, data: { status: 'paid' } });
+    }
     const receipt = await this.prisma.receipt.create({
       data: {
         accountId: lease.property.accountId,
@@ -974,6 +1004,78 @@ export class PropertiesService {
       },
     });
     return { ...payment, receipt };
+  }
+
+  // The audit's own finding on Workflow 8: "No RentSchedule model — just
+  // rentFrequency + startDate, with due dates derived on the fly." A
+  // real lease gets a real batch of schedule entries generated once,
+  // here — at creation, and again on demand via generateMoreRentSchedule
+  // below, rather than silently regenerating on every read (this
+  // codebase's usual "compute on read" restraint deliberately doesn't
+  // apply here: the whole point of a persisted schedule is that a
+  // landlord's own edit to one entry — a deferred date, a waived period
+  // — has to actually stick, not get silently recomputed away next time
+  // anyone looks at the lease).
+  private async generateRentSchedule(
+    lease: { id: string; rentFrequency: string; startDate: Date; endDate: Date | null; currency: string; rentAmount: unknown },
+    anchor: Date,
+    count = 6,
+  ) {
+    const dates = computeNextDueDates(anchor, lease.rentFrequency, lease.endDate, count);
+    if (dates.length === 0) return [];
+    return this.prisma.leaseRentScheduleEntry.createManyAndReturn({
+      data: dates.map((dueDate) => ({ leaseId: lease.id, dueDate, amount: lease.rentAmount as any, currency: lease.currency })),
+    });
+  }
+
+  async listRentSchedule(propertyId: string, leaseId: string) {
+    const lease = await this.prisma.lease.findFirst({ where: { id: leaseId, propertyId } });
+    if (!lease) throw new NotFoundException('Lease not found on this property');
+    return this.prisma.leaseRentScheduleEntry.findMany({
+      where: { leaseId },
+      include: { payment: { select: { id: true, paidAt: true } } },
+      orderBy: { dueDate: 'asc' },
+    });
+  }
+
+  // A real, explicit, landlord-triggered action — not a hidden write on
+  // every GET — so a long-running lease's schedule never runs out of
+  // real future entries without something visible having asked for more.
+  // Anchors off the furthest entry already generated, so calling this
+  // repeatedly never overlaps or skips a real period.
+  async generateMoreRentSchedule(propertyId: string, leaseId: string, count = 6) {
+    const lease = await this.prisma.lease.findFirst({ where: { id: leaseId, propertyId } });
+    if (!lease) throw new NotFoundException('Lease not found on this property');
+    if (lease.status !== 'active') {
+      throw new BadRequestException(`This lease is "${lease.status}" — no schedule to extend`);
+    }
+    const latest = await this.prisma.leaseRentScheduleEntry.findFirst({ where: { leaseId }, orderBy: { dueDate: 'desc' } });
+    const anchor = latest ? latest.dueDate : lease.startDate;
+    return this.generateRentSchedule(lease, anchor, count);
+  }
+
+  // Only while "due" — a paid entry is real history now (it's the reason
+  // a real payment exists), and a skipped one that's later reinstated
+  // should be a deliberate second action, not silently implied by
+  // editing something else. Same "only while X state" restraint
+  // updateLease/recordRentPayment already use elsewhere in this file.
+  async adjustRentScheduleEntry(propertyId: string, leaseId: string, entryId: string, dto: AdjustRentScheduleEntryDto) {
+    const lease = await this.prisma.lease.findFirst({ where: { id: leaseId, propertyId } });
+    if (!lease) throw new NotFoundException('Lease not found on this property');
+    const entry = await this.prisma.leaseRentScheduleEntry.findFirst({ where: { id: entryId, leaseId } });
+    if (!entry) throw new NotFoundException('Schedule entry not found on this lease');
+    if (entry.status !== 'due') {
+      throw new BadRequestException(`This entry is already "${entry.status}" — only a due entry can be adjusted`);
+    }
+    return this.prisma.leaseRentScheduleEntry.update({
+      where: { id: entryId },
+      data: {
+        dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
+        amount: dto.amount ?? undefined,
+        status: dto.status ?? undefined,
+        notes: dto.notes !== undefined ? dto.notes : undefined,
+      },
+    });
   }
 
   async endLease(propertyId: string, leaseId: string, dto: EndLeaseDto) {

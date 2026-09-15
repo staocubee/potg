@@ -782,6 +782,22 @@ export type LeaseRentPayment = {
   // Only present on payments recorded since this pass — not retroactive
   // for older seeded/test data.
   receipt?: Receipt | null;
+  // Set only when this payment was recorded against a real
+  // LeaseRentScheduleEntry rather than a free-form date range.
+  scheduleEntryId?: string | null;
+};
+
+export type LeaseRentScheduleEntry = {
+  id: string;
+  leaseId: string;
+  dueDate: string;
+  amount: string;
+  currency: string;
+  status: "due" | "paid" | "skipped" | string;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  payment?: { id: string; paidAt: string } | null;
 };
 
 export type Lease = {
@@ -808,11 +824,16 @@ export type Lease = {
   rentPayments?: LeaseRentPayment[];
   property?: { id: string; name: string; addressLine: string; city?: string | null; country: string };
   // The audit's own finding: "No RentSchedule model — just rentFrequency
-  // + startDate, with due dates derived on the fly." Computed live off
-  // the same anchor-date math the real reminder cron already trusts
-  // (see PropertiesService.findLease's own comment) — only present for
-  // an active lease, empty for ended/terminated ones.
+  // + startDate, with due dates derived on the fly." Now real, persisted
+  // LeaseRentScheduleEntry rows (see PropertiesService.generateRentSchedule)
+  // — this field is still every "due" entry's own dueDate, same shape as
+  // before this pass, so no caller of it needed to change.
   upcomingDueDates?: string[];
+  // Only present where the caller's own query included it (findLeases/
+  // findAllLeasesForAccount/findLease include only the "due" ones; the
+  // dedicated rent-schedule endpoint below returns every entry regardless
+  // of status).
+  scheduleEntries?: LeaseRentScheduleEntry[];
 };
 
 export type MaintenanceRequest = {
@@ -2354,10 +2375,44 @@ export class ApiClient {
   recordRentPayment(
     propertyId: string,
     leaseId: string,
-    input: { amount: number; currency?: string; periodStart: string; periodEnd: string; method?: string; notes?: string },
+    input: {
+      amount: number;
+      currency?: string;
+      periodStart: string;
+      periodEnd: string;
+      method?: string;
+      notes?: string;
+      scheduleEntryId?: string;
+    },
   ) {
     return request<LeaseRentPayment>(`/properties/${propertyId}/leases/${leaseId}/rent-payments`, {
       method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  listRentSchedule(propertyId: string, leaseId: string) {
+    return request<LeaseRentScheduleEntry[]>(`/properties/${propertyId}/leases/${leaseId}/rent-schedule`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  generateMoreRentSchedule(propertyId: string, leaseId: string) {
+    return request<LeaseRentScheduleEntry[]>(`/properties/${propertyId}/leases/${leaseId}/rent-schedule/generate-more`, {
+      method: "POST",
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  adjustRentScheduleEntry(
+    propertyId: string,
+    leaseId: string,
+    entryId: string,
+    input: { dueDate?: string; amount?: number; status?: "due" | "skipped"; notes?: string },
+  ) {
+    return request<LeaseRentScheduleEntry>(`/properties/${propertyId}/leases/${leaseId}/rent-schedule/${entryId}`, {
+      method: "PATCH",
       body: input,
       token: this.token,
       accountId: this.accountId,

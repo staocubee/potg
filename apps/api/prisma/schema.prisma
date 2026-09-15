@@ -1767,9 +1767,10 @@ model Lease {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  property            Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  tenantAccount       Account?             @relation("TenantAccountLeases", fields: [tenantAccountId], references: [id], onDelete: SetNull)
+  property            Property                 @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tenantAccount       Account?                 @relation("TenantAccountLeases", fields: [tenantAccountId], references: [id], onDelete: SetNull)
   rentPayments        LeaseRentPayment[]
+  scheduleEntries     LeaseRentScheduleEntry[]
   maintenanceRequests MaintenanceRequest[]
   documents           Document[]
 
@@ -1791,11 +1792,50 @@ model LeaseRentPayment {
   method      String   @default("manual") // manual | bank_transfer | mobile_money
   notes       String?
   paidAt      DateTime @default(now())
+  // The audit's own finding on Workflow 8: "No RentSchedule model — dates
+  // stay derived on the fly, not stored." Set when this payment was
+  // recorded against a real, specific schedule entry rather than a bare
+  // date range with no schedule behind it — see LeaseRentScheduleEntry's
+  // own comment for why that distinction is the actual gap this closes.
+  // Optional: a payment can still be recorded free-form with no schedule
+  // entry, same as before this pass.
+  scheduleEntryId String? @unique
 
-  lease   Lease    @relation(fields: [leaseId], references: [id], onDelete: Cascade)
-  receipt Receipt?
+  lease         Lease                   @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  scheduleEntry LeaseRentScheduleEntry? @relation(fields: [scheduleEntryId], references: [id], onDelete: SetNull)
+  receipt       Receipt?
 
   @@map("lease_rent_payments")
+}
+
+// The audit's own finding on Workflow 8: "No RentSchedule model — just
+// rentFrequency + startDate, with due dates derived on the fly wherever
+// overdue-checking happens to run." computeUpcomingRentDueDates (an
+// earlier pass) made that computation visible instead of only running
+// invisibly inside a cron — genuinely useful, but still not what the
+// finding actually names: a real row a landlord can individually adjust
+// (defer one month's due date, waive a period, change one installment's
+// amount) rather than a formula that only ever regenerates the same
+// dates from rentFrequency + startDate. RentSchedulerService generates
+// these — the same per-frequency day math computeUpcomingRentDueDates
+// already used, now writing real rows instead of returning computed
+// ones — and tops the schedule up lazily on read so a long-running lease
+// never needs a background job to keep 6 real future entries on hand.
+model LeaseRentScheduleEntry {
+  id        String   @id @default(uuid())
+  leaseId   String
+  dueDate   DateTime
+  amount    Decimal  @db.Decimal(14, 2)
+  currency  String
+  status    String   @default("due") // due | paid | skipped
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lease   Lease             @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  payment LeaseRentPayment?
+
+  @@map("lease_rent_schedule_entries")
 }
 
 // --- Module 12: Maintenance ----------------------------------------------

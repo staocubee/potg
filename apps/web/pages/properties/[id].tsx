@@ -2,7 +2,7 @@ import { ChangeEvent, FormEvent, PointerEvent as ReactPointerEvent, useEffect, u
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { AccessGrant, AccountMemberSummary, AiActionResult, ApiError, Branch, ComparableValuation, DevelopmentAgreement, Lease, MaintenanceRequest, Project, Property, PropertyDevice, PropertyInspection, PropertyTourAsset, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
+import { AccessGrant, AccountMemberSummary, AiActionResult, ApiError, Branch, ComparableValuation, DevelopmentAgreement, Lease, LeaseRentScheduleEntry, MaintenanceRequest, Project, Property, PropertyDevice, PropertyInspection, PropertyTourAsset, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import AiDraftCard, { DraftDecision } from "../../components/AiDraftCard";
@@ -2699,6 +2699,7 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
   const [editEndDate, setEditEndDate] = useState(lease.endDate ? lease.endDate.slice(0, 10) : "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"record" | "end" | "edit" | "link" | null>(null);
+  const [showSchedule, setShowSchedule] = useState(false);
 
   // Same "toggle reveals a draft flow, Accept chains a real write" shape
   // generate_project_scope's own NewProjectForm established — except here
@@ -2856,6 +2857,9 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
           <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setRecording(true)}>
             Record rent payment
           </button>
+          <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setShowSchedule((v) => !v)}>
+            {showSchedule ? "Hide rent schedule" : "Rent schedule"}
+          </button>
           <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setEditing(true)}>
             Edit
           </button>
@@ -2909,6 +2913,10 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
             </div>
           )}
         </div>
+      )}
+
+      {lease.status === "active" && showSchedule && (
+        <RentScheduleSection propertyId={propertyId} lease={lease} onChanged={onChanged} />
       )}
 
       {lease.status === "active" && recording && (
@@ -2983,6 +2991,175 @@ function LeaseRow({ propertyId, lease, onChanged }: { propertyId: string; lease:
             </button>
           </div>
         </form>
+      )}
+    </div>
+  );
+}
+
+// The audit's own finding on Workflow 8: "No RentSchedule model." Real,
+// persisted LeaseRentScheduleEntry rows now back this — a landlord can
+// defer/correct one specific due date, skip a period, extend the
+// schedule, or pay a specific entry directly, all as their own real
+// actions rather than a recomputed list. Own component (not folded into
+// LeaseRow) since it fetches its own data on demand, same "toggle loads
+// its own section" shape used for AI drafts above.
+function RentScheduleSection({ propertyId, lease, onChanged }: { propertyId: string; lease: Lease; onChanged: () => void }) {
+  const auth = useAuth();
+  const [entries, setEntries] = useState<LeaseRentScheduleEntry[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftDueDate, setDraftDueDate] = useState("");
+  const [draftAmount, setDraftAmount] = useState("");
+  const [generating, setGenerating] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const rows = await auth.api.listRentSchedule(propertyId, lease.id);
+      setEntries(rows);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't load the rent schedule.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lease.id]);
+
+  function startEdit(entry: LeaseRentScheduleEntry) {
+    setEditingId(entry.id);
+    setDraftDueDate(entry.dueDate.slice(0, 10));
+    setDraftAmount(entry.amount);
+  }
+
+  async function onSaveEdit(entry: LeaseRentScheduleEntry) {
+    setBusyId(entry.id);
+    setError(null);
+    try {
+      await auth.api.adjustRentScheduleEntry(propertyId, lease.id, entry.id, {
+        dueDate: new Date(draftDueDate).toISOString(),
+        amount: Number(draftAmount),
+      });
+      setEditingId(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't update that entry.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onSkip(entry: LeaseRentScheduleEntry) {
+    setBusyId(entry.id);
+    setError(null);
+    try {
+      await auth.api.adjustRentScheduleEntry(propertyId, lease.id, entry.id, { status: "skipped" });
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't skip that entry.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onPay(entry: LeaseRentScheduleEntry) {
+    setBusyId(entry.id);
+    setError(null);
+    try {
+      await auth.api.recordRentPayment(propertyId, lease.id, {
+        amount: Number(entry.amount),
+        currency: entry.currency,
+        periodStart: entry.dueDate,
+        periodEnd: entry.dueDate,
+        scheduleEntryId: entry.id,
+      });
+      await load();
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't record that payment.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function onGenerateMore() {
+    setGenerating(true);
+    setError(null);
+    try {
+      await auth.api.generateMoreRentSchedule(propertyId, lease.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't extend the schedule.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  const canWrite = auth.hasPermission("lease:write");
+
+  return (
+    <div style={{ marginTop: 10, padding: 8, border: "1px solid var(--potg-border)", borderRadius: 6 }}>
+      {loading && <div className="potg-muted" style={{ fontSize: 11 }}>Loading schedule…</div>}
+      {error && <div className="potg-error" style={{ fontSize: 11 }}>{error}</div>}
+      {!loading && entries && entries.length === 0 && (
+        <div className="potg-muted" style={{ fontSize: 11 }}>No schedule entries yet.</div>
+      )}
+      {!loading && entries && entries.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {entries.map((entry) => (
+            <div key={entry.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: 11 }}>
+              {editingId === entry.id ? (
+                <>
+                  <input className="potg-input" type="date" value={draftDueDate} onChange={(e) => setDraftDueDate(e.target.value)} style={{ fontSize: 11 }} />
+                  <input
+                    className="potg-input"
+                    type="number"
+                    min={0}
+                    value={draftAmount}
+                    onChange={(e) => setDraftAmount(e.target.value)}
+                    style={{ fontSize: 11, width: 90 }}
+                  />
+                  <button className="potg-btn potg-btn-primary" style={{ padding: "2px 6px", fontSize: 10.5 }} disabled={busyId === entry.id} onClick={() => onSaveEdit(entry)}>
+                    Save
+                  </button>
+                  <button className="potg-btn potg-btn-secondary" style={{ padding: "2px 6px", fontSize: 10.5 }} onClick={() => setEditingId(null)}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span>{new Date(entry.dueDate).toLocaleDateString()}</span>
+                  <span>{formatMoney(entry.amount, entry.currency)}</span>
+                  <span className="potg-badge" style={{ fontSize: 10 }}>{entry.status}</span>
+                  {entry.status === "due" && canWrite && (
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button className="potg-btn potg-btn-secondary" style={{ padding: "2px 6px", fontSize: 10.5 }} disabled={busyId === entry.id} onClick={() => onPay(entry)}>
+                        {busyId === entry.id ? "…" : "Pay"}
+                      </button>
+                      <button className="potg-btn potg-btn-secondary" style={{ padding: "2px 6px", fontSize: 10.5 }} disabled={busyId === entry.id} onClick={() => startEdit(entry)}>
+                        Adjust
+                      </button>
+                      <button className="potg-btn potg-btn-secondary" style={{ padding: "2px 6px", fontSize: 10.5 }} disabled={busyId === entry.id} onClick={() => onSkip(entry)}>
+                        Skip
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {canWrite && lease.status === "active" && (
+        <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11, marginTop: 8 }} disabled={generating} onClick={onGenerateMore}>
+          {generating ? "Generating…" : "Generate more periods"}
+        </button>
       )}
     </div>
   );

@@ -7869,7 +7869,17 @@ earlier passes this session already established.
   property's own primary account (e.g. "60% unaccounted for") — only
   the explicitly recorded co-owner rows are shown.
 
-## A real, visible rent schedule (this pass)
+## A real, visible rent schedule (superseded — see "A real, persisted
+rent schedule" further down)
+
+**Superseded**: a later pass replaced the live computation described
+below with real, persisted `LeaseRentScheduleEntry` rows — see "A real,
+persisted rent schedule (this pass)" further down for what's actually
+in the codebase now. `computeUpcomingRentDueDates` and the "No
+`RentSchedule` model, by design" restraint below no longer exist;
+`upcomingDueDates` kept its exact shape across the change, so nothing
+else in this section is inaccurate about what a caller receives, only
+about how it's produced.
 
 Closes the audit's own finding on Workflow 8: "No `RentSchedule` model
 — just `rentFrequency` + `startDate`, with due dates derived on the fly
@@ -9569,12 +9579,16 @@ payments — no portfolio-wide rollup exists at all, only per-property."
 The rollup itself turned out to already exist one level down:
 `PropertiesService.findAllLeasesForAccount` (the account-wide
 `GET /properties/leases` the `/leases` page already calls) already
-computes each active lease's own real `upcomingDueDates` via
-`computeUpcomingRentDueDates` — the same anchor-date math the real
-overdue-reminder cron trusts, not a new projection invented for this
-card. Zero backend changes; this pass is purely the "flatten, filter,
-sort by soonest" shape the Vendor Dashboard's own Milestones due card
-already established, applied to data that was one endpoint away.
+computes each active lease's own real `upcomingDueDates` (at the time,
+via `computeUpcomingRentDueDates` — since superseded by real,
+persisted `LeaseRentScheduleEntry` rows, see "A real, persisted rent
+schedule" further down; `upcomingDueDates`'s own shape hasn't changed,
+so this card needed no update when that happened) — the same
+anchor-date math the real overdue-reminder cron trusts, not a new
+projection invented for this card. Zero backend changes; this pass is
+purely the "flatten, filter, sort by soonest" shape the Vendor
+Dashboard's own Milestones due card already established, applied to
+data that was one endpoint away.
 
 **What's built**:
 
@@ -9910,6 +9924,88 @@ machine in this codebase already uses (a released milestone, a
 delivered order). No requirement that a stage *have* a linked
 inspection at all — an owner who never schedules one for a given stage
 completes it exactly as freely as before this pass, on purpose.
+
+## A real, persisted rent schedule (this pass)
+
+Closes Workflow 8 step 3 for real. An earlier pass ("A real, visible
+rent schedule," above) surfaced the audit's own finding — "No
+`RentSchedule` model" — by computing `upcomingDueDates` live on every
+read, deliberately choosing not to persist anything so nothing could
+drift out of sync with reality. That reasoning held right up until the
+next real capability a landlord actually needs: correcting one
+installment's amount, deferring a single due date, or waiving a period
+outright — none of which a pure computation has anywhere to put. This
+pass replaces the live computation with real, persisted
+`LeaseRentScheduleEntry` rows instead, so the earlier section's own
+"No `RentSchedule` model, by design" and `computeUpcomingRentDueDates`
+claims are now superseded by what's below.
+
+**What's built**:
+
+- **`LeaseRentScheduleEntry`** (new model, `lease_rent_schedule_entries`)
+  — `dueDate`, `amount`, `currency`, `status` (`due | paid | skipped`),
+  optional `notes`, real rows linked to their `Lease`.
+  `LeaseRentPayment.scheduleEntryId` (new, nullable, unique) links a
+  real payment back to the specific entry it satisfies — a payment can
+  still be recorded free-form with no entry, same as before this pass.
+- **`PropertiesService.createLease`** generates a real 6-entry schedule
+  at creation time, anchored off the lease's own `startDate` — the same
+  default `computeUpcomingRentDueDates` always surfaced, now written as
+  real rows instead of only ever recomputed.
+- **`GET .../leases/:leaseId/rent-schedule`** — every real entry on the
+  lease, in order. **`PATCH .../rent-schedule/:entryId`** — adjust a
+  `due` entry's `dueDate`/`amount`/`notes`, or mark it `skipped`;
+  already-`paid`/`skipped` entries reject further edits with a real
+  400. **`POST .../rent-schedule/generate-more`** — extends the
+  schedule 6 more periods, anchored off the latest real entry (not the
+  lease's `startDate` and not "now") — a real, explicit action, never a
+  silent top-up hidden inside a `GET`, the same "no write on read"
+  restraint this codebase applies everywhere else.
+- **`recordRentPayment`** now accepts an optional `scheduleEntryId`:
+  validates it belongs to the lease and is still `due`, records the
+  payment, and flips that entry to `paid` — a second payment attempt
+  against the same entry gets a real 400, not a silent duplicate.
+- `upcomingDueDates` keeps its exact previous shape (a sorted array of
+  ISO date strings on every active lease returned by `findLeases`/
+  `findAllLeasesForAccount`/`findLease`/`GET /tenant/lease`) — now
+  sourced from real `due` rows instead of a fresh computation, so
+  nothing downstream (the Portfolio page's own "Upcoming rent payments"
+  card included) needed to change.
+- **UI**: a real "Rent schedule" section on the owner's lease view
+  (`properties/[id].tsx`) — every entry with its own Pay/Adjust/Skip
+  actions and a "Generate more periods" button. No equivalent write
+  surface on the tenant portal — it already showed the same real due
+  dates via `upcomingDueDates`, unchanged, matching the established
+  owner-editable/tenant-read-only asymmetry used elsewhere (e.g. the
+  Rent Payments row itself).
+
+**Verified live**: created a real lease on "14 Ocean Drive"
+(`RentSchedule Verify Tenant`, NGN 150,000/monthly) and confirmed 6
+real persisted entries were generated at creation, 30 days apart.
+Adjusted one entry's amount to NGN 175,000 with a note, and skipped a
+second — both persisted correctly. Recorded a real payment against a
+third entry with `scheduleEntryId`: the payment's own `scheduleEntryId`
+linked back correctly and the entry flipped to `paid`; a second payment
+attempt against that same now-paid entry correctly got a real 400
+("only a due entry can be paid"). `generate-more` correctly anchored
+off the latest real entry (not `startDate`) and produced 6 further
+monthly entries continuing the same sequence. Confirmed all of this
+live in the browser too: the owner's lease row's own "Upcoming due
+dates" list correctly excluded the paid and skipped entries; opening
+"Rent schedule" rendered every real entry with its adjusted amount,
+Skipped/Paid badges, and a real click on "Pay" for a live due entry
+flipped it to Paid in the UI with no page reload.
+
+**Not done — explicit scope, not oversight**: existing leases created
+before this pass have no schedule entries — deliberately not
+backfilled, so `upcomingDueDates` on those leases is now empty until a
+landlord calls `generate-more` on them once, rather than this pass
+silently inventing historical schedule rows for leases it never
+generated. No tenant-facing write surface (adjust/skip/pay) — the
+tenant portal stays read-only, matching every other tenant-facing view
+in this codebase. No recurring/automatic schedule extension — a
+schedule only grows via the real `generate-more` action, never a hidden
+job.
 
 ## Not built yet
 

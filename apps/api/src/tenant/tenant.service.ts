@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReportTenantMaintenanceRequestDto } from './dto/report-tenant-maintenance-request.dto';
-import { computeUpcomingRentDueDates } from '../common/rent-schedule.util';
 
 // The tenant-facing counterpart to PropertiesService's landlord-facing
 // lease/maintenance routes — deliberately its own module rather than
@@ -36,10 +35,18 @@ export class TenantService {
       include: {
         property: { select: { id: true, name: true, addressLine: true, city: true, country: true } },
         rentPayments: { include: { receipt: true }, orderBy: { periodStart: 'desc' } },
+        scheduleEntries: { orderBy: { dueDate: 'asc' } },
       },
     });
     if (!lease) return lease;
-    return { ...lease, upcomingDueDates: lease.status === 'active' ? computeUpcomingRentDueDates(lease) : [] };
+    // Real, persisted due dates — same real rows PropertiesService's own
+    // landlord-facing routes read, not a fresh computation. Tenant view is
+    // read-only here (no adjust/skip route on this controller), matching
+    // the established owner-editable/tenant-read-only asymmetry used
+    // elsewhere (e.g. the Rent Payments row itself).
+    const upcomingDueDates =
+      lease.status === 'active' ? lease.scheduleEntries.filter((e) => e.status === 'due').map((e) => e.dueDate.toISOString()) : [];
+    return { ...lease, upcomingDueDates };
   }
 
   async findMyMaintenanceRequests(accountId: string) {
