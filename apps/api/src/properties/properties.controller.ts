@@ -77,6 +77,15 @@ export class PropertiesController {
     return this.properties.findAllLeasesForAccount(member.accountId);
   }
 
+  // The nav audit's own finding: "Inspections — missing, only inside
+  // each property's own page." Same "must be registered before GET
+  // :propertyId" reasoning as the other flat routes above.
+  @RequirePermissions('inspection:read')
+  @Get('inspections')
+  findAllInspections(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.properties.findAllInspectionsForAccount(member.accountId);
+  }
+
   // Manual backfill/reindex — see PropertiesService.reindexEmbeddings's
   // own comment on why this exists alongside the automatic on-create
   // indexing. property:write since it's a write to this account's own

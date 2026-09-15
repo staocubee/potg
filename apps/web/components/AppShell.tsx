@@ -39,6 +39,12 @@ const NAV_ITEMS: NavItem[] = [
   // pass) backs a real account-wide list, same shape as Maintenance
   // above; every lease action itself still lives on the property page.
   { href: "/leases", label: "Tenants & Leases", icon: "🔑", enabled: true },
+  // The nav audit's own finding: "Inspections — missing, only inside
+  // each property's own page." GET /properties/inspections (this
+  // pass) backs a real account-wide list, same shape as Maintenance
+  // and Tenants & Leases above; every action itself still lives on
+  // the property's own page.
+  { href: "/inspections", label: "Inspections", icon: "🔍", enabled: true },
   { href: "/payments", label: "Payments", icon: "💳", enabled: true },
   { href: "/reports", label: "Reports", icon: "📊", enabled: true },
   // Visibility packages (this pass, not from the numbered blueprint) —

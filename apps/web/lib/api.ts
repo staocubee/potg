@@ -2141,6 +2141,9 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  listAllInspections() {
+    return request<PropertyInspection[]>("/properties/inspections", { token: this.token, accountId: this.accountId });
+  }
   updateInspection(
     propertyId: string,
     inspectionId: string,

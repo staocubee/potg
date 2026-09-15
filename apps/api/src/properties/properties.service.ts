@@ -702,6 +702,22 @@ export class PropertiesService {
     });
   }
 
+  // The nav audit's own finding on the Owner/Admin Sidebar: "Inspections
+  // — missing, only inside each property's own page." Same shape
+  // findAllMaintenanceRequestsForAccount/findAllLeasesForAccount above
+  // already established for this exact category of gap.
+  findAllInspectionsForAccount(accountId: string) {
+    return this.prisma.propertyInspection.findMany({
+      where: { property: { accountId } },
+      include: {
+        findings: true,
+        inspectorVendor: { select: this.vendorSummarySelect },
+        property: { select: { id: true, name: true, addressLine: true, city: true, country: true } },
+      },
+      orderBy: { scheduledFor: 'desc' },
+    });
+  }
+
   findInspection(propertyId: string, inspectionId: string) {
     return this.prisma.propertyInspection.findFirst({
       where: { id: inspectionId, propertyId },

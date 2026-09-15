@@ -9072,6 +9072,57 @@ straight to its real property page.
   ground elsewhere; this page's own job is the plain list the audit
   named as missing, not a second risk surface.
 
+## A portfolio-wide Inspections view (this pass)
+
+Closes the nav audit's own finding on the Owner/Admin Sidebar:
+"Inspections — missing, only inside each property's own page." The
+third and last instance of the exact gap Maintenance and Tenants &
+Leases (both earlier passes) already closed — a resource scoped
+per-property with no cross-property list. Every inspection action
+(schedule, edit, complete, confirm/decline a buyer-requested one)
+stays exactly where it already lived.
+
+**What's built**:
+
+- `PropertiesService.findAllInspectionsForAccount(accountId)` — joins
+  through the owning property, same reasoning
+  `findAllMaintenanceRequestsForAccount`/`findAllLeasesForAccount`
+  already document.
+- `GET /properties/inspections` (`inspection:read`) — registered
+  before `GET /properties/:propertyId`, the same ordering `search`,
+  `maintenance-requests`, and `leases` above already use.
+- A new `/inspections` page: every inspection across the account, each
+  showing its own property, type, scheduled date, inspector (vendor or
+  named), and result, linking straight through to that property's own
+  page for the real actions.
+- A real "Inspections" item on the `AppShell` nav, between Tenants &
+  Leases and Payments.
+
+**Verified live**: `GET /properties/inspections` as the real seeded
+owner account returned all 12 real, pre-existing inspections spanning
+two different real properties ("14 Ocean Drive" and "Epe Development
+Plot"), each correctly carrying its own real property, inspector, and
+result; confirmed `GET /properties/search` and
+`GET /properties/:propertyId` still resolved correctly afterward — no
+route collision regression. Confirmed real permission isolation: the
+same call as the vendor account correctly 403'd (`vendor` never held
+`inspection:read`, a real pre-existing boundary, not something this
+pass changed). Then verified the real UI: the new "Inspections" nav
+item is present, `/inspections` renders all 12 real inspections across
+both real properties with their real details, and clicking one
+navigates straight to its real property page.
+
+**Not done — explicit scope, not oversight**:
+
+- Read-only — same restraint the Maintenance and Tenants & Leases
+  views above document; the finding was "no portfolio-wide view," not
+  "no portfolio-wide filtering."
+- With this, every Owner/Admin Sidebar row the audit called "missing —
+  only inside each property's own page" is now closed. The remaining
+  Owner/Admin Sidebar gaps (Materials & Tools reachable only via a
+  button, no `/settings` route anywhere) are a different shape of
+  finding, not this one — left for a separate pass.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
