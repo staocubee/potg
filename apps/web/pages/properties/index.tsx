@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Announcement, Branch, DevelopmentAgreementMine, Lease, MaintenanceRequest, MaterialOrder, Property } from "../../lib/api";
+import { ApiError, Announcement, AppDocument, Branch, DevelopmentAgreementMine, Lease, MaintenanceRequest, MaterialOrder, Property } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 
@@ -130,6 +130,8 @@ export default function PortfolioPage() {
       <UpcomingRentCard />
 
       <MaintenanceRequestsCard />
+
+      <DocumentAlertsCard properties={properties ?? []} />
 
       <AnnouncementsCard properties={properties ?? []} />
 
@@ -620,6 +622,72 @@ function MaintenanceRequestsCard() {
       </div>
     </div>
   );
+}
+
+// The Property Owner Dashboard's own finding: "Document alerts —
+// per-row 'expiring soon' badges on the Documents page only, no
+// aggregate alert." Mirrors DocumentsPage's own isExpiring (<30 days
+// to expiryDate) exactly, same "duplicate a small pure function rather
+// than force a cross-page import" convention this codebase already
+// uses elsewhere (see the maintenance-request PhotoPicker's own
+// comment) — the definition of "expiring soon" isn't invented here,
+// it's copied. Reuses the account-wide GET /documents this account's
+// own Documents page already calls, and the properties list this page
+// itself already fetched (passed down, not a second GET).
+function isExpiring(expiryDate?: string | null) {
+  if (!expiryDate) return false;
+  const days = (new Date(expiryDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+  return days < 30;
+}
+
+function DocumentAlertsCard({ properties }: { properties: Property[] }) {
+  const auth = useAuth();
+  const [documents, setDocuments] = useState<AppDocument[]>([]);
+
+  useEffect(() => {
+    if (!auth.currentAccountId) return;
+    auth.api.listDocuments().then(setDocuments).catch(() => setDocuments([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  const expiring = documents
+    .filter((d) => isExpiring(d.expiryDate))
+    .sort((a, b) => new Date(a.expiryDate!).getTime() - new Date(b.expiryDate!).getTime());
+
+  return (
+    <div className="potg-card" style={{ padding: 16, marginBottom: 16 }}>
+      <h3 style={{ fontSize: 14, marginTop: 0, marginBottom: 8 }}>Document alerts</h3>
+      {expiring.length === 0 ? (
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>No documents expiring soon across your portfolio.</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {expiring.map((d) => (
+            <Link
+              key={d.id}
+              href={d.propertyId ? `/documents?propertyId=${d.propertyId}` : "/documents"}
+              className="potg-card"
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 10, borderColor: "var(--potg-border)" }}
+            >
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: "var(--potg-text)" }}>{labelDocType(d.documentType)}</div>
+                <div className="potg-muted" style={{ fontSize: 11 }}>
+                  {properties.find((p) => p.id === d.propertyId)?.name ?? "Document"}
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: "var(--potg-danger)" }}>expires {new Date(d.expiryDate!).toLocaleDateString()}</div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function labelDocType(t: string) {
+  return t
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 // "Community management" — the landlord-facing half. Self-fetching, same

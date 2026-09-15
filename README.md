@@ -9644,6 +9644,44 @@ per-property breakdown — that's what the existing per-property
 maintenance section and the portfolio-wide `/maintenance` list page
 are already for.
 
+## A real "Document alerts" rollup on the Portfolio page (this pass)
+
+Closes the Property Owner Dashboard's own finding: "Document alerts —
+per-row 'expiring soon' badges on the Documents page only, no
+aggregate alert." The "expiring soon" definition isn't invented here —
+it's copied verbatim from `DocumentsPage`'s own local `isExpiring`
+(under 30 days to `expiryDate`), the same "duplicate a small pure
+function rather than force a cross-page import" convention this
+codebase already uses elsewhere, rather than a second, possibly
+drifting definition of "soon."
+
+**What's built**:
+
+- `apps/web/pages/properties/index.tsx` gained `DocumentAlertsCard`, a
+  real, always-visible, self-fetching card listing every real document
+  across the portfolio expiring within 30 days, soonest first — reuses
+  the account-wide `listDocuments()` the Documents page already calls,
+  and the `properties` list this same page already fetches (passed
+  down, not a second `GET`) to resolve each document's real property
+  name.
+
+**Verified live**: on the real demo owner account, `GET /documents`
+returned 18 real documents, none with an `expiryDate` at all — the
+card correctly rendered "No documents expiring soon across your
+portfolio." Then created a real `certificate_of_occupancy` document on
+"14 Ocean Drive" with a real `expiryDate` 15 days out (2026-09-30) via
+a direct `POST /documents` call; reloading the real `/properties` page
+rendered it immediately: "Certificate Of Occupancy · 14 Ocean Drive ·
+expires 30/09/2026," confirming the real property-name resolution and
+date formatting both work correctly against real data, not just the
+empty state.
+
+**Not done — explicit scope, not oversight**: no dismiss/snooze
+action, and no distinction between "expiring" and "already expired" —
+a document with a past `expiryDate` still reads as under 30 days and
+correctly appears, same as the Documents page's own badge already
+treats it.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
