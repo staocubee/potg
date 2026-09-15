@@ -10001,11 +10001,82 @@ before this pass have no schedule entries — deliberately not
 backfilled, so `upcomingDueDates` on those leases is now empty until a
 landlord calls `generate-more` on them once, rather than this pass
 silently inventing historical schedule rows for leases it never
-generated. No tenant-facing write surface (adjust/skip/pay) — the
-tenant portal stays read-only, matching every other tenant-facing view
-in this codebase. No recurring/automatic schedule extension — a
-schedule only grows via the real `generate-more` action, never a hidden
-job.
+generated. No tenant-facing write surface for adjust/skip — those stay
+landlord-only, matching every other lease-term edit in this codebase; a
+later pass ("Tenant self-service rent payment," further down) did add
+one narrow tenant-facing write, paying a due entry, but never adjusting
+or skipping one. No recurring/automatic schedule extension — a schedule
+only grows via the real `generate-more` action, never a hidden job.
+
+## Tenant self-service rent payment (this pass)
+
+Closes Workflow 8 step 5 — "Tenant pays rent." `TenantController` had
+no payment endpoint at all; rent was a landlord-recorded ledger entry
+only, and `seed.ts`'s own comment on the `tenant` role stated plainly
+it would "never [get] lease:write (rent/dates/deposit stay
+landlord-controlled)." That restraint was about the lease's own terms —
+this pass doesn't touch it. What it adds is narrower and different in
+kind: a tenant can now pay one of its own real, already-landlord-set
+due `LeaseRentScheduleEntry` rows (the persisted schedule the pass just
+above this one introduced) directly, without the landlord recording it
+for them.
+
+**What's built**:
+
+- **`lease:pay`** (new permission, `seed.ts`) — deliberately not
+  `lease:write`, the same narrow-carve-out shape `maintenance:approve`
+  already uses to keep `maintenance:write` from also implying
+  self-approval. Granted to the `tenant` role only. A tenant with
+  `lease:pay` still can't edit rent/dates/deposit, end the lease, adjust
+  or skip a schedule entry, or pay free-form with no real entry — only
+  ever the exact `amount`/`currency`/`dueDate` already sitting on a real
+  `due` row the landlord's own schedule already set.
+- **`POST /tenant/lease/rent-schedule/:entryId/pay`** (new,
+  `TenantController`/`TenantService.payRentScheduleEntry`) — validates
+  the entry belongs to the caller's own linked lease and is still
+  `due` (a real 404 if it isn't theirs, a real 400 if it's already
+  `paid`/`skipped`), then records the exact same kind of simulated
+  `LeaseRentPayment` ledger row `PropertiesService.recordRentPayment`
+  already creates (`method: "tenant_self_service"`, tagged so it's
+  distinguishable from a landlord-recorded one), flips the entry to
+  `paid`, and generates a real `Receipt` — the identical receipt
+  mechanism the landlord-recorded path already uses. Deliberately its
+  own implementation rather than a call into `PropertiesService` — see
+  `TenantService`'s own module comment for why this module never reaches
+  across into `PropertiesService`.
+- **UI**: the tenant portal's "Upcoming rent due dates" card became a
+  real "Rent schedule" card showing every entry with its own status —
+  due entries a tenant holds `lease:pay` for get a real "Pay now"
+  button; without that permission (or once an entry isn't `due`
+  anymore) it's just a status badge, same read-mostly shape the rest of
+  this portal already uses.
+
+**Verified live**: with `lease:pay` granted to the `tenant` role,
+generated a real 6-entry schedule on the real "Demo Tenant" lease (as
+the landlord), then switched account context to the linked tenant
+account and confirmed `GET /tenant/lease` returned those same real
+entries. A real self-service payment against the first due entry
+persisted with `method: "tenant_self_service"`, linked back via its own
+`scheduleEntryId`, flipped the entry to `paid`, and generated a real
+receipt. A second attempt against that same now-paid entry correctly
+got a real 400; a request naming an entry that doesn't exist on the
+caller's own lease correctly got a real 404. Confirmed the landlord's
+own account — which has `lease:write` but not `lease:pay` — correctly
+gets a real 403 calling the exact same tenant-only route. Confirmed
+live in the browser too: two separate real clicks on "Pay now," each
+correctly flipping the shown "Next due" entry to Paid and advancing to
+the next one, with the payment history card updating to show both real
+receipts.
+
+**Not done — explicit scope, not oversight**: no real payment gateway
+charge — this stays the same simulated ledger record every rent payment
+in this codebase already is, matching `LeaseRentPayment`'s own schema
+comment ("doesn't move any money or touch escrow"); a real
+Paystack/Flutterwave/Stripe/PayPal charge for rent specifically (the
+same integration `OrderPayment` already has for materials orders) is a
+separate, larger gap left for a future pass, not folded in here. No way
+for a tenant to pay free-form (no real entry) or partially — only the
+exact amount already sitting on a real due row.
 
 ## Not built yet
 

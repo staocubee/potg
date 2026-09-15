@@ -2489,6 +2489,18 @@ export class ApiClient {
   myTenantAnnouncements() {
     return request<Announcement[]>("/tenant/announcements", { token: this.token, accountId: this.accountId });
   }
+  // Requires lease:pay (see seed.ts's own comment) — narrower than
+  // lease:write on purpose: a tenant can only ever pay a real,
+  // already-landlord-set due entry on its own lease, never a free-form
+  // amount or date range.
+  payTenantRentScheduleEntry(entryId: string, input?: { notes?: string }) {
+    return request<LeaseRentPayment>(`/tenant/lease/rent-schedule/${entryId}/pay`, {
+      method: "POST",
+      body: input ?? {},
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   updateMaintenanceRequest(
     propertyId: string,
     requestId: string,

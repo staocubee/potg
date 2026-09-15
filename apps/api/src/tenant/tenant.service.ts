@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReportTenantMaintenanceRequestDto } from './dto/report-tenant-maintenance-request.dto';
+import { PayRentScheduleEntryDto } from './dto/pay-rent-schedule-entry.dto';
 
 // The tenant-facing counterpart to PropertiesService's landlord-facing
 // lease/maintenance routes — deliberately its own module rather than
@@ -110,5 +112,57 @@ export class TenantService {
         reportedBy: lease.tenantName,
       },
     });
+  }
+
+  // The audit's own finding on Workflow 8: "Tenant pays rent — not
+  // self-service at all." Deliberately narrower than
+  // PropertiesService.recordRentPayment, which this doesn't call —
+  // TenantController's own comment already explains why this module
+  // never reaches across into PropertiesService — a tenant can only ever
+  // pay a real, already-landlord-set entry on its own lease, never a
+  // free-form amount/date range: `entry.amount`/`entry.currency`/
+  // `entry.dueDate` are what gets recorded, not client input, so
+  // `lease:pay` can't be used to fabricate a payment the landlord's own
+  // schedule never asked for. Same simulated "manual" ledger record
+  // recordRentPayment already creates by default — this doesn't move any
+  // money either, same restraint the schema's own comment on
+  // LeaseRentPayment already states.
+  async payRentScheduleEntry(accountId: string, entryId: string, dto: PayRentScheduleEntryDto) {
+    const lease = await this.requireMyLease(accountId);
+    if (lease.status !== 'active') {
+      throw new BadRequestException(`This lease is "${lease.status}" — no rent due`);
+    }
+    const entry = await this.prisma.leaseRentScheduleEntry.findFirst({ where: { id: entryId, leaseId: lease.id } });
+    if (!entry) throw new NotFoundException('Schedule entry not found on your lease');
+    if (entry.status !== 'due') {
+      throw new BadRequestException(`This entry is already "${entry.status}" — only a due entry can be paid`);
+    }
+    const property = await this.prisma.property.findUniqueOrThrow({
+      where: { id: lease.propertyId },
+      select: { accountId: true },
+    });
+    const payment = await this.prisma.leaseRentPayment.create({
+      data: {
+        leaseId: lease.id,
+        amount: entry.amount,
+        currency: entry.currency,
+        periodStart: entry.dueDate,
+        periodEnd: entry.dueDate,
+        method: 'tenant_self_service',
+        notes: dto.notes,
+        scheduleEntryId: entry.id,
+      },
+    });
+    await this.prisma.leaseRentScheduleEntry.update({ where: { id: entry.id }, data: { status: 'paid' } });
+    const receipt = await this.prisma.receipt.create({
+      data: {
+        accountId: property.accountId,
+        receiptNumber: `RCT-${new Date().getFullYear()}-${randomUUID().slice(0, 8).toUpperCase()}`,
+        leaseRentPaymentId: payment.id,
+        amount: entry.amount,
+        currency: entry.currency,
+      },
+    });
+    return { ...payment, receipt };
   }
 }

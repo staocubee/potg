@@ -1,6 +1,6 @@
 import { ChangeEvent, FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Announcement, AppDocument, Lease, MaintenanceRequest } from "../../lib/api";
+import { ApiError, Announcement, AppDocument, Lease, LeaseRentScheduleEntry, MaintenanceRequest } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 
@@ -29,12 +29,14 @@ const MAINTENANCE_CATEGORIES = [
 ];
 
 // The tenant-facing counterpart to pages/properties/[id].tsx's Leases/
-// Maintenance cards — read-only for the lease itself (rent/dates/deposit
-// stay landlord-controlled, see PropertiesService.updateLease), but a
-// tenant can report a maintenance issue, the one write action
-// TenantController actually grants (maintenance:write). Reached from
-// AppShell's own nav, which only shows "My Lease" to a TENANT-type
-// account — see AppShell.tsx.
+// Maintenance cards — still read-only for the lease's own terms
+// (rent/dates/deposit stay landlord-controlled, see
+// PropertiesService.updateLease), but a tenant can now report a
+// maintenance issue (maintenance:write) and pay one of its own real due
+// rent schedule entries (lease:pay — see seed.ts's own comment on why
+// that's a narrower permission than lease:write, not the same one).
+// Reached from AppShell's own nav, which only shows "My Lease" to a
+// TENANT-type account — see AppShell.tsx.
 export default function TenantLeasePage() {
   const auth = useAuth();
   const [lease, setLease] = useState<Lease | null | undefined>(undefined); // undefined = loading
@@ -43,6 +45,8 @@ export default function TenantLeasePage() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [payingId, setPayingId] = useState<string | null>(null);
+  const [payError, setPayError] = useState<string | null>(null);
 
   function load() {
     if (!auth.currentAccountId) return;
@@ -69,6 +73,19 @@ export default function TenantLeasePage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth.currentAccountId]);
+
+  async function onPay(entry: LeaseRentScheduleEntry) {
+    setPayingId(entry.id);
+    setPayError(null);
+    try {
+      await auth.api.payTenantRentScheduleEntry(entry.id);
+      load();
+    } catch (err) {
+      setPayError(err instanceof ApiError ? err.message : "Couldn't record that payment.");
+    } finally {
+      setPayingId(null);
+    }
+  }
 
   const isTenantAccount = auth.currentAccount?.accountType === "TENANT";
   const totalPaid = (lease?.rentPayments ?? []).reduce((sum, p) => sum + Number(p.amount), 0);
@@ -138,16 +155,39 @@ export default function TenantLeasePage() {
             </div>
           </div>
 
-          {lease.status === "active" && lease.upcomingDueDates && lease.upcomingDueDates.length > 0 && (
+          {lease.status === "active" && lease.scheduleEntries && lease.scheduleEntries.length > 0 && (
             <div className="potg-card" style={{ padding: 18 }}>
-              <h3 style={{ fontSize: 14, marginBottom: 10 }}>Upcoming rent due dates</h3>
+              <h3 style={{ fontSize: 14, marginBottom: 10 }}>Rent schedule</h3>
+              {payError && <div className="potg-error" style={{ fontSize: 12, marginBottom: 8 }}>{payError}</div>}
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {lease.upcomingDueDates.map((d, i) => (
-                  <div key={d} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                    <span className="potg-muted">{i === 0 ? "Next due" : `Then`}</span>
-                    <span style={{ fontWeight: i === 0 ? 700 : 400 }}>{new Date(d).toLocaleDateString()}</span>
-                  </div>
-                ))}
+                {lease.scheduleEntries.map((entry, i) => {
+                  const isNextDue = entry.status === "due" && lease.scheduleEntries!.slice(0, i).every((e) => e.status !== "due");
+                  return (
+                    <div key={entry.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, gap: 8 }}>
+                      <span style={{ fontWeight: isNextDue ? 700 : 400 }} className={isNextDue ? "" : "potg-muted"}>
+                        {isNextDue ? "Next due · " : ""}
+                        {new Date(entry.dueDate).toLocaleDateString()}
+                      </span>
+                      <span style={{ fontWeight: isNextDue ? 700 : 400, marginLeft: "auto" }}>{formatMoney(entry.amount, entry.currency)}</span>
+                      {entry.status === "due" ? (
+                        auth.hasPermission("lease:pay") ? (
+                          <button
+                            className="potg-btn potg-btn-primary"
+                            style={{ padding: "2px 8px", fontSize: 11 }}
+                            disabled={payingId !== null}
+                            onClick={() => onPay(entry)}
+                          >
+                            {payingId === entry.id ? "Paying…" : "Pay now"}
+                          </button>
+                        ) : (
+                          <span className="potg-badge">due</span>
+                        )
+                      ) : (
+                        <span className="potg-badge">{entry.status}</span>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

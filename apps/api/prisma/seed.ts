@@ -14,6 +14,15 @@ const PERMISSIONS = [
   { key: 'inspection:write', label: 'Schedule, complete, or cancel a property inspection' },
   { key: 'lease:read', label: 'View property leases and rent history' },
   { key: 'lease:write', label: 'Create a lease, record rent, or end a lease' },
+  // The audit's own finding on Workflow 8: "Tenant pays rent — not
+  // self-service at all." Deliberately its own permission, not folded
+  // into lease:write — a tenant should be able to pay one of its own
+  // real, already-landlord-set due schedule entries without gaining any
+  // of lease:write's other reach (editing rent/dates/deposit, ending the
+  // lease, or paying free-form with no real entry at all), the same
+  // narrow-carve-out reasoning maintenance:approve already uses to keep
+  // maintenance:write from also implying self-approval.
+  { key: 'lease:pay', label: 'Pay a specific due rent schedule entry on your own lease' },
   { key: 'maintenance:read', label: 'View property maintenance requests' },
   { key: 'maintenance:write', label: 'Report, start, resolve, or cancel a maintenance request' },
   // The audit's own finding: unlike ProjectMilestone, nothing ever gated
@@ -365,13 +374,16 @@ const ROLES: Record<string, string[]> = {
   // Deliberately minimal, same "only what its own screen needs" reasoning
   // platform_reviewer's own comment gives: a tenant reads its own lease,
   // rent history, and any documents the landlord tagged to it
-  // (Document.leaseId), can report a maintenance issue, and can ask
-  // summarize_my_tenancy about its own lease — never lease:write (rent/
-  // dates/deposit stay landlord-controlled), never document:write
-  // (uploading stays the landlord's own action), never property:read/
-  // write (no general access to the property record itself, only what
-  // TenantService's own routes expose).
-  tenant: ['lease:read', 'maintenance:read', 'maintenance:write', 'document:read', 'ai:act'],
+  // (Document.leaseId), can report a maintenance issue, can pay one of
+  // its own real due rent schedule entries (lease:pay — see that
+  // permission's own comment for why this is deliberately narrower than
+  // lease:write), and can ask summarize_my_tenancy about its own lease —
+  // still never lease:write itself (rent amount/dates/deposit, and the
+  // lease's own start/end, stay landlord-controlled), never
+  // document:write (uploading stays the landlord's own action), never
+  // property:read/write (no general access to the property record
+  // itself, only what TenantService's own routes expose).
+  tenant: ['lease:read', 'lease:pay', 'maintenance:read', 'maintenance:write', 'document:read', 'ai:act'],
   // Section 8's own example role: "a family member can view documents but
   // not approve payments" — a read-only member of a family/company account.
   // Notably excludes payment:approve and dispute:write for the same reason.
