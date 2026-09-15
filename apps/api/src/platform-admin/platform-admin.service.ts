@@ -152,6 +152,27 @@ export class PlatformAdminService {
     return transactions.sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
   }
 
+  // The nav audit's own finding on the Platform Admin Sidebar: "Escrow —
+  // missing as its own page — only an aggregate stat tile." Every real
+  // EscrowAccount row platform-wide, the exact same rows
+  // getPlatformReports' own escrow-volume figure already sums (no
+  // status filter there either — a closed account's balance still
+  // counted, so this doesn't filter to "active" here).
+  async listEscrowAccounts() {
+    const accounts = await this.prisma.escrowAccount.findMany({
+      select: {
+        id: true,
+        balance: true,
+        currency: true,
+        status: true,
+        createdAt: true,
+        project: { select: { id: true, title: true, account: { select: { id: true, name: true } } } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return accounts;
+  }
+
   private async requireAccount(accountId: string) {
     const account = await this.prisma.account.findUnique({ where: { id: accountId } });
     if (!account) throw new NotFoundException('Account not found');

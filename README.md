@@ -9209,6 +9209,45 @@ amounts.
 - Read-only, no pagination or filtering — same restraints the
   Properties & listings section above documents.
 
+## An Escrow directory on the Platform Admin console (this pass)
+
+Closes the nav audit's own finding on the Platform Admin Sidebar:
+"Escrow — missing as its own page — only an aggregate stat tile." Same
+"itemize the exact rows the existing aggregate already sums" shape as
+the Transactions ledger just before it — no new modeling decision,
+just the individual `EscrowAccount` rows instead of one summed balance
+per currency.
+
+**What's built**:
+
+- `PlatformAdminService.listEscrowAccounts()` — every real
+  `EscrowAccount` row platform-wide (one per project), each carrying
+  its own project title, owning account, balance, currency, and
+  status. No status filter, matching `getPlatformReports`'s own
+  escrow-volume aggregate, which sums a closed account's balance too.
+- `GET /platform-admin/escrow` (`account:read_all`).
+- A new "Escrow" section on `/admin`, between Transactions and the
+  account directory.
+
+**Verified live**: `GET /platform-admin/escrow` as the real
+platform-admin account returned the one real seeded escrow account
+("Kitchen Renovation," NGN 656,000, active); its balance matched
+exactly the NGN figure `GET /platform-admin/reports`'s own
+`escrowVolume.currentBalanceByCurrency` already reports — the same
+confirmation the Transactions ledger's own GMV match already
+established, this time for the escrow-volume aggregate. Confirmed the
+regular owner account still 403s. Then verified the real UI: `/admin`
+rendered the real escrow account with its real project, account, and
+balance.
+
+**Not done — explicit scope, not oversight**:
+
+- Read-only, no pagination or filtering — same restraints the
+  Properties & listings and Transactions sections above document.
+- No ledger-entry drill-down — this lists accounts, not their
+  individual `EscrowLedgerEntry` deposit/release history; that detail
+  already exists on the project's own Escrow card.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

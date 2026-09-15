@@ -51,6 +51,14 @@ export class PlatformAdminController {
     return this.admin.listTransactions();
   }
 
+  // The nav audit's own finding: "Escrow — missing as its own page —
+  // only an aggregate stat tile."
+  @RequirePermissions('account:read_all')
+  @Get('escrow')
+  listEscrowAccounts() {
+    return this.admin.listEscrowAccounts();
+  }
+
   @RequirePermissions('account:suspend')
   @Post('accounts/:targetAccountId/suspend')
   suspendAccount(

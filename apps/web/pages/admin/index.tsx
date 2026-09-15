@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { ApiError, PlatformAccountSummary, PlatformAdminActionEntry, PlatformListingSummary, PlatformPropertySummary, PlatformReports, PlatformTransaction } from "../../lib/api";
+import { ApiError, PlatformAccountSummary, PlatformAdminActionEntry, PlatformEscrowAccountSummary, PlatformListingSummary, PlatformPropertySummary, PlatformReports, PlatformTransaction } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 function statusColor(status: string) {
@@ -247,6 +247,54 @@ function PlatformTransactionsSection() {
   );
 }
 
+// The nav audit's own finding: "Escrow — missing as its own page — only
+// an aggregate stat tile." Every real EscrowAccount row platform-wide,
+// the exact rows the existing escrow-volume stat tile above already
+// sums — no status filter, same as that aggregate.
+function PlatformEscrowSection() {
+  const auth = useAuth();
+  const [accounts, setAccounts] = useState<PlatformEscrowAccountSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!auth.currentAccountId) return;
+    auth.api
+      .listPlatformEscrowAccounts()
+      .then(setAccounts)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load escrow accounts."));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  if (error) return <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>;
+  if (!accounts) return <p className="potg-muted">Loading escrow accounts…</p>;
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <h3 style={{ fontSize: 14, margin: "0 0 10px" }}>Escrow</h3>
+      <div className="potg-card" style={{ padding: 14 }}>
+        <p className="potg-muted" style={{ margin: "0 0 8px", fontSize: 11 }}>
+          {accounts.length} escrow account{accounts.length === 1 ? "" : "s"} platform-wide — one per project, the
+          same rows the escrow-volume tile above sums
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 320, overflowY: "auto" }}>
+          {accounts.length === 0 && <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>None yet.</p>}
+          {accounts.map((a) => (
+            <div key={a.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, borderBottom: "1px solid var(--potg-border)", paddingBottom: 6 }}>
+              <div>
+                <span style={{ fontWeight: 600 }}>{a.project.title}</span>
+                <div className="potg-muted">
+                  {a.project.account.name} · {a.status}
+                </div>
+              </div>
+              <div style={{ fontWeight: 700, flexShrink: 0 }}>{formatMoney(Number(a.balance), a.currency)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Module 16-24's "admin operations" bucket, scoped to its one genuinely
 // buildable slice — see PlatformAdminAction's own schema comment for the
 // full reasoning. Gated entirely server-side (account:read_all/
@@ -304,6 +352,7 @@ export default function AdminPage() {
       <PlatformReportsSection />
       <PlatformPropertiesAndListingsSection />
       <PlatformTransactionsSection />
+      <PlatformEscrowSection />
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
       {!accounts && !error && <p className="potg-muted">Loading…</p>}

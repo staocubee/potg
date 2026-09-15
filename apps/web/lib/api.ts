@@ -1388,6 +1388,18 @@ export type PlatformTransaction = {
   account: { id: string; name: string } | null;
 };
 
+// The nav audit's own finding: "Escrow — missing as its own page — only
+// an aggregate stat tile." Every real EscrowAccount row platform-wide,
+// the exact rows the existing escrow-volume stat tile already sums.
+export type PlatformEscrowAccountSummary = {
+  id: string;
+  balance: string;
+  currency: string;
+  status: string;
+  createdAt: string;
+  project: { id: string; title: string; account: { id: string; name: string } };
+};
+
 export type PlatformAdminActionEntry = {
   id: string;
   targetAccountId: string;
@@ -3014,6 +3026,9 @@ export class ApiClient {
   }
   listPlatformTransactions() {
     return request<PlatformTransaction[]>("/platform-admin/transactions", { token: this.token, accountId: this.accountId });
+  }
+  listPlatformEscrowAccounts() {
+    return request<PlatformEscrowAccountSummary[]>("/platform-admin/escrow", { token: this.token, accountId: this.accountId });
   }
   suspendPlatformAccount(targetAccountId: string, reason: string) {
     return request<PlatformAccountSummary>(`/platform-admin/accounts/${targetAccountId}/suspend`, {
