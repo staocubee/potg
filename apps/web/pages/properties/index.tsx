@@ -129,6 +129,8 @@ export default function PortfolioPage() {
 
       <UpcomingRentCard />
 
+      <MaintenanceRequestsCard />
+
       <AnnouncementsCard properties={properties ?? []} />
 
       {showForm && (
@@ -572,6 +574,50 @@ function UpcomingRentCard() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// The Property Owner Dashboard's own finding: "Maintenance requests —
+// per-property only; the aggregate count is on Reports." The aggregate
+// itself was always real — ReportsService's own maintenance_total/
+// maintenance_open/maintenance_resolved metrics (reports.service.ts) —
+// just sitting behind the report builder's manual "pick metrics, click
+// Run" step, not shown automatically anywhere. Reuses the exact same
+// open/resolved definition Reports already uses (status "open" or
+// "in_progress" counts as open; "resolved" counts as resolved) against
+// the same account-wide list PendingApprovalsCard already fetches, so
+// the two cards' own numbers can never quietly drift apart.
+function MaintenanceRequestsCard() {
+  const auth = useAuth();
+  const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
+
+  useEffect(() => {
+    if (!auth.currentAccountId) return;
+    auth.api.listAllMaintenanceRequests().then(setRequests).catch(() => setRequests([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  const open = requests.filter((r) => r.status === "open" || r.status === "in_progress").length;
+  const resolved = requests.filter((r) => r.status === "resolved").length;
+
+  return (
+    <div className="potg-card" style={{ padding: 16, marginBottom: 16 }}>
+      <h3 style={{ fontSize: 14, marginTop: 0, marginBottom: 8 }}>Maintenance requests</h3>
+      <div style={{ display: "flex", gap: 20 }}>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 18 }}>{requests.length}</div>
+          <div className="potg-muted" style={{ fontSize: 11 }}>total</div>
+        </div>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 18 }}>{open}</div>
+          <div className="potg-muted" style={{ fontSize: 11 }}>open</div>
+        </div>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 18 }}>{resolved}</div>
+          <div className="potg-muted" style={{ fontSize: 11 }}>resolved</div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -9604,6 +9604,46 @@ listed six months of every lease at once would bury the actual signal
 ("what's coming up next"), and the full window is still one click away
 on the lease's own page.
 
+## A real "Maintenance requests" count on the Portfolio page (this pass)
+
+Closes the Property Owner Dashboard's own finding: "Maintenance
+requests — per-property only; the aggregate count is on Reports." The
+aggregate itself was always real — `ReportsService`'s own
+`maintenance_total`/`maintenance_open`/`maintenance_resolved` metrics
+— just sitting behind the report builder's manual "pick metrics, click
+Run" step, never shown automatically anywhere. Reuses the exact same
+open/resolved definition Reports already uses (`status` "open" or
+"in_progress" counts as open; "resolved" counts as resolved), applied
+to the same account-wide list `PendingApprovalsCard` (an earlier pass,
+same page) already fetches — the two cards' own numbers can never
+quietly drift apart, since they read the same real rows.
+
+**What's built**:
+
+- `apps/web/pages/properties/index.tsx` gained
+  `MaintenanceRequestsCard`, a real, always-visible, self-fetching
+  stat card showing total/open/resolved counts, computed off
+  `listAllMaintenanceRequests()` — an endpoint that already existed.
+
+**Verified live**: on the real demo owner account,
+`GET /properties/maintenance-requests` returned 17 real requests — 10
+open (status `open`/`in_progress`), 5 resolved, 2 cancelled (not
+counted in either bucket, same as Reports' own definition) — and the
+real `/properties` page rendered exactly "17 total / 10 open / 5
+resolved." Cross-checked against `PendingApprovalsCard`'s own real
+count: 9 of those 10 open requests are also still `not_requested`
+(needing approval); the one open request already moved off
+`not_requested` accounts for the real difference between the two
+cards' numbers, confirming both read the same underlying rows rather
+than two different definitions.
+
+**Not done — explicit scope, not oversight**: no cancelled-request
+bucket (Reports' own metrics don't define one either — cancelled
+requests are simply excluded from both open and resolved), and no
+per-property breakdown — that's what the existing per-property
+maintenance section and the portfolio-wide `/maintenance` list page
+are already for.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
