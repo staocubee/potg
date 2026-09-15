@@ -26,6 +26,12 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/projects", label: "Projects", icon: "🛠️", enabled: true },
   { href: "/vendors", label: "Vendors", icon: "🧰", enabled: true },
   { href: "/marketplace", label: "Marketplace", icon: "🏷️", enabled: true },
+  // The nav audit's own finding on the Owner/Admin Sidebar: "Materials &
+  // Tools — missing from the sidebar, reachable only via a button inside
+  // the Marketplace page." The page itself (marketplace/materials) was
+  // always real and self-contained — nothing to build there, just a real
+  // entry point that didn't require going through Marketplace first.
+  { href: "/marketplace/materials", label: "Materials & Tools", icon: "🧱", enabled: true },
   { href: "/documents", label: "Documents", icon: "📄", enabled: true },
   // The nav audit's own finding: "Maintenance — missing, lives only
   // inside each property's own detail page, no portfolio-wide view."

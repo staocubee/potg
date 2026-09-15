@@ -9248,6 +9248,35 @@ balance.
   individual `EscrowLedgerEntry` deposit/release history; that detail
   already exists on the project's own Escrow card.
 
+## Materials & Tools on the main nav (this pass)
+
+Closes the nav audit's own finding on the Owner/Admin Sidebar:
+"Materials & Tools — missing from the sidebar, reachable only via a
+button inside the Marketplace page." The materials marketplace itself
+(`pages/marketplace/materials/index.tsx`) was always real and entirely
+self-contained — it fetches its own catalog on mount and carries no
+dependency on anything from the property-listing Marketplace page it
+used to require passing through first. The only real gap was the entry
+point.
+
+**What's built**: a real "Materials & Tools" item on the always-visible
+`AppShell` nav, between Marketplace and Documents — nothing else
+changed; the page it points to needed no code of its own.
+
+**Verified live**: as the real seeded owner account, confirmed the new
+nav item renders and clicking it navigates straight to
+`/marketplace/materials`, which rendered the real seeded catalog (five
+real products — tiles, paint, a concrete mixer, a cabinet set — each
+with its own real supplier, price, and stock count) without first
+visiting `/marketplace`.
+
+**Not done — explicit scope, not oversight**: the item renders
+unconditionally for every role, the same flat-nav shape every other
+item already uses (a supplier or vendor account clicking it sees the
+buyer-side catalog, not a mismatch this pass introduces — the same
+"visible ≠ tailored to this role" pattern the nav audit's own read of
+this codebase already documents elsewhere).
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
