@@ -59,6 +59,12 @@ const NAV_ITEMS: NavItem[] = [
   // (subscribing) is narrower — the page itself hides the "Subscribe"
   // button for a viewer, same as it would 403 anyway.
   { href: "/packages", label: "Boost", icon: "🚀", enabled: true },
+  // Every nav audit's own repeated finding, once per role: "Settings —
+  // missing (no settings page anywhere)." GET/PATCH /accounts/me (this
+  // pass) backs a real, generic settings page — same "one shared page,
+  // every role reaches it unconditionally" shape Documents/Maintenance/
+  // Tenants & Leases/Inspections above already use.
+  { href: "/settings", label: "Settings", icon: "⚙️", enabled: true },
 ];
 
 // A TENANT-type account has no real use for any item above — it doesn't

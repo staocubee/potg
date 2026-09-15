@@ -3,6 +3,7 @@ import { randomBytes, createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAccountDto } from './dto/create-account.dto';
 import { AddMemberDto } from './dto/add-member.dto';
+import { UpdateAccountDto } from './dto/update-account.dto';
 import { EmailService } from '../notifications/email.service';
 
 // The role a user creating a new account is granted automatically —
@@ -86,6 +87,33 @@ export class AccountsService {
     }
 
     return account;
+  }
+
+  // Every nav audit's own repeated finding, once per role: "Settings —
+  // missing (no settings page anywhere)." Real, already-persisted
+  // Account fields (name/currency/timezone) have never had any edit
+  // path since creation — CreateAccountDto sets them once and nothing
+  // since has ever let an account change its own. Deliberately no
+  // permission check beyond "is a real member of this account" — unlike
+  // account:manage_members (adding/removing OTHER people), editing an
+  // account's own basic info isn't a privileged action over anyone
+  // else, and gating it on account:manage_members would lock every
+  // solo VENDOR/SUPPLIER/TENANT account — accounts that are their own
+  // only member — out of Settings entirely, the same gap this closure
+  // is meant to fix for those roles too.
+  getSelf(accountId: string) {
+    return this.prisma.account.findUniqueOrThrow({
+      where: { id: accountId },
+      select: { id: true, accountType: true, name: true, country: true, currency: true, timezone: true, reportDigestFrequency: true },
+    });
+  }
+
+  updateSelf(accountId: string, dto: UpdateAccountDto) {
+    return this.prisma.account.update({
+      where: { id: accountId },
+      data: { name: dto.name, currency: dto.currency, timezone: dto.timezone },
+      select: { id: true, accountType: true, name: true, country: true, currency: true, timezone: true, reportDigestFrequency: true },
+    });
   }
 
   private async linkMatchingLeasesForNewTenant(tenantAccountId: string, userId: string) {

@@ -9734,6 +9734,53 @@ approvals, Upcoming rent payments, Maintenance requests, Document
 alerts, and now Escrow balance, each the identical "the real number
 already exists, it just never rendered here" shape.
 
+## A real Settings page — closing the nav audit's own last repeated finding, once for every role (this pass)
+
+Closes the nav audit's own single most-repeated finding: "Settings —
+missing (no settings page anywhere)," named identically on all five
+proposed sidebars (Owner/Admin, Vendor, Supplier, Tenant, Platform
+Admin). Real, already-persisted `Account` fields — `name`, `currency`,
+`timezone` — have had no edit path of any kind since
+`CreateAccountDto` set them once at account creation; nothing in this
+codebase had ever let an account change its own basic info.
+
+**What's built**:
+
+- `GET`/`PATCH /accounts/me` (`apps/api/src/accounts/accounts.controller.ts`,
+  `accounts.service.ts`) — reads/updates the acting account's own
+  `name`/`currency`/`timezone`. Deliberately gated on nothing more than
+  `AccountContextGuard` (a real member of this exact account), not
+  `account:manage_members` — that permission governs managing *other*
+  people on a multi-member account, a different concern from editing
+  your own account's own basic info, and gating on it would have
+  locked every solo VENDOR/SUPPLIER/TENANT account (each its own only
+  member) out of the very page this closure exists to give them.
+- A new, generic `/settings` page (`apps/web/pages/settings.tsx`), and
+  a new `Settings` item on the shared, unconditional `AppShell` nav
+  every role already sees — the same "one shared page, every role
+  reaches it" shape `/documents`/`/maintenance`/`/leases`/`/inspections`
+  already use. Refreshes `auth.accounts` on save so a renamed account
+  updates its own account-switcher label immediately, everywhere.
+
+**Verified live**: on the real demo owner account,
+`GET /accounts/me` returned real, current values (`name: "Demo Owner
+(Individual)"`, `currency: "NGN"`, `timezone: "Africa/Lagos"`); a real
+`PATCH` renamed it, confirmed by a fresh `GET`; the real `/settings`
+page loaded that exact updated name into its form; a real UI click on
+"Save changes" reverted it back to the original, confirmed both by a
+fresh `GET /accounts/me` and by the account-switcher label updating
+live in the same view. Separately confirmed the real vendor account
+(`Lekki Renovations Co.`, a role with no `account:manage_members`)
+reaches `GET /accounts/me` without a 403 — the specific case this
+closure had to get right for four of the five roles that named this
+gap.
+
+**Not done — explicit scope, not oversight**: no country/account-type
+change (both tie into downstream logic this pass didn't audit for
+safety), no password change or notification-preference controls here
+— the real report-digest toggle already has its own real UI on the
+Reports page and isn't duplicated onto this one.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

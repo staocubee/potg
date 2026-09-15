@@ -188,6 +188,19 @@ export type AccountSummary = {
   permissions: string[];
 };
 
+// GET/PATCH /accounts/me — the nav audit's own repeated "Settings —
+// missing" finding, once per role, closed by a real edit path onto
+// fields that were only ever set once, at account creation.
+export type AccountDetails = {
+  id: string;
+  accountType: string;
+  name: string;
+  country: string;
+  currency: string;
+  timezone: string;
+  reportDigestFrequency: string;
+};
+
 export type AccountMemberSummary = {
   id: string;
   status: string;
@@ -1809,6 +1822,15 @@ export class ApiClient {
   // --- Accounts ---
   createAccount(input: { accountType: string; name: string; country: string; currency: string; timezone: string; vendorRole?: "vendor" | "inspector" }) {
     return request<{ id: string }>("/accounts", { method: "POST", body: input, token: this.token });
+  }
+  // Every nav audit's own repeated finding, once per role: "Settings —
+  // missing." Real fields (name/currency/timezone), never editable
+  // since account creation until now.
+  getMyAccount() {
+    return request<AccountDetails>("/accounts/me", { token: this.token, accountId: this.accountId });
+  }
+  updateMyAccount(input: { name?: string; currency?: string; timezone?: string }) {
+    return request<AccountDetails>("/accounts/me", { method: "PATCH", body: input, token: this.token, accountId: this.accountId });
   }
   listAccountMembers(accountId: string) {
     return request<{ members: AccountMemberSummary[]; invites: AccountInviteSummary[] }>(
