@@ -1421,6 +1421,10 @@ export type PlatformReports = {
   activeUsers: number;
   activeProperties: number;
   marketplaceGmvByCurrency: { currency: string; total: number }[];
+  // The Platform Admin Dashboard's own finding: "Revenue reports — no
+  // platform-revenue aggregate exists anywhere." Real Payout.
+  // platformFeeAmount summed platform-wide, grouped by currency.
+  platformRevenueByCurrency: { currency: string; total: number }[];
   escrowVolume: {
     totalDepositedByCurrency: { currency: string; total: number }[];
     currentBalanceByCurrency: { currency: string; total: number }[];

@@ -248,7 +248,7 @@ export class PlatformAdminService {
       this.prisma.user.count({ where: { status: 'active' } }),
       this.prisma.property.count(),
       this.prisma.order.findMany({ where: { status: 'delivered' }, select: { totalAmount: true, currency: true } }),
-      this.prisma.payout.findMany({ where: { status: 'paid' }, select: { grossAmount: true, currency: true } }),
+      this.prisma.payout.findMany({ where: { status: 'paid' }, select: { grossAmount: true, platformFeeAmount: true, currency: true } }),
       this.prisma.payment.findMany({ where: { status: 'completed' }, select: { amount: true, currency: true } }),
       this.prisma.escrowAccount.findMany({ select: { balance: true, currency: true } }),
       this.prisma.projectVendorAssignment.findMany({
@@ -278,6 +278,20 @@ export class PlatformAdminService {
     const gmvByCurrency = new Map<string, number>();
     for (const o of deliveredOrders) gmvByCurrency.set(o.currency, (gmvByCurrency.get(o.currency) ?? 0) + Number(o.totalAmount));
     for (const p of paidPayouts) gmvByCurrency.set(p.currency, (gmvByCurrency.get(p.currency) ?? 0) + Number(p.grossAmount));
+
+    // Platform revenue — the Platform Admin Dashboard's own finding:
+    // "Revenue reports — no platform-revenue aggregate exists anywhere
+    // — only a per-payout fee shown on the vendor's own row." Real
+    // money this codebase already tracks per payout
+    // (Payout.platformFeeAmount, the vendor's own take-home cut — see
+    // that field's own schema comment) summed across every paid
+    // payout, grouped by currency, same convention as every other money
+    // aggregate here. Materials orders don't have an equivalent fee
+    // yet (Order/Payment stay disconnected — the audit's own
+    // still-open WF6 finding), so this is real project-milestone
+    // platform revenue specifically, not "all platform revenue."
+    const platformRevenueByCurrency = new Map<string, number>();
+    for (const p of paidPayouts) platformRevenueByCurrency.set(p.currency, (platformRevenueByCurrency.get(p.currency) ?? 0) + Number(p.platformFeeAmount));
 
     // Escrow volume — two different real numbers, not one ambiguous
     // figure: lifetime inflow (every completed deposit, ever) vs. the
@@ -359,6 +373,7 @@ export class PlatformAdminService {
       activeUsers,
       activeProperties: totalProperties,
       marketplaceGmvByCurrency: Array.from(gmvByCurrency, ([currency, total]) => ({ currency, total })),
+      platformRevenueByCurrency: Array.from(platformRevenueByCurrency, ([currency, total]) => ({ currency, total })),
       escrowVolume: {
         totalDepositedByCurrency: Array.from(depositedByCurrency, ([currency, total]) => ({ currency, total })),
         currentBalanceByCurrency: Array.from(currentBalanceByCurrency, ([currency, total]) => ({ currency, total })),

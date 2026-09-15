@@ -58,6 +58,19 @@ function PlatformReportsSection() {
           }
           sub="Delivered orders + paid-out milestones only"
         />
+        {/* The Platform Admin Dashboard's own finding: "Revenue reports —
+            no platform-revenue aggregate exists anywhere — only a
+            per-payout fee shown on the vendor's own row." Real
+            Payout.platformFeeAmount, summed platform-wide. */}
+        <StatTile
+          label="Platform revenue"
+          value={
+            reports.platformRevenueByCurrency.length === 0
+              ? "—"
+              : reports.platformRevenueByCurrency.map((g) => formatMoney(g.total, g.currency)).join(" · ")
+          }
+          sub="Platform fee on paid-out milestones only"
+        />
         <StatTile
           label="Dispute rate"
           value={`${(reports.disputeRate.rate * 100).toFixed(1)}%`}

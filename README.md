@@ -9344,6 +9344,42 @@ finding asked for the breakdown to be visible, not a new navigable
 queue; the real combined dispute queue platform_reviewer already uses
 (on `/payments`) is where individual disputes actually get worked.
 
+## Platform revenue on the Platform Admin Dashboard (this pass)
+
+Closes the Platform Admin Dashboard's own finding: "Revenue reports —
+no platform-revenue aggregate exists anywhere — only a per-payout fee
+shown on the vendor's own row." Real money this codebase already
+tracks per payout (`Payout.platformFeeAmount`, the vendor's own
+take-home cut after the platform's fee) had never been summed at the
+platform level, even though it's shown on individual rows in two
+different places (a vendor's own Payouts list, a project's own Payouts
+card).
+
+**What's built**:
+
+- `PlatformAdminService.getPlatformReports` now computes
+  `platformRevenueByCurrency` — every paid payout's real
+  `platformFeeAmount`, summed by currency, the same aggregation
+  pattern `marketplaceGmvByCurrency` right next to it already uses.
+- A real "Platform revenue" stat tile on `/admin`, next to Marketplace
+  GMV.
+
+**Verified live**: `GET /platform-admin/reports` as the real
+platform-admin account returned `NGN 100` — matching exactly the one
+real "paid" payout in this dataset (NGN 2,000 milestone, NGN 100
+platform fee, visible on the vendor's own Payouts row); every other
+seeded payout is Processing or Failed, correctly excluded by the same
+`status: 'paid'` filter `marketplaceGmvByCurrency` already uses for
+its own payout half. Then verified the real UI: `/admin` rendered the
+new tile with that exact figure.
+
+**Not done — explicit scope, not oversight**: materials orders carry
+no equivalent platform fee yet (`Order`/`Payment` stay disconnected —
+the audit's own still-open WF6 finding), so this is real
+project-milestone platform revenue specifically, not "all platform
+revenue" — a distinction the tile's own `sub` text states rather than
+implying a broader number than what's actually summed.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
