@@ -274,6 +274,14 @@ const ROLES: Record<string, string[]> = {
   // owner/manager's own actions).
   vendor: [
     'document:read',
+    // The nav audit's own finding: "Documents — missing as a general
+    // vault, only verification-evidence upload exists." A vendor could
+    // already see documents but never upload one of its own (insurance,
+    // license, certifications) — only ever submit evidence against a
+    // document a reviewer already opened. Grants access to the exact
+    // same generic /documents page every other document:write role
+    // already uses; no new upload pipeline needed.
+    'document:write',
     'ai:act',
     'vendor:read',
     'vendor:write',
@@ -322,6 +330,14 @@ const ROLES: Record<string, string[]> = {
   // two marketplaces.
   supplier: [
     'ai:act',
+    // The nav audit's own finding: "Documents — missing as a general
+    // section, same as Vendor." Unlike vendor, a supplier had no
+    // document permission at all before this — not even read — so the
+    // already-real, always-visible "Documents" nav item 403'd outright.
+    // Same generic /documents page every other document:read/write
+    // role already uses; nothing new to build for the upload/list side.
+    'document:read',
+    'document:write',
     'supplier:read',
     'supplier:write',
     'product:read',

@@ -8897,6 +8897,73 @@ it was gone — both real writes confirmed against a fresh `GET
   own `budget` field. A real total is a small extension, not something
   this pass claims it doesn't need.
 
+## A real document vault for vendors and suppliers (this pass)
+
+Closes the audit's own finding on the Vendor and Supplier sidebars:
+"Documents — missing as a general vault, only verification-evidence
+upload exists" (vendor) and "missing as a general section, same as
+Vendor" (supplier). The nav item itself was never the problem — the
+codebase's own single flat `AppShell` nav (see the audit's own
+Navigation section) already showed "Documents" unconditionally to
+every role, vendor included. What was missing was the permission
+behind it: a vendor held `document:read` but never `document:write`,
+so the page's own upload form was permanently hidden for it; a
+supplier held neither, so the page 403'd outright — "You don't have
+permission to view documents."
+
+**Nothing new to build on the document side — this closes a
+permissions gap, not a feature gap.** The generic `/documents` page,
+its upload form, and the underlying `Document` model were all already
+real and already scoped correctly by `accountId` (see
+`DocumentsService.findForAccount`) — the exact same isolation every
+other account type's documents already rely on. Closing this meant
+granting `document:write` to the `vendor` role and `document:read` +
+`document:write` to the `supplier` role (`prisma/seed.ts`), then
+re-running the seed script so the grants applied to the already-
+seeded roles.
+
+**What's built**:
+
+- `vendor` role gains `document:write` — it already had `document:read`.
+- `supplier` role gains both `document:read` and `document:write` — it
+  had neither before this pass.
+- No frontend change at all: `pages/documents/index.tsx` already
+  renders the "+ Upload document" button and form for any account
+  holding `document:write`, and already 403s cleanly with "You don't
+  have permission to view documents" for any account lacking
+  `document:read` — both already correct, just newly reachable.
+
+**Verified live**: as the real seeded vendor account (`Lekki
+Renovations Co.`), `GET /documents` returned real `200` (previously
+would have, since it already had read) and a real `POST /documents`
+(`documentType: "insurance_policy"`) returned a real `201`, scoped to
+the vendor's own `accountId`. As the real seeded supplier account,
+`GET /documents` flipped from what would have been a real `403` to a
+real `200`, and a real `POST /documents` (`documentType:
+"business_license"`) also returned a real `201`. Confirmed account
+isolation held: the vendor's own document list contained only its own
+`insurance_policy` row, the supplier's own list contained only its own
+`business_license` row, and the owner account's own (separately
+seeded) `insurance_policy` document is a different row entirely — a
+different `id`, same `accountId` as every other owner-side document,
+never the vendor's. Then repeated both as real UI: switched the active
+account to the vendor, confirmed the "+ Upload document" button now
+renders and the real "Insurance Policy" document appears in the list;
+switched to the supplier, confirmed the same button renders and the
+real "Business License" document appears.
+
+**Not done — explicit scope, not oversight**:
+
+- Vendor/supplier documents still aren't tied to `propertyId` or any
+  project/order — they're account-level paperwork (insurance, license,
+  certifications), the same "Not tied to a property" shape the generic
+  upload form already offers every account type. Nothing here adds a
+  vendor-specific or supplier-specific document category.
+- No verification workflow change — `document:verify`/
+  `document:arbitrate` stay exactly as scoped before this pass; a
+  vendor or supplier's own uploaded documents go through the same
+  review path any other document already does.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
