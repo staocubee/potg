@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { ApiError, PlatformAccountSummary, PlatformAdminActionEntry, PlatformReports } from "../../lib/api";
+import { ApiError, PlatformAccountSummary, PlatformAdminActionEntry, PlatformListingSummary, PlatformPropertySummary, PlatformReports } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 function statusColor(status: string) {
@@ -131,6 +131,74 @@ function PlatformReportsSection() {
   );
 }
 
+// The nav audit's own finding on the Platform Admin Sidebar: "Properties
+// / Listings — missing, no property/listing management routes for admin
+// at all." A read-only directory, same shape the account list below
+// already uses — deliberately no edit/suspend action here; a property
+// stays its owning account's own to manage, a listing's verification
+// stays platform_reviewer's (a distinct role from platform_admin — see
+// the audit's own note on that split).
+function PlatformPropertiesAndListingsSection() {
+  const auth = useAuth();
+  const [properties, setProperties] = useState<PlatformPropertySummary[] | null>(null);
+  const [listings, setListings] = useState<PlatformListingSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!auth.currentAccountId) return;
+    Promise.all([auth.api.listPlatformProperties(), auth.api.listPlatformListings()])
+      .then(([props, lst]) => {
+        setProperties(props);
+        setListings(lst);
+      })
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load properties and listings."));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  if (error) return <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>;
+  if (!properties || !listings) return <p className="potg-muted">Loading properties and listings…</p>;
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <h3 style={{ fontSize: 14, margin: "0 0 10px" }}>Properties &amp; listings</h3>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div className="potg-card" style={{ padding: 14 }}>
+          <p className="potg-muted" style={{ margin: "0 0 8px", fontSize: 11 }}>
+            {properties.length} propert{properties.length === 1 ? "y" : "ies"} platform-wide
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 320, overflowY: "auto" }}>
+            {properties.length === 0 && <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>None yet.</p>}
+            {properties.map((p) => (
+              <div key={p.id} style={{ fontSize: 12, borderBottom: "1px solid var(--potg-border)", paddingBottom: 6 }}>
+                <div style={{ fontWeight: 600 }}>{p.name}</div>
+                <div className="potg-muted">
+                  {p.account.name} · {p.propertyType.replace(/_/g, " ")} · {p.status}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="potg-card" style={{ padding: 14 }}>
+          <p className="potg-muted" style={{ margin: "0 0 8px", fontSize: 11 }}>
+            {listings.length} listing{listings.length === 1 ? "" : "s"} platform-wide
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 320, overflowY: "auto" }}>
+            {listings.length === 0 && <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>None yet.</p>}
+            {listings.map((l) => (
+              <div key={l.id} style={{ fontSize: 12, borderBottom: "1px solid var(--potg-border)", paddingBottom: 6 }}>
+                <div style={{ fontWeight: 600 }}>{l.title}</div>
+                <div className="potg-muted">
+                  {l.account.name} · {formatMoney(Number(l.askingPrice), l.currency)} · {l.status} · {l.verificationStatus.replace(/_/g, " ")}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Module 16-24's "admin operations" bucket, scoped to its one genuinely
 // buildable slice — see PlatformAdminAction's own schema comment for the
 // full reasoning. Gated entirely server-side (account:read_all/
@@ -186,6 +254,7 @@ export default function AdminPage() {
         unaffected.
       </p>
       <PlatformReportsSection />
+      <PlatformPropertiesAndListingsSection />
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
       {!accounts && !error && <p className="potg-muted">Loading…</p>}

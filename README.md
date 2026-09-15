@@ -9123,6 +9123,51 @@ navigates straight to its real property page.
   button, no `/settings` route anywhere) are a different shape of
   finding, not this one — left for a separate pass.
 
+## Properties & Listings on the Platform Admin console (this pass)
+
+Closes the nav audit's own finding on the Platform Admin Sidebar:
+"Properties / Listings — missing, no property/listing management
+routes for admin at all." Deliberately a read-only directory, the same
+shape the existing account list on this page already uses — no new
+edit/suspend action on a property or listing: a property stays its
+owning account's own to manage, and a listing's verification stays
+`platform_reviewer`'s (a distinct role from `platform_admin` — the
+audit's own note on that split, unrelated to this finding, still
+holds).
+
+**What's built**:
+
+- `PlatformAdminService.listProperties()` / `listListings()` — every
+  real `Property`/`PropertyListing` row platform-wide, each joined to
+  its owning account's name, gated by the same `account:read_all`
+  every other admin-console read already uses.
+- `GET /platform-admin/properties` and `GET /platform-admin/listings`.
+- A new "Properties & listings" section on the existing `/admin` page,
+  between Platform reports and the account directory — two scrollable
+  lists, each row naming its own owning account.
+
+**Verified live**: `GET /platform-admin/properties` and
+`GET /platform-admin/listings` as the real seeded platform-admin
+account returned 8 real properties and 9 real listings, spanning
+several genuinely different real owning accounts ("Demo Owner",
+"Sale Verification Buyer", "Comparable House A/B"), not just one;
+confirmed the same calls as the regular owner account correctly
+403'd (`account:read_all` stays `platform_admin`-only, unchanged).
+Then verified the real UI: switched the active account to
+platform-admin, loaded `/admin`, and confirmed the new "Properties &
+listings" section rendered all 8 real properties and all 9 real
+listings with their real owning-account names, prices, and statuses.
+
+**Not done — explicit scope, not oversight**:
+
+- Read-only — no admin-side edit, verify, or delete action on a
+  property or listing. The finding was "no management routes... at
+  all"; a directory is the honest first step, not a claim that admin
+  now moderates listings the way `platform_reviewer` already does.
+- No pagination or filtering — every property/listing loads at once,
+  the same scale assumption the existing account directory on this
+  page already makes.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

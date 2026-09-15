@@ -47,6 +47,52 @@ export class PlatformAdminService {
       });
   }
 
+  // The nav audit's own finding on the Platform Admin Sidebar:
+  // "Properties / Listings — missing, no property/listing management
+  // routes for admin at all." Deliberately a read-only directory, the
+  // same "see everything in one place, act only where real levers
+  // already exist" shape listAccounts above already established — no
+  // new edit/suspend action on a property or listing here; those stay
+  // the owning account's own or, for listing verification specifically,
+  // platform_reviewer's (a distinct role — see the audit's own note
+  // that platform_admin and platform_reviewer aren't interchangeable).
+  async listProperties() {
+    const properties = await this.prisma.property.findMany({
+      select: {
+        id: true,
+        name: true,
+        addressLine: true,
+        city: true,
+        country: true,
+        propertyType: true,
+        status: true,
+        createdAt: true,
+        account: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return properties;
+  }
+
+  async listListings() {
+    const listings = await this.prisma.propertyListing.findMany({
+      select: {
+        id: true,
+        title: true,
+        listingType: true,
+        askingPrice: true,
+        currency: true,
+        status: true,
+        verificationStatus: true,
+        createdAt: true,
+        account: { select: { id: true, name: true } },
+        property: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return listings;
+  }
+
   private async requireAccount(accountId: string) {
     const account = await this.prisma.account.findUnique({ where: { id: accountId } });
     if (!account) throw new NotFoundException('Account not found');

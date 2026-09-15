@@ -28,6 +28,20 @@ export class PlatformAdminController {
     return this.admin.listAccounts();
   }
 
+  // The nav audit's own finding: "Properties / Listings — missing, no
+  // property/listing management routes for admin at all."
+  @RequirePermissions('account:read_all')
+  @Get('properties')
+  listProperties() {
+    return this.admin.listProperties();
+  }
+
+  @RequirePermissions('account:read_all')
+  @Get('listings')
+  listListings() {
+    return this.admin.listListings();
+  }
+
   @RequirePermissions('account:suspend')
   @Post('accounts/:targetAccountId/suspend')
   suspendAccount(

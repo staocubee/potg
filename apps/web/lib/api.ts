@@ -1345,6 +1345,35 @@ export type PlatformAccountSummary = {
   createdAt: string;
 };
 
+// The nav audit's own finding on the Platform Admin Sidebar: "Properties
+// / Listings — missing, no property/listing management routes for admin
+// at all." A read-only directory, same shape PlatformAccountSummary
+// already uses — no admin-side edit/suspend action here.
+export type PlatformPropertySummary = {
+  id: string;
+  name: string;
+  addressLine: string;
+  city?: string | null;
+  country: string;
+  propertyType: string;
+  status: string;
+  createdAt: string;
+  account: { id: string; name: string };
+};
+
+export type PlatformListingSummary = {
+  id: string;
+  title: string;
+  listingType: string;
+  askingPrice: string;
+  currency: string;
+  status: string;
+  verificationStatus: string;
+  createdAt: string;
+  account: { id: string; name: string };
+  property: { id: string; name: string };
+};
+
 export type PlatformAdminActionEntry = {
   id: string;
   targetAccountId: string;
@@ -2962,6 +2991,12 @@ export class ApiClient {
   // --- Admin operations (account:read_all/account:suspend — platform_admin only) ---
   listPlatformAccounts() {
     return request<PlatformAccountSummary[]>("/platform-admin/accounts", { token: this.token, accountId: this.accountId });
+  }
+  listPlatformProperties() {
+    return request<PlatformPropertySummary[]>("/platform-admin/properties", { token: this.token, accountId: this.accountId });
+  }
+  listPlatformListings() {
+    return request<PlatformListingSummary[]>("/platform-admin/listings", { token: this.token, accountId: this.accountId });
   }
   suspendPlatformAccount(targetAccountId: string, reason: string) {
     return request<PlatformAccountSummary>(`/platform-admin/accounts/${targetAccountId}/suspend`, {
