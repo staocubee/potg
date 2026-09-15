@@ -12,6 +12,7 @@ import { AddMilestoneDto } from './dto/add-milestone.dto';
 import { AddBoqItemDto } from './dto/add-boq-item.dto';
 import { AddProjectUpdateDto } from './dto/add-project-update.dto';
 import { RequestQuoteDto } from './dto/request-quote.dto';
+import { SetQuotesDeadlineDto } from './dto/set-quotes-deadline.dto';
 import { UpdateProjectStageDto } from './dto/update-project-stage.dto';
 import { CreateVendorReviewDto } from '../vendors/dto/create-vendor-review.dto';
 import { UpdateVendorReviewDto } from '../vendors/dto/update-vendor-review.dto';
@@ -102,6 +103,21 @@ export class ProjectsController {
   @Post(':projectId/quotes/request')
   requestQuote(@Param('projectId') projectId: string, @Body() dto: RequestQuoteDto) {
     return this.projects.requestQuote(projectId, dto);
+  }
+
+  // The audit's own finding on Workflow 4: "no bid-specific deadline, no
+  // sealed/simultaneous-bid semantics." See
+  // ProjectsService.setQuotesDeadline/clearQuotesDeadline's own comments.
+  @RequirePermissions('quote:write')
+  @Patch(':projectId/quotes/deadline')
+  setQuotesDeadline(@Param('projectId') projectId: string, @Body() dto: SetQuotesDeadlineDto) {
+    return this.projects.setQuotesDeadline(projectId, dto);
+  }
+
+  @RequirePermissions('quote:write')
+  @Delete(':projectId/quotes/deadline')
+  clearQuotesDeadline(@Param('projectId') projectId: string) {
+    return this.projects.clearQuotesDeadline(projectId);
   }
 
   @RequirePermissions('quote:write')

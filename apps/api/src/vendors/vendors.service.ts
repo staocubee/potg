@@ -298,10 +298,25 @@ export class VendorsService {
     }
     const project = await this.prisma.project.findUnique({ where: { id: dto.projectId } });
     if (!project) throw new NotFoundException('Project not found');
+    // The audit's own finding on Workflow 4: "no bid-specific deadline."
+    // A real close — bidding shuts the instant the project's own
+    // quotesDeadline passes, not just "the owner happens not to look at
+    // late submissions."
+    if (project.quotesDeadline && project.quotesDeadline < new Date()) {
+      throw new BadRequestException('Bidding has closed on this project — no further quotes can be submitted');
+    }
 
     const existing = await this.prisma.vendorQuote.findFirst({
       where: { projectId: dto.projectId, vendorId: vendor.id },
     });
+    // A real gap independent of the deadline work: this method previously
+    // had no status guard at all — a vendor could "resubmit" against its
+    // own already-accepted/declined/withdrawn quote, silently reviving a
+    // decision the owner already made. Only ever revisable while still
+    // live — before the owner (or the deadline) has settled anything.
+    if (existing && existing.status !== 'requested' && existing.status !== 'submitted') {
+      throw new BadRequestException(`This quote is already "${existing.status}" — it can no longer be revised`);
+    }
     if (existing) {
       return this.prisma.vendorQuote.update({
         where: { id: existing.id },
@@ -328,7 +343,11 @@ export class VendorsService {
   myQuotes(accountId: string) {
     return this.prisma.vendorQuote.findMany({
       where: { vendor: { accountId } },
-      include: { project: { select: { id: true, title: true, status: true } } },
+      // quotesDeadline included so a vendor can see its own bidding
+      // window and this page can block a late resubmission client-side —
+      // never redacted here the way ProjectsService.findOne redacts
+      // amount/notes for the owner: a vendor always knows its own bid.
+      include: { project: { select: { id: true, title: true, status: true, quotesDeadline: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }

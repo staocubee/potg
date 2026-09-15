@@ -5,6 +5,7 @@ import { AddMilestoneDto } from './dto/add-milestone.dto';
 import { AddBoqItemDto } from './dto/add-boq-item.dto';
 import { AddProjectUpdateDto } from './dto/add-project-update.dto';
 import { RequestQuoteDto } from './dto/request-quote.dto';
+import { SetQuotesDeadlineDto } from './dto/set-quotes-deadline.dto';
 import { UpdateProjectStageDto } from './dto/update-project-stage.dto';
 import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
 
@@ -76,7 +77,11 @@ export class ProjectsService {
         stages: { orderBy: { sortOrder: 'asc' } },
         milestones: { orderBy: { createdAt: 'asc' } },
         updates: { orderBy: { createdAt: 'desc' } },
-        quotes: { include: { vendor: true }, orderBy: { amount: 'asc' } },
+        // Submission order, not amount order — sorting by amount while a
+        // round is sealed would leak relative ranking even with the
+        // amount itself redacted below. Re-sorted by amount only once
+        // unsealed, the same order this route always returned before.
+        quotes: { include: { vendor: true }, orderBy: { createdAt: 'asc' } },
         assignments: { include: { vendor: true } },
         reviews: true,
         contract: { include: { vendor: { select: { businessName: true } } } },
@@ -85,8 +90,34 @@ export class ProjectsService {
     });
     if (!project) return project;
     const onHoldMilestoneIds = await this.getOnHoldMilestoneIds(id);
+    // The audit's own finding on Workflow 4: "no sealed/simultaneous-bid
+    // semantics." Redacted here, in the one owner-facing read path, not
+    // withheld from the DB query or hidden only client-side — a `submitted`
+    // quote's own amount/notes never leave the server while its project's
+    // own quotesDeadline hasn't passed yet. `requested` rows have nothing
+    // to redact (no real bid exists yet); `accepted`/`declined` can't
+    // exist while still sealed (acceptQuote itself refuses to run early —
+    // see its own comment), so this only ever touches `submitted` rows.
+    const sealed = project.quotesDeadline !== null && project.quotesDeadline > new Date();
+    const quotes = project.quotes.map((q) => {
+      const isSealed = sealed && q.status === 'submitted';
+      return {
+        id: q.id,
+        projectId: q.projectId,
+        vendorId: q.vendorId,
+        amount: isSealed ? null : q.amount,
+        currency: isSealed ? null : q.currency,
+        notes: isSealed ? null : q.notes,
+        status: q.status,
+        createdAt: q.createdAt,
+        updatedAt: q.updatedAt,
+        vendor: q.vendor,
+        sealed: isSealed,
+      };
+    });
     return {
       ...project,
+      quotes: sealed ? quotes : [...quotes].sort((a, b) => Number(a.amount ?? 0) - Number(b.amount ?? 0)),
       ...(await this.getSpend(id)),
       milestones: project.milestones.map((m) => ({ ...m, onHold: onHoldMilestoneIds.has(m.id) })),
     };
@@ -291,6 +322,10 @@ export class ProjectsService {
   async requestQuote(projectId: string, dto: RequestQuoteDto) {
     const vendor = await this.prisma.vendor.findUnique({ where: { id: dto.vendorId } });
     if (!vendor) throw new NotFoundException('Vendor not found');
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { quotesDeadline: true } });
+    if (project?.quotesDeadline && project.quotesDeadline < new Date()) {
+      throw new BadRequestException('Bidding has closed on this project — no more vendors can be invited');
+    }
 
     const existing = await this.prisma.vendorQuote.findFirst({
       where: { projectId, vendorId: dto.vendorId },
@@ -302,10 +337,50 @@ export class ProjectsService {
     });
   }
 
+  // The audit's own finding on Workflow 4: "no bid-specific deadline, no
+  // sealed/simultaneous-bid semantics." One deadline per project, not per
+  // quote — see Project.quotesDeadline's own schema comment for why.
+  // Deliberately its own action, not folded into requestQuote — an owner
+  // might invite vendors one at a time before deciding a deadline, or set
+  // one before inviting anyone; decoupling avoids "whichever request call
+  // happens to go first quietly wins" ambiguity.
+  async setQuotesDeadline(projectId: string, dto: SetQuotesDeadlineDto) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) throw new NotFoundException('Project not found');
+    if (project.quotesDeadline && project.quotesDeadline < new Date()) {
+      throw new BadRequestException('Bidding has already closed on this project — the deadline can no longer be changed');
+    }
+    const alreadyAccepted = await this.prisma.vendorQuote.findFirst({ where: { projectId, status: 'accepted' } });
+    if (alreadyAccepted) {
+      throw new BadRequestException('A vendor has already been accepted on this project — nothing left to seal');
+    }
+    const deadline = new Date(dto.deadline);
+    if (deadline <= new Date()) {
+      throw new BadRequestException('The bidding deadline has to be in the future');
+    }
+    return this.prisma.project.update({ where: { id: projectId }, data: { quotesDeadline: deadline } });
+  }
+
+  async clearQuotesDeadline(projectId: string) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) throw new NotFoundException('Project not found');
+    if (project.quotesDeadline && project.quotesDeadline < new Date()) {
+      throw new BadRequestException('Bidding has already closed on this project — the deadline can no longer be changed');
+    }
+    return this.prisma.project.update({ where: { id: projectId }, data: { quotesDeadline: null } });
+  }
+
   // Accepting a quote is the moment a project gets its hired vendor —
   // creates the assignment, declines the project's other live quotes, and
   // advances the project past "Quote" if it's still in planning.
   async acceptQuote(projectId: string, quoteId: string) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, select: { quotesDeadline: true } });
+    if (!project) throw new NotFoundException('Project not found');
+    if (project.quotesDeadline && project.quotesDeadline > new Date()) {
+      throw new BadRequestException(
+        `Bidding is still sealed until ${project.quotesDeadline.toISOString()} — wait for it to close before accepting a quote`,
+      );
+    }
     const quote = await this.prisma.vendorQuote.findFirst({ where: { id: quoteId, projectId } });
     if (!quote) throw new NotFoundException('Quote not found on this project');
     if (quote.status === 'requested') {

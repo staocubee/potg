@@ -10192,6 +10192,92 @@ this codebase. Platform-reviewer arbitration itself stays a separate,
 unstructured status flip — a neutral third party making a final call
 isn't negotiating, so it wasn't brought into this proposal thread.
 
+## Real bid deadlines and sealed-bid semantics (this pass)
+
+Closes Workflow 4 step 6 — "Contractor bids are requested." Unlike
+every other closure in this file, this one has no README-quoted audit
+finding to cite: the Key Workflows Audit artifact's own wording ("reuses
+`VendorQuote` exactly — no bid-specific deadline, no sealed/
+simultaneous-bid semantics. A vocabulary difference, not a distinct
+feature") had been treated as a deliberate, reasoned restraint across
+three separate audit passes, not an oversight — this pass reopens it at
+the user's own explicit choice, after being asked directly whether the
+two remaining Partial steps in the entire 85-step audit were worth
+reopening at all.
+
+**What's built**:
+
+- **`Project.quotesDeadline`** (new, nullable `DateTime?`) — one
+  deadline per bidding round, not per quote: every vendor invited to
+  quote on a project shares the identical cutoff, so nobody quietly
+  gets more time than anyone else. Null means no round is open — every
+  existing project behaves exactly as it always did, zero regression.
+  Enforced passively at read/write time (the same "real `expiresAt`
+  field, no cron flips a status" idiom `PropertyDevelopmentAgreement`'s
+  own `expiresAt` already established, repeated four times in that one
+  service already) rather than a new pattern.
+- **`PATCH`/`DELETE /projects/:projectId/quotes/deadline`**
+  (`ProjectsService.setQuotesDeadline`/`clearQuotesDeadline`) — real
+  guards: the deadline has to be in the future, can't be changed once
+  it's already passed, and can't be set once a vendor's already been
+  accepted (nothing left to seal).
+- **Real sealing**: `ProjectsService.findOne` — the one owner-facing
+  read path — redacts `amount`/`notes` on every still-`submitted` quote
+  while its project's own `quotesDeadline` hasn't passed, server-side,
+  not just hidden in the UI. Sort order switches from amount (which
+  would leak relative ranking even with the number itself hidden) to
+  submission order while sealed, back to cheapest-first once revealed.
+  A vendor's own `GET /vendors/me/quotes` is never redacted — a vendor
+  always knows its own bid, only rivals' bids and the owner's own view
+  stay blind.
+- **Real enforcement on both existing actions**: `acceptQuote` now
+  refuses with a real 400 while any deadline is still in the future —
+  no early acceptance during blind bidding. `requestQuote` refuses new
+  invites once bidding has closed. `VendorsService.submitQuote` refuses
+  a submission once the deadline has passed. A second, adjacent gap
+  caught and closed in the same pass: `submitQuote` previously had no
+  status guard at all — a vendor could "resubmit" against its own
+  already-`accepted`/`declined`/`withdrawn` quote; now only revisable
+  while still `requested` or `submitted`.
+- **UI**: a real "Seal bidding with a deadline" / "Change deadline" /
+  "Clear deadline" control on the owner's own project page, a live
+  "Bidding is sealed until…" / "Bidding closed…" status line, and each
+  quote row showing "Sealed" instead of an amount while blind. The
+  vendor's own quote row on `vendors/me.tsx` shows the same deadline
+  context, blocks a late submission with a real disabled state, and —
+  closing a capability that already existed in the API but was
+  UI-unreachable — now lets a vendor revise its own bid right up until
+  the deadline, not only on first submission.
+
+**Verified live** against a real, freshly-created project: requested
+quotes from two real vendors, sealed bidding with a real 1-hour
+deadline, and confirmed the real submitting vendor's own `NGN
+1,500,000` bid came back completely redacted (`amount: null,
+sealed: true`) on the owner's own `GET /projects/:id` — while that same
+vendor's own `GET /vendors/me/quotes` showed its real amount
+unredacted, and a real `acceptQuote` attempt correctly got a real 400.
+Set a second project's deadline 3 seconds out, waited for it to pass,
+and confirmed the exact same quote row un-redacted automatically (no
+write needed) and a real `acceptQuote` succeeded, creating a real
+assignment and moving the project to `in_progress`. On a third project,
+confirmed both a late quote submission and a late invite attempt each
+got a real 400 after the deadline passed. Confirmed all of this live in
+the browser too: the owner's real "Clear deadline" click un-sealed a
+quote's real `NGN 2,750,000` amount with no reload, and the vendor's
+own dashboard correctly rendered every one of these states — sealed,
+revisable, late-closed, and accepted — each with its own real deadline
+timestamp.
+
+**Not done — explicit scope, not oversight**: no automatic closing
+notification when a deadline passes — a party has to look rather than
+being proactively told bidding just closed (unlike
+`NotificationsSchedulerService`'s own hourly document-expiry check, no
+cron watches `quotesDeadline`; the same passive-enforcement choice
+`PropertyDevelopmentAgreement`'s own `expiresAt` already makes). No
+minimum notice period or bid-count floor — an owner can set a deadline
+seconds away or seal a round with only one vendor invited; this closes
+the mechanism, not a policy on top of it.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

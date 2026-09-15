@@ -1073,13 +1073,17 @@ export type VendorQuote = {
   id: string;
   projectId: string;
   vendorId: string;
-  amount: string;
-  currency: string;
+  // Null while this quote is still sealed (the project's own
+  // quotesDeadline hasn't passed yet) — see Project.quotesDeadline's own
+  // comment. Redacted server-side, not just hidden in this UI.
+  amount: string | null;
+  currency: string | null;
   notes?: string | null;
   status: "requested" | "submitted" | "accepted" | "declined" | "withdrawn" | string;
   createdAt: string;
   vendor?: Vendor;
-  project?: { id: string; title: string; status: string };
+  project?: { id: string; title: string; status: string; quotesDeadline?: string | null };
+  sealed?: boolean;
 };
 
 export type ProjectVendorAssignment = {
@@ -1116,6 +1120,10 @@ export type Project = {
   status: "planning" | "in_progress" | "on_hold" | "completed" | "cancelled" | string;
   startDate?: string | null;
   expectedEndDate?: string | null;
+  // The audit's own finding on Workflow 4: "no bid-specific deadline, no
+  // sealed/simultaneous-bid semantics." Null means no bidding round is
+  // open — quotes behave exactly as they always did.
+  quotesDeadline?: string | null;
   createdAt: string;
   updatedAt: string;
   stages?: ProjectStage[];
@@ -2670,6 +2678,21 @@ export class ApiClient {
     return request<VendorQuote>(`/projects/${projectId}/quotes/request`, {
       method: "POST",
       body: { vendorId },
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  setQuotesDeadline(projectId: string, deadline: string) {
+    return request<Project>(`/projects/${projectId}/quotes/deadline`, {
+      method: "PATCH",
+      body: { deadline },
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  clearQuotesDeadline(projectId: string) {
+    return request<Project>(`/projects/${projectId}/quotes/deadline`, {
+      method: "DELETE",
       token: this.token,
       accountId: this.accountId,
     });

@@ -756,6 +756,20 @@ model Project {
   status            String    @default("planning") // planning | in_progress | on_hold | completed | cancelled
   startDate         DateTime?
   expectedEndDate   DateTime?
+  // The audit's own finding on Workflow 4: "Contractor bids are requested
+  // — reuses VendorQuote exactly, no bid-specific deadline, no sealed/
+  // simultaneous-bid semantics." Lives on Project, not VendorQuote,
+  // because a real bidding round is shared by every vendor invited to
+  // it — one deadline for the whole round, not one per quote, so nobody
+  // quietly gets more time than anyone else. Null means no bidding round
+  // is open — quotes behave exactly as they always did (visible and
+  // acceptable any time), zero regression for every existing project.
+  // Enforced passively at read/write time (ProjectsService/
+  // VendorsService check `quotesDeadline < now` directly), the same
+  // "real expiresAt field, no cron flips a status" idiom
+  // PropertyDevelopmentAgreement's own expiresAt already established —
+  // not a new pattern for this codebase.
+  quotesDeadline    DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
@@ -887,6 +901,15 @@ model ProjectUpdate {
   @@map("project_updates")
 }
 
+// No own deadline/secrecy field — see Project.quotesDeadline's own
+// comment for why a bidding round's deadline lives there instead.
+// "Sealed" isn't a stored flag here either: while a project's own
+// quotesDeadline hasn't passed yet, ProjectsService.findOne redacts
+// amount/notes on every still-`submitted` row in its own response
+// before it ever reaches the owner — the same "don't store what you can
+// compute/enforce live" restraint this codebase already applies to
+// on-hold disputes and expiring agreements, just applied to visibility
+// instead of a status transition.
 model VendorQuote {
   id        String   @id @default(uuid())
   projectId String

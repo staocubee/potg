@@ -55,6 +55,9 @@ export default function ProjectDetailPage() {
   const [showDepositForm, setShowDepositForm] = useState(false);
   const [showDisputeForm, setShowDisputeForm] = useState(false);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [showDeadlineForm, setShowDeadlineForm] = useState(false);
+  const [deadlineInput, setDeadlineInput] = useState("");
+  const [deadlineBusy, setDeadlineBusy] = useState(false);
   const [milestoneActionId, setMilestoneActionId] = useState<string | null>(null);
   const [completing, setCompleting] = useState(false);
   const [callbackNotice, setCallbackNotice] = useState<string | null>(null);
@@ -301,6 +304,37 @@ export default function ProjectDetailPage() {
     }
   }
 
+  async function onSetDeadline(e: FormEvent) {
+    e.preventDefault();
+    if (!id || !deadlineInput) return;
+    setDeadlineBusy(true);
+    setError(null);
+    try {
+      await auth.api.setQuotesDeadline(id, new Date(deadlineInput).toISOString());
+      setShowDeadlineForm(false);
+      setDeadlineInput("");
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't set that deadline.");
+    } finally {
+      setDeadlineBusy(false);
+    }
+  }
+
+  async function onClearDeadline() {
+    if (!id) return;
+    setDeadlineBusy(true);
+    setError(null);
+    try {
+      await auth.api.clearQuotesDeadline(id);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't clear that deadline.");
+    } finally {
+      setDeadlineBusy(false);
+    }
+  }
+
   return (
     <AppShell
       title={project?.title ?? "Project"}
@@ -446,6 +480,62 @@ export default function ProjectDetailPage() {
                 </button>
               )}
             </div>
+            {(() => {
+              const sealedNow = !!project.quotesDeadline && new Date(project.quotesDeadline) > new Date();
+              return (
+                <div style={{ marginBottom: 10 }}>
+                  {project.quotesDeadline ? (
+                    <div className="potg-muted" style={{ fontSize: 11.5 }}>
+                      {sealedNow
+                        ? `Bidding is sealed — amounts stay hidden until ${new Date(project.quotesDeadline).toLocaleString()}.`
+                        : `Bidding closed ${new Date(project.quotesDeadline).toLocaleString()} — quotes are visible and can be accepted.`}
+                    </div>
+                  ) : (
+                    <div className="potg-muted" style={{ fontSize: 11.5 }}>No bidding deadline set — quotes are visible as soon as submitted.</div>
+                  )}
+                  {isOwningAccount && auth.hasPermission("quote:write") && !project.quotesDeadline && !showDeadlineForm && (
+                    <div style={{ marginTop: 6 }}>
+                      <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setShowDeadlineForm(true)}>
+                        Seal bidding with a deadline
+                      </button>
+                    </div>
+                  )}
+                  {isOwningAccount && auth.hasPermission("quote:write") && sealedNow && !showDeadlineForm && (
+                    <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                      <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setShowDeadlineForm(true)}>
+                        Change deadline
+                      </button>
+                      <button
+                        className="potg-btn potg-btn-secondary"
+                        style={{ padding: "3px 8px", fontSize: 11 }}
+                        disabled={deadlineBusy}
+                        onClick={onClearDeadline}
+                      >
+                        Clear deadline
+                      </button>
+                    </div>
+                  )}
+                  {isOwningAccount && auth.hasPermission("quote:write") && showDeadlineForm && (
+                    <form onSubmit={onSetDeadline} style={{ display: "flex", gap: 6, alignItems: "center", marginTop: 6 }}>
+                      <input
+                        className="potg-input"
+                        type="datetime-local"
+                        required
+                        value={deadlineInput}
+                        onChange={(e) => setDeadlineInput(e.target.value)}
+                        style={{ fontSize: 11 }}
+                      />
+                      <button className="potg-btn potg-btn-primary" type="submit" disabled={deadlineBusy} style={{ padding: "3px 8px", fontSize: 11 }}>
+                        {deadlineBusy ? "…" : "Save"}
+                      </button>
+                      <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setShowDeadlineForm(false)} style={{ padding: "3px 8px", fontSize: 11 }}>
+                        Cancel
+                      </button>
+                    </form>
+                  )}
+                </div>
+              );
+            })()}
             {showQuoteRequest && id && (
               <RequestQuoteWidget
                 projectId={id}
@@ -468,9 +558,10 @@ export default function ProjectDetailPage() {
                     {q.notes && <div className="potg-muted" style={{ fontSize: 11 }}>{q.notes}</div>}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    {q.status !== "requested" && <span style={{ fontWeight: 700 }}>{formatMoney(q.amount, q.currency)}</span>}
+                    {q.sealed && <span className="potg-muted" style={{ fontSize: 11 }}>Sealed</span>}
+                    {!q.sealed && q.status !== "requested" && q.amount && <span style={{ fontWeight: 700 }}>{formatMoney(q.amount, q.currency ?? undefined)}</span>}
                     <span className="potg-badge">{q.status}</span>
-                    {q.status === "submitted" && isOwningAccount && auth.hasPermission("quote:write") && (
+                    {q.status === "submitted" && !q.sealed && isOwningAccount && auth.hasPermission("quote:write") && (
                       <button className="potg-btn potg-btn-primary" style={{ padding: "4px 9px", fontSize: 11 }} disabled={acceptingId !== null} onClick={() => onAccept(q.id)}>
                         {acceptingId === q.id ? "…" : "Accept"}
                       </button>

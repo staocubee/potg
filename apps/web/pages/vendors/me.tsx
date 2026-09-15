@@ -432,10 +432,20 @@ function CreateVendorProfileForm({ onCreated }: { onCreated: () => void }) {
 
 function QuoteRow({ quote, onSubmitted }: { quote: VendorQuote; onSubmitted: () => void }) {
   const auth = useAuth();
-  const [amount, setAmount] = useState("");
-  const [notes, setNotes] = useState("");
+  const [amount, setAmount] = useState(quote.amount ?? "");
+  const [notes, setNotes] = useState(quote.notes ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [revising, setRevising] = useState(false);
+
+  const deadline = quote.project?.quotesDeadline;
+  const biddingClosed = !!deadline && new Date(deadline) < new Date();
+  // The audit's own finding on Workflow 4: "no bid-specific deadline." A
+  // vendor can still revise its own submitted bid right up until the
+  // deadline — recorded via the exact same upsert VendorsService.
+  // submitQuote already used for a first-time submission, just now
+  // reachable from this page while status is already "submitted" too.
+  const canSubmit = (quote.status === "requested" || (quote.status === "submitted" && revising)) && !biddingClosed;
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -443,6 +453,7 @@ function QuoteRow({ quote, onSubmitted }: { quote: VendorQuote; onSubmitted: () 
     setBusy(true);
     try {
       await auth.api.submitVendorQuote({ projectId: quote.projectId, amount: Number(amount), notes: notes || undefined });
+      setRevising(false);
       onSubmitted();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't submit that quote.");
@@ -466,11 +477,24 @@ function QuoteRow({ quote, onSubmitted }: { quote: VendorQuote; onSubmitted: () 
           <span style={{ fontWeight: 600 }}>{quote.project?.title ?? "Project"}</span>
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {quote.status !== "requested" && <span style={{ fontWeight: 700 }}>{formatMoney(quote.amount, quote.currency)}</span>}
+          {quote.status !== "requested" && quote.amount && <span style={{ fontWeight: 700 }}>{formatMoney(quote.amount, quote.currency ?? undefined)}</span>}
           <span className="potg-badge">{quote.status}</span>
         </div>
       </div>
-      {quote.status === "requested" && auth.hasPermission("quote:write") && (
+      {deadline && (
+        <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
+          {biddingClosed ? `Bidding closed ${new Date(deadline).toLocaleString()}` : `Bidding closes ${new Date(deadline).toLocaleString()} — sealed until then`}
+        </div>
+      )}
+      {quote.status === "submitted" && !revising && !biddingClosed && auth.hasPermission("quote:write") && (
+        <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11, marginTop: 6 }} onClick={() => setRevising(true)}>
+          Revise quote
+        </button>
+      )}
+      {quote.status === "requested" && biddingClosed && (
+        <p className="potg-muted" style={{ fontSize: 11, marginTop: 6 }}>Bidding closed before you submitted — this request can no longer be answered.</p>
+      )}
+      {canSubmit && auth.hasPermission("quote:write") && (
         <form onSubmit={onSubmit} style={{ display: "flex", gap: 6, marginTop: 8 }}>
           {error && <div className="potg-error" style={{ flexBasis: "100%" }}>{error}</div>}
           <input className="potg-input" type="number" min={0} required placeholder="Your quote" value={amount} onChange={(e) => setAmount(e.target.value)} style={{ maxWidth: 140 }} />
@@ -478,6 +502,11 @@ function QuoteRow({ quote, onSubmitted }: { quote: VendorQuote; onSubmitted: () 
           <button className="potg-btn potg-btn-primary" type="submit" disabled={busy} style={{ flexShrink: 0 }}>
             {busy ? "…" : "Submit"}
           </button>
+          {revising && (
+            <button className="potg-btn potg-btn-secondary" type="button" onClick={() => setRevising(false)} style={{ flexShrink: 0 }}>
+              Cancel
+            </button>
+          )}
         </form>
       )}
     </div>
