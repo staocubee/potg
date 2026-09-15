@@ -1420,6 +1420,11 @@ export type PlatformReports = {
   generatedAt: string;
   activeUsers: number;
   activeProperties: number;
+  // The Platform Admin Dashboard's own finding: "Active listings —
+  // mislabeled, shows 'Active properties' (every Property row), not
+  // marketplace listings." A genuinely different real count — every
+  // active PropertyListing row, not every Property row.
+  activeListings: number;
   marketplaceGmvByCurrency: { currency: string; total: number }[];
   // The Platform Admin Dashboard's own finding: "Revenue reports — no
   // platform-revenue aggregate exists anywhere." Real Payout.

@@ -230,6 +230,7 @@ export class PlatformAdminService {
     const [
       activeUsers,
       totalProperties,
+      activeListings,
       deliveredOrders,
       paidPayouts,
       completedDeposits,
@@ -247,6 +248,13 @@ export class PlatformAdminService {
     ] = await Promise.all([
       this.prisma.user.count({ where: { status: 'active' } }),
       this.prisma.property.count(),
+      // The Platform Admin Dashboard's own finding: "Active listings —
+      // mislabeled, shows 'Active properties' (every Property row), not
+      // marketplace listings." A genuinely different real number — every
+      // Property row vs. every active PropertyListing row are two
+      // different counts of two different things, and until now only
+      // the first existed here at all.
+      this.prisma.propertyListing.count({ where: { status: 'active' } }),
       this.prisma.order.findMany({ where: { status: 'delivered' }, select: { totalAmount: true, currency: true } }),
       this.prisma.payout.findMany({ where: { status: 'paid' }, select: { grossAmount: true, platformFeeAmount: true, currency: true } }),
       this.prisma.payment.findMany({ where: { status: 'completed' }, select: { amount: true, currency: true } }),
@@ -372,6 +380,7 @@ export class PlatformAdminService {
       generatedAt: new Date(),
       activeUsers,
       activeProperties: totalProperties,
+      activeListings,
       marketplaceGmvByCurrency: Array.from(gmvByCurrency, ([currency, total]) => ({ currency, total })),
       platformRevenueByCurrency: Array.from(platformRevenueByCurrency, ([currency, total]) => ({ currency, total })),
       escrowVolume: {

@@ -9380,6 +9380,41 @@ project-milestone platform revenue specifically, not "all platform
 revenue" — a distinction the tile's own `sub` text states rather than
 implying a broader number than what's actually summed.
 
+## Active listings on the Platform Admin Dashboard (this pass)
+
+Closes the Platform Admin Dashboard's own finding: "Active listings —
+mislabeled, shows 'Active properties' (every Property row), not
+marketplace listings." Not a labeling fix — a genuinely missing real
+number. Every `Property` row and every active `PropertyListing` row
+are two different counts of two different things (a property doesn't
+have to be listed for sale/rent to exist; a listing is the marketplace
+side of one that is), and until now only the first existed anywhere in
+`getPlatformReports`.
+
+**What's built**:
+
+- `PlatformAdminService.getPlatformReports` now also counts every real
+  `PropertyListing` with `status: 'active'`.
+- A real, separately-labeled "Active listings" stat tile on `/admin`,
+  next to the existing "Active properties" tile, with a `sub` line
+  ("Marketplace listings, not properties") naming the exact distinction
+  the audit's own finding was about.
+
+**Verified live**: `GET /platform-admin/reports` as the real
+platform-admin account returned `activeListings: 4`, genuinely
+distinct from `activeProperties: 8` (the count the mislabeled finding
+described); cross-checked against the real Properties & listings
+section (an earlier pass) by counting its own 9 listed rows for
+`status === "active"` directly — 4, an exact match, confirming the new
+aggregate isn't a second, different definition of "active." Then
+verified the real UI: `/admin` rendered both tiles with their own real,
+different numbers.
+
+**Not done — explicit scope, not oversight**: no split by listing type
+(sale/rent/short_let) — the finding asked for the count the proposal
+named, not a further breakdown this pass doesn't have evidence was
+actually requested.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

@@ -49,6 +49,10 @@ function PlatformReportsSection() {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
         <StatTile label="Active users" value={reports.activeUsers} />
         <StatTile label="Active properties" value={reports.activeProperties} />
+        {/* The Platform Admin Dashboard's own finding: "Active listings —
+            mislabeled, shows 'Active properties' (every Property row),
+            not marketplace listings." A real, distinct count. */}
+        <StatTile label="Active listings" value={reports.activeListings} sub="Marketplace listings, not properties" />
         <StatTile
           label="Marketplace GMV"
           value={
