@@ -9682,6 +9682,58 @@ a document with a past `expiryDate` still reads as under 30 days and
 correctly appears, same as the Documents page's own badge already
 treats it.
 
+## A real "Escrow balance" tile on the Portfolio page — closing the Property Owner Dashboard table (this pass)
+
+Closes the Property Owner Dashboard's own last remaining finding:
+"Escrow balance — shown only on the Payments page." The real,
+account-wide, currency-grouped balance already existed —
+`PaymentsService.getAccountOverview` (`GET /payments/overview`) backs
+the Payments page's own "Escrow balance" stat tile — just never
+rendered anywhere else. This closure needed no new backend logic at
+all, only reuse of an endpoint and a rendering convention that were
+both already real: money is never summed across currencies (the
+Payments page's own comment on this exact field says why — an NGN
+balance and a USD balance added together is meaningless), so this
+card keeps that same one-line-per-currency shape rather than
+collapsing it.
+
+**What's built**:
+
+- `apps/web/pages/properties/index.tsx` gained `EscrowBalanceCard`, a
+  real, always-visible, self-fetching card calling the same
+  `getPaymentsOverview()` the Payments page already calls, rendering
+  `escrowByCurrency` with the identical currency-separated format.
+
+**Verified live**: on the real demo owner account,
+`GET /payments/overview` returned `escrowByCurrency: [{ currency:
+"NGN", balance: 656000 }]` across 5 real projects — the exact same NGN
+656,000 figure a much earlier pass's own live-verification of the
+Platform Admin Dashboard's "Escrow volume" tile cited for this
+account's own "Kitchen Renovation" project, confirming this is the
+same real underlying `EscrowAccount.balance` data, not a second,
+different number. The real `/properties` page rendered "Escrow
+balance · NGN 656,000" — caught and fixed a real, if incidental, dev-
+environment issue along the way: a long-lived browser tab's own stale
+webpack Fast Refresh state kept throwing `EscrowBalanceCard is not
+defined` even after both a page reload and a full dev-server restart;
+a fresh tab against the same running server rendered correctly
+immediately, confirming the code itself was never the problem.
+
+**Not done — explicit scope, not oversight**: no drill-down from this
+tile into the per-project escrow breakdown — that's what the existing
+"By project" list on the real Payments page already is, and this card
+deliberately doesn't duplicate it.
+
+With this closure, every real, buildable row on the Property Owner
+Dashboard's own requirements table is now either `match` or a
+deliberate, explicitly-scoped `diff` (Total properties/Property value
+summary/Active projects — real data that already lives on Reports,
+not summed to this page — and AI insights, a manually-triggered panel
+rather than proactive cards) — five consecutive passes closed Pending
+approvals, Upcoming rent payments, Maintenance requests, Document
+alerts, and now Escrow balance, each the identical "the real number
+already exists, it just never rendered here" shape.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

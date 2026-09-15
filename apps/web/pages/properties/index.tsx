@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Announcement, AppDocument, Branch, DevelopmentAgreementMine, Lease, MaintenanceRequest, MaterialOrder, Property } from "../../lib/api";
+import { ApiError, Announcement, AppDocument, Branch, DevelopmentAgreementMine, Lease, MaintenanceRequest, MaterialOrder, PaymentsOverview, Property } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 
@@ -132,6 +132,8 @@ export default function PortfolioPage() {
       <MaintenanceRequestsCard />
 
       <DocumentAlertsCard properties={properties ?? []} />
+
+      <EscrowBalanceCard />
 
       <AnnouncementsCard properties={properties ?? []} />
 
@@ -688,6 +690,43 @@ function labelDocType(t: string) {
     .split("_")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
+}
+
+// The Property Owner Dashboard's own last remaining finding: "Escrow
+// balance — shown only on the Payments page." The real, account-wide,
+// currency-grouped balance already existed — PaymentsService.getAccountOverview
+// (GET /payments/overview) backs the Payments page's own "Escrow
+// balance" stat tile — just never rendered anywhere but there. Reuses
+// that same real endpoint and the identical "one line per currency,
+// never summed across currencies" convention the Payments page's own
+// comment on this exact field commits to, rather than collapsing
+// NGN+USD escrow into one meaningless number.
+function EscrowBalanceCard() {
+  const auth = useAuth();
+  const [overview, setOverview] = useState<PaymentsOverview | null>(null);
+
+  useEffect(() => {
+    if (!auth.currentAccountId) return;
+    auth.api.getPaymentsOverview().then(setOverview).catch(() => setOverview(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  return (
+    <div className="potg-card" style={{ padding: 16, marginBottom: 16 }}>
+      <h3 style={{ fontSize: 14, marginTop: 0, marginBottom: 8 }}>Escrow balance</h3>
+      {!overview || overview.escrowByCurrency.length === 0 ? (
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>No escrow funded yet.</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+          {overview.escrowByCurrency.map((l) => (
+            <div key={l.currency} style={{ fontWeight: 700, fontSize: 18 }}>
+              {l.currency} {l.balance.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // "Community management" — the landlord-facing half. Self-fetching, same
