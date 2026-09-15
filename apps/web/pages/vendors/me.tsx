@@ -137,6 +137,22 @@ export default function VendorDashboardPage() {
       .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime());
   }, [projects]);
 
+  // The Vendor Dashboard's own remaining findings: "New job requests",
+  // "Pending quotes", and "Payments pending" are all shown as one full,
+  // unfiltered list each — the real per-row status was always there
+  // (QuoteRow/the payout row both already badge it), just never counted
+  // out as its own real subset. "New job requests" and "Pending quotes"
+  // are two genuinely different real states on the exact same
+  // VendorQuote.status field, not one gap counted twice: "requested" is
+  // an owner's ask this vendor hasn't answered yet (needs a quote from
+  // this vendor); "submitted" is a quote this vendor already gave that
+  // the owner hasn't accepted or declined yet (needs the owner's move).
+  const newJobRequests = useMemo(() => quotes.filter((q) => q.status === "requested"), [quotes]);
+  const pendingQuotes = useMemo(() => quotes.filter((q) => q.status === "submitted"), [quotes]);
+  // "Pending" for a payout mirrors Payout.status's own field values
+  // exactly (pending | processing | paid | failed) — not yet paid.
+  const pendingPayouts = useMemo(() => payouts.filter((p) => p.status === "pending" || p.status === "processing"), [payouts]);
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -290,7 +306,15 @@ export default function VendorDashboardPage() {
           </div>
 
           <div className="potg-card" style={{ padding: 18 }}>
-            <h3 style={{ fontSize: 14, marginBottom: 10 }}>Quote requests & submissions</h3>
+            <h3 style={{ fontSize: 14, marginBottom: 10 }}>
+              Quote requests & submissions
+              {!forbidden.quotes && newJobRequests.length > 0 && (
+                <span className="potg-badge" style={{ marginLeft: 8, fontWeight: 500 }}>{newJobRequests.length} new</span>
+              )}
+              {!forbidden.quotes && pendingQuotes.length > 0 && (
+                <span className="potg-badge" style={{ marginLeft: 6, fontWeight: 500 }}>{pendingQuotes.length} pending</span>
+              )}
+            </h3>
             {forbidden.quotes && <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view quote requests here.</p>}
             {!forbidden.quotes && quotes.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No quote requests yet.</p>}
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -305,7 +329,12 @@ export default function VendorDashboardPage() {
           </div>
 
           <div className="potg-card" style={{ padding: 18 }}>
-            <h3 style={{ fontSize: 14, marginBottom: 10 }}>Payouts</h3>
+            <h3 style={{ fontSize: 14, marginBottom: 10 }}>
+              Payouts
+              {!forbidden.payouts && pendingPayouts.length > 0 && (
+                <span className="potg-badge" style={{ marginLeft: 8, fontWeight: 500 }}>{pendingPayouts.length} pending</span>
+              )}
+            </h3>
             {forbidden.payouts && <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view payouts here.</p>}
             {!forbidden.payouts && payouts.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>Nothing paid out yet.</p>}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

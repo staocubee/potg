@@ -9463,6 +9463,53 @@ in-app) — the finding asked for real threshold-based alert *logic*,
 which this pass now has (the same real logic two other features
 already trust), not a new delivery channel nothing in the audit named.
 
+## Real pending counts on the Vendor Dashboard (this pass)
+
+Closes the Vendor Dashboard's own three remaining findings — "New job
+requests," "Pending quotes," and "Payments pending" all named the same
+shape of gap: the full, real list was already shown, but nothing
+counted out the subset that's actually still open. Zero backend
+changes — `myQuotes()`/`myPayouts()` already return the real
+`VendorQuote.status`/`Payout.status` on every row, the vendor
+dashboard already fetches both in full; this pass is a real,
+non-arbitrary client-side filter over data already in hand, the same
+shape as the Milestones due closure (an earlier pass) on this same
+page. "New job requests" and "Pending quotes" turned out to be two
+genuinely different states on the identical `VendorQuote.status`
+field, not one gap counted twice: `requested` is an owner's ask this
+vendor hasn't answered yet; `submitted` is a quote this vendor already
+gave that the owner hasn't accepted or declined yet.
+
+**What's built**:
+
+- `apps/web/pages/vendors/me.tsx` computes `newJobRequests`
+  (`status === "requested"`), `pendingQuotes` (`status === "submitted"`),
+  and `pendingPayouts` (`status === "pending" || "processing"`) via
+  `useMemo` over the already-fetched `quotes`/`payouts` state.
+- Real "N new" / "N pending" badges on the "Quote requests &
+  submissions" and "Payouts" section headings, shown only when the
+  count is real and non-zero.
+
+**Verified live**: on the real "Lekki Renovations Co." vendor account,
+`GET /vendors/me/payouts` returned 8 real payouts, 3 with
+`status: "processing"` — the page rendered "Payouts · 3 pending"
+against those exact three rows. For the quote states, created a real
+project ("Pending-quote badge verification") and a real
+`POST /projects/:id/quotes/request` from it — the page immediately
+showed "Quote requests & submissions · 1 new" for the resulting
+`status: "requested"` row; submitted a real quote via
+`POST /vendors/me/quotes`, and the same badge flipped live to
+"1 pending" once the row's real status became `submitted`, with "new"
+correctly disappearing. The pre-existing two "accepted" quotes on this
+vendor correctly showed neither badge throughout, confirming the
+filter doesn't just count everything.
+
+**Not done — explicit scope, not oversight**: no separate filtered
+list view or dedicated "pending only" page — the finding asked for a
+real count/filter, which the full list already carrying a per-row
+status badge combined with a real heading count satisfies, not a
+second, redundant list.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
