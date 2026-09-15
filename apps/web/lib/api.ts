@@ -2894,6 +2894,14 @@ export class ApiClient {
   findPayments(projectId: string) {
     return request<Payment[]>(`/projects/${projectId}/payments`, { token: this.token, accountId: this.accountId });
   }
+  refundPayment(projectId: string, paymentId: string, input?: { reason?: string }) {
+    return request<{ payment: Payment; ledgerEntry: EscrowLedgerEntry }>(`/projects/${projectId}/payments/${paymentId}/refund`, {
+      method: "POST",
+      body: input ?? {},
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   getEscrow(projectId: string) {
     return request<EscrowAccount>(`/projects/${projectId}/escrow`, { token: this.token, accountId: this.accountId });
   }

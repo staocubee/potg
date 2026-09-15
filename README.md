@@ -7655,17 +7655,25 @@ cleaning up after themselves.
 
 **Not done — explicit scope, not oversight**:
 
-- No refund UI exists anywhere in the frontend to gate in the first
-  place — `Payment.onHold` is real and correct, but there's nothing on
-  the project page that calls `refundPayment` today. The computed field
-  is there for whenever that UI gets built, not decorative.
 - No `on_hold` value added to `Dispute.status` or `Payment.status`
   itself — `onHold` stays a computed, derived signal, not a first-class
-  stored state, on purpose (see "What's built" above).
+  stored state, on purpose (see "What's built" above). A later pass
+  ("A real refund UI for on-hold payments," further down) confirmed
+  this was the right call rather than converting it: nothing prevents
+  more than one open dispute against the same milestone/payment, and a
+  stored flag would have to correctly re-check for other still-open
+  disputes on every single resolution before clearing itself — the live
+  query already gets that right for free, on every read, with no extra
+  code.
 - Payouts aren't covered — `Payout.payoutId` disputes exist in the
   schema, but nothing in `PaymentsService` actually guards a payout
   action on them (unlike milestones/payments), so there's no real
   enforcement yet to surface a hold indicator for.
+
+**Superseded**: the bullet this section originally had here — "No
+refund UI exists anywhere in the frontend to gate in the first place"
+— is no longer accurate; see "A real refund UI for on-hold payments"
+further down.
 
 ## Buyer-initiated inspection requests (this pass)
 
@@ -10277,6 +10285,57 @@ cron watches `quotesDeadline`; the same passive-enforcement choice
 minimum notice period or bid-count floor — an owner can set a deadline
 seconds away or seal a round with only one vendor invited; this closes
 the mechanism, not a policy on top of it.
+
+## A real refund UI for on-hold payments (this pass)
+
+Closes the rest of Workflow 9 step 4 — "Payment may be placed on
+hold." An earlier pass ("A real 'on hold' indicator for disputed
+milestones and payments," above) made the computed `onHold` flag real
+and correct for both milestones and payments, and gave milestones a
+real UI consumer. Payments never got one — `Payment.onHold` and
+`PaymentsService.refundPayment` were both fully real and already
+verified working end to end, but nothing in `apps/web` ever rendered a
+payment list or called `refundPayment` at all. The user was offered a
+choice between that gap and literally converting `onHold` to a stored
+`Dispute`/`Payment` status field; research into the stored-status
+option surfaced a real reason not to take it (see the "Not done" note
+on the earlier pass, above) — this pass closes the real gap instead.
+
+**What's built**:
+
+- A real "Payments" card on the project page, between Vendor quotes and
+  Escrow — every real `Payment` row on the project, its provider,
+  amount, and status, with the exact same "⚠ on hold" badge and
+  explanatory line the milestone card already established, and a real
+  "Refund" button that only ever appears on a `completed`, not-on-hold
+  payment (gated `payment:approve`, the identical permission
+  `refundPayment` itself already requires — no client-side gate wider
+  than the server's own).
+- Zero backend changes — `refundPayment`/`findPayments` were already
+  fully real; this pass is purely wiring an existing, correct,
+  previously-unreachable capability to a UI, the same "surface what's
+  already computed" shape several earlier closures this session used
+  for dashboard cards.
+
+**Verified live** against the real "Kitchen Renovation" project,
+which already carried nine real payments from earlier passes'
+own verification work, including one still genuinely on hold from the
+earlier pass's own test dispute: confirmed the on-hold Stripe payment
+rendered with its real badge and no Refund button, every
+`pending`/`failed` payment rendered with no Refund button, and every
+`completed`, not-held payment rendered a real one. A real click on
+"Refund" against a real NGN 3,000 Paystack payment returned a real
+`201`, flipped that payment's own status to `refunded` with no reload,
+and added a real `Refund` ledger entry to the Escrow card
+below it (`-NGN 3,000`, balance correctly reduced) — confirmed via a
+fresh `GET` that no other payment on the project was touched.
+
+**Not done — explicit scope, not oversight**: no refund UI on the
+account-wide surfaces (the Payments nav page, `/payments`) — this pass
+is the per-project detail view only, the same scope the milestone-side
+closure already had. Payouts still aren't covered, unchanged from the
+earlier pass's own note — `PaymentsService` has no guard on a payout
+action to surface a hold indicator for in the first place.
 
 ## Not built yet
 

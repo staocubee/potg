@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { AccessGrant, ApiError, Dispute, DisputeEvidence, DisputeResolutionProposal, DISPUTE_TYPES, EscrowAccount, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, PropertyInspection, Receipt, RESOLUTION_TYPES, Vendor, VendorReview } from "../../lib/api";
+import { AccessGrant, ApiError, Dispute, DisputeEvidence, DisputeResolutionProposal, DISPUTE_TYPES, EscrowAccount, Payment, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, PropertyInspection, Receipt, RESOLUTION_TYPES, Vendor, VendorReview } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -40,6 +40,7 @@ export default function ProjectDetailPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [property, setProperty] = useState<Property | null>(null);
   const [escrow, setEscrow] = useState<EscrowAccount | null>(null);
+  const [payments, setPayments] = useState<Payment[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [disputes, setDisputes] = useState<Dispute[]>([]);
@@ -71,7 +72,8 @@ export default function ProjectDetailPage() {
   // owning account does, and "No escrow activity yet" was misleading
   // when the real reason was "you can't see this," not "there's nothing
   // here."
-  const [forbidden, setForbidden] = useState({ escrow: false, payouts: false, receipts: false, disputes: false });
+  const [forbidden, setForbidden] = useState({ escrow: false, payments: false, payouts: false, receipts: false, disputes: false });
+  const [refundingId, setRefundingId] = useState<string | null>(null);
   // Closes the last "Release funds" gating gap: payment:approve isn't
   // the only way PaymentsService.releaseMilestone lets someone through —
   // a per-property PropertyAccessGrant.canApprovePayments does too. Null
@@ -93,6 +95,7 @@ export default function ProjectDetailPage() {
         return Promise.allSettled([
           auth.api.getProperty(p.propertyId),
           auth.api.getEscrow(id),
+          auth.api.findPayments(id),
           auth.api.findProjectPayouts(id),
           auth.api.findReceipts(id),
           auth.api.findDisputes(id),
@@ -101,7 +104,7 @@ export default function ProjectDetailPage() {
         ]);
       })
       .then((results) => {
-        const [p, e, po, r, d, grant, insp] = results;
+        const [p, e, pay, po, r, d, grant, insp] = results;
         // 403 (lacks the read permission entirely, e.g. escrow/receipts
         // for the vendor role) and 404 (holds the permission, but this
         // particular route was never extended with @AllowAssignedVendor()
@@ -114,6 +117,7 @@ export default function ProjectDetailPage() {
           (result.reason.status === 403 || result.reason.status === 404);
         if (p.status === "fulfilled") setProperty(p.value);
         if (e.status === "fulfilled") setEscrow(e.value);
+        if (pay.status === "fulfilled") setPayments(pay.value);
         if (po.status === "fulfilled") setPayouts(po.value);
         if (r.status === "fulfilled") setReceipts(r.value);
         // A vendor lacks property:read, so this 403s for it — same
@@ -124,6 +128,7 @@ export default function ProjectDetailPage() {
         if (insp.status === "fulfilled") setInspections(insp.value);
         setForbidden({
           escrow: isForbidden(e),
+          payments: isForbidden(pay),
           payouts: isForbidden(po),
           receipts: isForbidden(r),
           disputes: isForbidden(d),
@@ -157,6 +162,27 @@ export default function ProjectDetailPage() {
       setError(err instanceof ApiError ? err.message : "Couldn't approve that milestone.");
     } finally {
       setMilestoneActionId(null);
+    }
+  }
+
+  // The audit's own finding on Workflow 9: "Payment may be placed on
+  // hold." The milestone half already had a real onHold badge hiding
+  // "Release funds" — the payment half had a real onHold flag and a real
+  // PaymentsService.refundPayment endpoint, but no UI anywhere ever
+  // called either. This is that missing surface: a real refund action,
+  // hidden the same way "Release funds" is while a dispute against this
+  // exact payment is still open.
+  async function onRefundPayment(paymentId: string) {
+    if (!id) return;
+    setRefundingId(paymentId);
+    setError(null);
+    try {
+      await auth.api.refundPayment(id, paymentId);
+      load();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't refund that payment.");
+    } finally {
+      setRefundingId(null);
     }
   }
 
@@ -564,6 +590,52 @@ export default function ProjectDetailPage() {
                     {q.status === "submitted" && !q.sealed && isOwningAccount && auth.hasPermission("quote:write") && (
                       <button className="potg-btn potg-btn-primary" style={{ padding: "4px 9px", fontSize: 11 }} disabled={acceptingId !== null} onClick={() => onAccept(q.id)}>
                         {acceptingId === q.id ? "…" : "Accept"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <h3 style={{ fontSize: 14, marginBottom: 4 }}>Payments</h3>
+            <p className="potg-muted" style={{ fontSize: 11, margin: "0 0 10px" }}>
+              Each real deposit into this project's escrow — refundable while its full amount is still sitting there and no dispute references it directly.
+            </p>
+            {forbidden.payments && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view payments on this project.</p>
+            )}
+            {!forbidden.payments && payments.length === 0 && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>No payments recorded yet.</p>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {payments.map((pmt) => (
+                <div key={pmt.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+                  <div>
+                    <span className="potg-muted" style={{ textTransform: "capitalize" }}>{pmt.provider}</span>
+                    {pmt.onHold && (
+                      <span className="potg-badge" style={{ background: "#fbeaea", borderColor: "#e3b3b3", color: "#b23838", marginLeft: 8 }}>
+                        ⚠ on hold
+                      </span>
+                    )}
+                    {pmt.onHold && (
+                      <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                        An open dispute references this payment — resolve it before refunding.
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontWeight: 600 }}>{formatMoney(pmt.amount, pmt.currency)}</span>
+                    <span className="potg-badge">{pmt.status}</span>
+                    {pmt.status === "completed" && !pmt.onHold && isOwningAccount && auth.hasPermission("payment:approve") && (
+                      <button
+                        className="potg-btn potg-btn-danger"
+                        style={{ padding: "4px 9px", fontSize: 11 }}
+                        disabled={refundingId !== null}
+                        onClick={() => onRefundPayment(pmt.id)}
+                      >
+                        {refundingId === pmt.id ? "…" : "Refund"}
                       </button>
                     )}
                   </div>
