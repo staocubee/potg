@@ -591,7 +591,11 @@ export class MaterialsService {
   findOrdersForBuyer(accountId: string) {
     return this.prisma.order.findMany({
       where: { accountId },
-      include: { items: true, delivery: true },
+      // The Property Owner Dashboard's own "Pending approvals" card names
+      // each pending order by its real supplier — this endpoint never
+      // included one before, so every row silently fell back to a generic
+      // label. Same select shape findFlaggedOrderReviews already uses.
+      include: { items: true, delivery: true, supplier: { select: { id: true, businessName: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }

@@ -9510,6 +9510,58 @@ real count/filter, which the full list already carrying a per-row
 status badge combined with a real heading count satisfies, not a
 second, redundant list.
 
+## A real "Pending approvals" queue on the Portfolio page (this pass)
+
+Closes the Property Owner Dashboard's own finding: "Pending approvals —
+no approvals queue anywhere, only per-property payment-approval
+grants, a different thing." There is no page literally named
+"Dashboard" for this role — `/properties` (Portfolio) is the closest
+real landing view, per the audit's own note — so this lands there,
+alongside the existing self-fetching `MyDevelopmentInvitesCard` and
+`AnnouncementsCard`.
+
+Two real, already-gating approval fields share the identical
+three-state shape on purpose (`MaintenanceRequest.approvalStatus`'s own
+schema comment says it mirrors `Order.approvalStatus` exactly): a
+maintenance request can't start, and an order can't be confirmed by
+its supplier, until each moves off `not_requested`. "Needs your
+approval" is therefore real, not invented — any open/in-progress
+maintenance request or pending order still sitting at
+`not_requested`. Milestone approval was deliberately left out: nothing
+in this codebase ever actually transitions a milestone to a real
+"awaiting review" state (every milestone sits at `not_requested` from
+creation, whether or not there's real work to review yet), so
+including it would flag brand-new, untouched milestones as "pending" —
+not a real signal, the exact kind of invented threshold this session
+has avoided elsewhere too.
+
+**What's built**:
+
+- `apps/web/pages/properties/index.tsx` gained `PendingApprovalsCard`,
+  a real, always-visible, self-fetching card computing the pending
+  subset of two account-wide lists that already existed —
+  `listAllMaintenanceRequests()` and `findOrdersForBuyer()` — zero new
+  aggregate logic beyond the two real filters.
+- One small backend addition: `MaterialsService.findOrdersForBuyer`
+  now also includes `supplier: { id, businessName }` (the same select
+  shape `findFlaggedOrderReviews` already uses) — the endpoint never
+  named its own orders' supplier before, so every pending order would
+  have fallen back to a generic label.
+
+**Verified live**: on the real demo owner account,
+`GET /properties/maintenance-requests` and `GET /orders` returned 9
+real maintenance requests (open/in_progress, `not_requested`) and 5
+real orders (`pending`, `not_requested`) — the same 14 rows, by id and
+amount, that rendered on the real `/properties` page's new "Pending
+approvals" card, each with its real property name ("14 Ocean Drive"),
+real supplier name ("Lagos BuildMart"), and real order total (e.g.
+NGN 1,182,500), linking to the real underlying property/order page.
+
+**Not done — explicit scope, not oversight**: no milestone-approval
+row (see above for why), and no way to approve/reject directly from
+this card — each item links to its own real approval action on its
+existing page, not a duplicated action surface.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { ApiError, Announcement, Branch, DevelopmentAgreementMine, Property } from "../../lib/api";
+import { ApiError, Announcement, Branch, DevelopmentAgreementMine, MaintenanceRequest, MaterialOrder, Property } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 
@@ -124,6 +124,8 @@ export default function PortfolioPage() {
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
 
       <MyDevelopmentInvitesCard />
+
+      <PendingApprovalsCard />
 
       <AnnouncementsCard properties={properties ?? []} />
 
@@ -436,6 +438,82 @@ function MyDevelopmentInvitesCard() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+// The Property Owner Dashboard's own finding: "Pending approvals — no
+// approvals queue anywhere, only per-property payment-approval grants, a
+// different thing." Two real, already-gating approval fields share the
+// identical three-state shape (MaintenanceRequest.approvalStatus's own
+// schema comment says it mirrors Order.approvalStatus exactly) — a
+// maintenance request can't start and an order can't be confirmed by its
+// supplier until each is moved off "not_requested" — so "needs your
+// approval" is real, not invented: any open/in_progress request or
+// pending order still sitting at "not_requested". Milestone approval is
+// deliberately left out — nothing in this codebase ever actually
+// transitions a milestone to a real "awaiting review" state (see
+// MaintenanceRequest.approvalStatus's own schema comment on why it has
+// no "requested" state either), so every milestone ever created sits at
+// "not_requested" regardless of whether real work exists to review yet;
+// including it would flag brand-new, untouched milestones as "pending,"
+// which isn't a real signal. Self-fetching and always visible, same
+// pattern as the Vendor Dashboard's own Milestones due, using two
+// endpoints that already exist and already return every real row
+// account-wide — zero new backend code.
+function PendingApprovalsCard() {
+  const auth = useAuth();
+  const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
+  const [orders, setOrders] = useState<MaterialOrder[]>([]);
+
+  useEffect(() => {
+    if (!auth.currentAccountId) return;
+    auth.api.listAllMaintenanceRequests().then(setRequests).catch(() => setRequests([]));
+    auth.api.findOrdersForBuyer().then(setOrders).catch(() => setOrders([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  const pendingRequests = requests.filter((r) => (r.status === "open" || r.status === "in_progress") && r.approvalStatus === "not_requested");
+  const pendingOrders = orders.filter((o) => o.status === "pending" && o.approvalStatus === "not_requested");
+  const total = pendingRequests.length + pendingOrders.length;
+
+  return (
+    <div className="potg-card" style={{ padding: 16, marginBottom: 16 }}>
+      <h3 style={{ fontSize: 14, marginTop: 0, marginBottom: 8 }}>Pending approvals</h3>
+      {total === 0 ? (
+        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>Nothing needs your approval right now.</p>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {pendingRequests.map((r) => (
+            <Link
+              key={`mr-${r.id}`}
+              href={`/properties/${r.propertyId}`}
+              className="potg-card"
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 10, borderColor: "var(--potg-border)" }}
+            >
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: "var(--potg-text)" }}>{r.title}</div>
+                <div className="potg-muted" style={{ fontSize: 11 }}>{r.property?.name ?? "Maintenance request"} · needs approval before work can start</div>
+              </div>
+              <span className="potg-badge">maintenance</span>
+            </Link>
+          ))}
+          {pendingOrders.map((o) => (
+            <Link
+              key={`ord-${o.id}`}
+              href={`/marketplace/materials/orders/${o.id}`}
+              className="potg-card"
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 10, borderColor: "var(--potg-border)" }}
+            >
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: "var(--potg-text)" }}>{o.supplier?.businessName ?? "Materials order"}</div>
+                <div className="potg-muted" style={{ fontSize: 11 }}>{formatMoney(o.totalAmount)} {o.currency} · needs approval before the supplier can confirm</div>
+              </div>
+              <span className="potg-badge">order</span>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
