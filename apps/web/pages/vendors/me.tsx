@@ -123,6 +123,20 @@ export default function VendorDashboardPage() {
     return Array.from(map, ([id, title]) => ({ id, title }));
   }, [quotes, payouts]);
 
+  // The Vendor Dashboard's own finding: "Milestones due — nothing on
+  // this page shows milestone-due data." Flattens every real milestone
+  // with a real dueDate across every project this vendor is actually
+  // assigned to (myProjects above), same "data already existed, just
+  // never surfaced here" shape as the Your projects section itself,
+  // soonest due date first — excludes completed ones, since a released
+  // milestone isn't "due" anymore.
+  const milestonesDue = useMemo(() => {
+    return projects
+      .flatMap((a) => (a.project?.milestones ?? []).map((m) => ({ ...m, projectId: a.project!.id, projectTitle: a.project!.title, currency: a.project!.currency })))
+      .filter((m) => m.dueDate && m.status !== "completed")
+      .sort((a, b) => new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime());
+  }, [projects]);
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -231,6 +245,32 @@ export default function VendorDashboardPage() {
                   </Link>
                 );
               })}
+            </div>
+          </div>
+
+          <div className="potg-card" style={{ padding: 18 }}>
+            <h3 style={{ fontSize: 14, marginBottom: 10 }}>Milestones due</h3>
+            {!forbidden.projects && milestonesDue.length === 0 && (
+              <p className="potg-muted" style={{ fontSize: 12 }}>No milestones with a due date on your current projects.</p>
+            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {milestonesDue.map((m) => (
+                <Link
+                  key={m.id}
+                  href={`/projects/${m.projectId}`}
+                  className="potg-card"
+                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 10, borderColor: "var(--potg-border)" }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: "var(--potg-text)" }}>{m.title}</div>
+                    <div className="potg-muted" style={{ fontSize: 11 }}>{m.projectTitle}</div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontSize: 12 }}>{new Date(m.dueDate!).toLocaleDateString()}</div>
+                    {m.paymentAmount && <div className="potg-muted" style={{ fontSize: 11 }}>{formatMoney(m.paymentAmount, m.currency)}</div>}
+                  </div>
+                </Link>
+              ))}
             </div>
           </div>
 

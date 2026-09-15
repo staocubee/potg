@@ -351,6 +351,16 @@ export class VendorsService {
             currency: true,
             property: { select: { name: true } },
             stages: { select: { name: true, status: true, sortOrder: true } },
+            // The Vendor Dashboard's own finding: "Milestones due —
+            // nothing on this page shows milestone-due data." Same
+            // reasoning myProjects itself already documents — the vendor
+            // could already reach a milestone's own real dueDate by
+            // opening each project individually; this just makes it
+            // discoverable from the one page a vendor actually starts
+            // from, same "the data already existed, only the surfacing
+            // didn't" shape every other dashboard-requirements gap this
+            // pass closes.
+            milestones: { select: { id: true, title: true, paymentAmount: true, dueDate: true, status: true } },
           },
         },
       },

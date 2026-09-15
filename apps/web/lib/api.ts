@@ -1058,6 +1058,9 @@ export type ProjectVendorAssignment = {
     currency: string;
     property: { name: string } | null;
     stages: { name: string; status: string; sortOrder: number }[];
+    // The Vendor Dashboard's own finding: "Milestones due — nothing on
+    // this page shows milestone-due data."
+    milestones: { id: string; title: string; paymentAmount?: string | null; dueDate?: string | null; status: string }[];
   };
 };
 

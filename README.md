@@ -9277,6 +9277,47 @@ buyer-side catalog, not a mismatch this pass introduces — the same
 "visible ≠ tailored to this role" pattern the nav audit's own read of
 this codebase already documents elsewhere).
 
+## Milestones due on the Vendor Dashboard (this pass)
+
+Closes the Vendor Dashboard's own finding: "Milestones due — nothing
+on this page shows milestone-due data." The same "the data already
+existed, it just never got surfaced on the one page a vendor actually
+starts from" shape the Your projects section (an earlier pass)
+already closed for project assignments themselves — a vendor could
+always open a project directly and see its milestones' real due
+dates; there was just no way to see them all in one place, across
+every assigned project, without opening each one.
+
+**What's built**:
+
+- `VendorsService.myProjects` now includes each project's own real
+  `milestones` (id, title, payment amount, due date, status) in the
+  same query the Your projects section already fetches — no new
+  endpoint, no new round trip.
+- A real "Milestones due" card on `/vendors/me`: every milestone with
+  a real due date across every project this vendor is assigned to,
+  excluding completed ones, soonest due date first, each linking
+  straight to its own project.
+
+**Verified live**: `GET /vendors/me/projects` as the real seeded
+vendor account confirmed the new `milestones` field is present and
+correctly scoped to the vendor's own assigned projects. The real
+seeded milestones on "Kitchen Renovation" all predate this pass and
+have no due date recorded, so to prove the feature actually surfaces
+one, created a real milestone with a real due date
+("Final inspection walkthrough," NGN 50,000, due in 14 days) via the
+existing `POST /projects/:projectId/milestones` endpoint, and
+confirmed the vendor's own `GET /vendors/me/projects` response
+included it. Then verified the real UI: `/vendors/me` rendered the
+real "Milestones due" card with that exact milestone, its real
+project name, due date, and amount.
+
+**Not done — explicit scope, not oversight**: no reminder/notification
+for an approaching due date — this closes "the data is visible," not
+a proactive push; the existing rent/lease reminder cron this session
+built earlier is a different, already-scoped feature and this pass
+doesn't extend it to milestones.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
