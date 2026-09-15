@@ -9318,6 +9318,32 @@ a proactive push; the existing rent/lease reminder cron this session
 built earlier is a different, already-scoped feature and this pass
 doesn't extend it to milestones.
 
+## Disputes by status on the Platform Admin Dashboard (this pass)
+
+Closes the Platform Admin Dashboard's own finding: "Disputes open —
+only a dispute-rate percentage renders; the real open/resolved
+breakdown is computed but never shown." A pure rendering gap, not a
+missing computation — `PlatformAdminService.getPlatformReports` and
+its `PlatformReports` type already carried a real `disputeRate.byStatus`
+array (every dispute's own real status, counted); the admin page just
+never rendered it, showing only the rate and the raw count.
+
+**What's built**: a real "Disputes by status" stat tile on `/admin`,
+next to the existing Dispute rate tile — the real total, broken down
+by each real `Dispute.status` value present. No backend change.
+
+**Verified live**: as the real platform-admin account, `/admin`
+rendered "16" total with the breakdown "resolved: 10 · rejected: 3 ·
+under review: 1 · open: 2" — the four counts sum to exactly the same
+16 the pre-existing Dispute rate tile already reports, confirming this
+is the same real data, not a second, different count.
+
+**Not done — explicit scope, not oversight**: no filtering or
+drill-down into which specific disputes are in which status — the
+finding asked for the breakdown to be visible, not a new navigable
+queue; the real combined dispute queue platform_reviewer already uses
+(on `/payments`) is where individual disputes actually get worked.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

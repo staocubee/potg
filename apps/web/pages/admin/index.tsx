@@ -63,6 +63,20 @@ function PlatformReportsSection() {
           value={`${(reports.disputeRate.rate * 100).toFixed(1)}%`}
           sub={`${reports.disputeRate.totalDisputes} dispute(s) / ${reports.disputeRate.disputableCount} project(s)+order(s)`}
         />
+        {/* The Platform Admin Dashboard's own finding: "Disputes open —
+            only a dispute-rate percentage renders; the real open/resolved
+            breakdown is computed but never shown." byStatus was already
+            real and typed on PlatformReports.disputeRate — this was
+            purely a rendering gap, not a missing computation. */}
+        <StatTile
+          label="Disputes by status"
+          value={reports.disputeRate.byStatus.length === 0 ? "—" : reports.disputeRate.byStatus.reduce((sum, s) => sum + s.count, 0)}
+          sub={
+            reports.disputeRate.byStatus.length === 0
+              ? undefined
+              : reports.disputeRate.byStatus.map((s) => `${s.status.replace(/_/g, " ")}: ${s.count}`).join(" · ")
+          }
+        />
       </div>
 
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
