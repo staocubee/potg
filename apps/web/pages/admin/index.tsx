@@ -141,6 +141,41 @@ function PlatformReportsSection() {
             {reports.verificationBacklog.identity} identity check(s)
           </div>
         </div>
+
+        {/* The Platform Admin Dashboard's own finding: "Vendor quality
+            alerts — a performance summary exists, but no threshold-based
+            alert logic." Deliberately not a new, invented threshold —
+            reuses getVendorRiskFlags word-for-word, the same real flags
+            (unverified, open disputes, expired license, a
+            "concerns"-rated trust audit) the account-scoped at-risk
+            overview and assess_vendor_risk already use, just platform-wide. */}
+        <div
+          className="potg-card"
+          style={{
+            padding: 14,
+            flex: 1,
+            minWidth: 220,
+            background: reports.vendorQualityAlerts.flagged.length > 0 ? "var(--potg-warn-bg)" : undefined,
+            borderColor: reports.vendorQualityAlerts.flagged.length > 0 ? "var(--potg-warn-border)" : undefined,
+          }}
+        >
+          <p className="potg-muted" style={{ margin: "0 0 6px", fontSize: 11 }}>Vendor quality alerts</p>
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>
+            {reports.vendorQualityAlerts.flagged.length} / {reports.vendorQualityAlerts.totalVendors} flagged
+          </div>
+          {reports.vendorQualityAlerts.flagged.length === 0 ? (
+            <p className="potg-muted" style={{ fontSize: 11, margin: 0 }}>No vendor currently carries a real risk flag.</p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, maxHeight: 120, overflowY: "auto" }}>
+              {reports.vendorQualityAlerts.flagged.map((v) => (
+                <div key={v.id} style={{ fontSize: 11 }}>
+                  <span style={{ fontWeight: 600 }}>{v.businessName}</span>
+                  <span className="potg-muted"> — {v.flags.join("; ")}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {reports.vendorPerformance.topVendors.length > 0 && (

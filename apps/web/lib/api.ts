@@ -1441,6 +1441,14 @@ export type PlatformReports = {
     avgRating: number | null;
     topVendors: { vendorId: string; businessName: string; assigned: number; completed: number; avgRating: number | null }[];
   };
+  // The Platform Admin Dashboard's own finding: "Vendor quality alerts —
+  // a performance summary exists, but no threshold-based alert logic."
+  // Reuses the exact same real flags AtRiskOverview.vendors already
+  // uses, platform-wide instead of one account's own hires.
+  vendorQualityAlerts: {
+    totalVendors: number;
+    flagged: { id: string; businessName: string; flags: string[] }[];
+  };
   disputeRate: {
     rate: number;
     totalDisputes: number;

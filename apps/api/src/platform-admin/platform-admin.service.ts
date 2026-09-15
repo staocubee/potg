@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { getVendorRiskFlags } from '../vendors/trust-score';
 
 // Module 16-24's "admin operations" bucket, scoped to its one genuinely
 // buildable slice — see PlatformAdminAction's own schema comment for why
@@ -237,6 +238,7 @@ export class PlatformAdminService {
       escrowAccounts,
       vendorAssignments,
       vendorReviews,
+      allVendors,
       disputes,
       totalProjects,
       totalOrders,
@@ -263,6 +265,16 @@ export class PlatformAdminService {
         select: { vendorId: true, vendor: { select: { businessName: true } }, project: { select: { status: true } } },
       }),
       this.prisma.vendorReview.findMany({ select: { vendorId: true, rating: true } }),
+      // The Platform Admin Dashboard's own finding: "Vendor quality
+      // alerts — a performance summary exists, but no threshold-based
+      // alert logic." Deliberately not a new, invented threshold — reuses
+      // getVendorRiskFlags word-for-word, the exact same real flag logic
+      // (unverified, open disputes, expired license, a "concerns"-rated
+      // trust audit) ReportsService.getAtRiskOverview already applies
+      // per-account and assess_vendor_risk already applies per-vendor,
+      // just with no accountId filter — every real vendor on the
+      // platform, not one account's own hires.
+      this.prisma.vendor.findMany({ select: { id: true, businessName: true, verificationStatus: true, licenseExpiresAt: true } }),
       this.prisma.dispute.findMany({ select: { status: true } }),
       this.prisma.project.count(),
       this.prisma.order.count(),
@@ -342,6 +354,18 @@ export class PlatformAdminService {
     const totalCompleted = vendorPerformance.reduce((sum, v) => sum + v.completed, 0);
     const allRatings = vendorPerformance.flatMap((v) => ratingsByVendor.get(v.vendorId) ?? []);
 
+    // Vendor quality alerts — every real flag getVendorRiskFlags raises,
+    // for every real vendor on the platform, not just the ones with a
+    // project assignment (vendorPerformance above only covers vendors
+    // that have actually worked a job; a brand-new unverified vendor
+    // with zero jobs still deserves a real alert here). Only vendors
+    // carrying at least one real flag are included — same "flagged
+    // subset of the total" shape getAtRiskOverview's own atRisk arrays
+    // already use.
+    const vendorAlerts = (
+      await Promise.all(allVendors.map(async (v) => ({ id: v.id, businessName: v.businessName, flags: await getVendorRiskFlags(this.prisma, v) })))
+    ).filter((v) => v.flags.length > 0);
+
     // Dispute rate — disputes raised as a fraction of everything a
     // dispute can actually be raised against: every project and every
     // order, regardless of status. Deliberately NOT gated on success
@@ -393,6 +417,10 @@ export class PlatformAdminService {
         completionRate: totalAssigned > 0 ? totalCompleted / totalAssigned : 0,
         avgRating: allRatings.length > 0 ? allRatings.reduce((sum, r) => sum + r, 0) / allRatings.length : null,
         topVendors: vendorPerformance.slice(0, 10),
+      },
+      vendorQualityAlerts: {
+        totalVendors: allVendors.length,
+        flagged: vendorAlerts,
       },
       disputeRate: {
         rate: disputeRate,

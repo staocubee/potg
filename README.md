@@ -9415,6 +9415,54 @@ different numbers.
 named, not a further breakdown this pass doesn't have evidence was
 actually requested.
 
+## Vendor quality alerts on the Platform Admin Dashboard (this pass)
+
+Closes the Platform Admin Dashboard's own finding: "Vendor quality
+alerts — a performance summary (completion rate, top-10) exists, but
+no threshold-based 'alert' logic." Deliberately not a new, invented
+threshold — reuses `getVendorRiskFlags` (`apps/api/src/vendors/trust-score.ts`)
+word-for-word, the same real flag logic (unverified, open disputes,
+expired license, a "concerns"-rated trust audit) already proven out by
+two other real features: the `assess_vendor_risk` AI skill (per-vendor)
+and `ReportsService.getAtRiskOverview` (per-account, "at-risk" cross-
+portfolio view) — just applied platform-wide with no `accountId`
+filter, matching every other `PlatformAdminService` aggregate.
+
+**What's built**:
+
+- `PlatformAdminService.getPlatformReports` now computes
+  `vendorQualityAlerts`: every real `Vendor` on the platform (not only
+  ones with a project assignment — `vendorPerformance`'s existing list
+  excludes a brand-new unverified vendor with zero jobs, so this pass
+  queries the full vendor table separately), run through the exact same
+  `getVendorRiskFlags` check, filtered to only vendors carrying at
+  least one real flag.
+- A new "Vendor quality alerts" tile on `/admin`, next to the existing
+  Vendor performance and Verification backlog tiles, listing each
+  flagged vendor's real business name and its real flag text, with a
+  warning background/border when at least one vendor is flagged.
+
+**Verified live**: `GET /platform-admin/reports` as the real
+platform-admin account (`00000000-0000-0000-0000-000000000012`)
+returned `vendorQualityAlerts: { totalVendors: 8, flagged: [...7
+vendors] }` — six vendors flagged for `"Vendor verification status is
+\"not_verified\", not verified"` (Test Electrical Co, Test Inspector
+Co, Precision Plumbing Ltd, both Spark Electrical Co accounts, Lagos
+Structural Engineers) and one, Lekki Renovations Co., carrying three
+real distinct flags at once ("3 open dispute(s) on projects this
+vendor is assigned to", "Listed professional license has expired",
+"Most recent platform audit rated \"minor concerns\""). Then verified
+the real UI: with the browser's account switched to the platform-admin
+account, `/admin` rendered the "Vendor quality alerts" tile with
+"7 / 8 flagged" and all seven vendors' real names and real flag text,
+matching the API response exactly.
+
+**Not done — explicit scope, not oversight**: no configurable alert
+threshold and no notification/alerting delivery mechanism (email,
+in-app) — the finding asked for real threshold-based alert *logic*,
+which this pass now has (the same real logic two other features
+already trust), not a new delivery channel nothing in the audit named.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
