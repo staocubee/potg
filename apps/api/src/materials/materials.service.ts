@@ -1,4 +1,6 @@
+import { randomUUID } from 'crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -24,13 +26,69 @@ import { getSupplierTrustScore } from './trust-score';
 import { rankingBoost } from '../common/search-ranking.util';
 import { getActiveBoostMap, applyVisibilityBoost } from '../packages/boost.util';
 import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
+import { PaystackService } from '../payments/paystack.service';
+import { FlutterwaveService } from '../payments/flutterwave.service';
+import { PaypalService } from '../payments/paypal.service';
+import { StripeService } from '../payments/stripe.service';
+
+// The same generic dispatch shape PaymentsService's own DepositGateway
+// uses — Flutterwave/Stripe both take the shared params, PayPal doesn't
+// carry email/metadata (see the PayPal branch in the constructor below),
+// Paystack keeps its own separate branch in payOrder for the same reason
+// PaymentsService.deposit does: real amount comparisons against its
+// minor-unit (kobo) convention need their own path.
+interface OrderPaymentGateway {
+  initializeTransaction(params: {
+    email: string;
+    amount: number;
+    currency: string;
+    reference: string;
+    callbackUrl: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<{ authorizationUrl: string; reference: string }>;
+  verifyTransaction(reference: string): Promise<{ status: string; amount: number; currency: string }>;
+}
+
+// Same real constraint PaymentsService.payableEmail's own comment
+// documents — Paystack's server-side validation rejects RFC
+// 2606/6761-reserved test TLDs (.test/.example/.invalid/.localhost)
+// outright, and this seed data's own demo accounts use exactly one of
+// those. Duplicated here rather than exported and shared, the same
+// "small pure function, not a cross-module import" convention this
+// codebase already follows elsewhere.
+const RESERVED_TEST_TLDS = ['test', 'example', 'invalid', 'localhost'];
+function payableEmail(email: string): string {
+  const [local, domain] = email.split('@');
+  if (!domain) return email;
+  const tld = domain.split('.').pop();
+  if (tld && RESERVED_TEST_TLDS.includes(tld.toLowerCase())) {
+    return `${local}@${domain.slice(0, -tld.length)}com`;
+  }
+  return email;
+}
 
 @Injectable()
 export class MaterialsService {
+  private readonly orderPaymentGateways: Record<string, OrderPaymentGateway>;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: InAppNotificationsService,
-  ) {}
+    private readonly paystack: PaystackService,
+    private readonly flutterwave: FlutterwaveService,
+    private readonly paypal: PaypalService,
+    private readonly stripe: StripeService,
+    private readonly config: ConfigService,
+  ) {
+    this.orderPaymentGateways = {
+      flutterwave: this.flutterwave,
+      stripe: this.stripe,
+      paypal: {
+        initializeTransaction: (params) => this.paypal.initializeTransaction(params),
+        verifyTransaction: (reference) => this.paypal.verifyTransaction(reference),
+      },
+    };
+  }
 
   private async requireOwnSupplier(accountId: string) {
     const supplier = await this.prisma.supplier.findUnique({ where: { accountId } });
@@ -612,7 +670,7 @@ export class MaterialsService {
   async findOrder(orderId: string, accountId: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { items: { include: { product: true } }, delivery: true, supplier: true, review: true },
+      include: { items: { include: { product: true } }, delivery: true, supplier: true, review: true, payment: true },
     });
     if (!order) throw new NotFoundException('Order not found');
     const supplier = await this.prisma.supplier.findUnique({ where: { id: order.supplierId } });
@@ -660,6 +718,132 @@ export class MaterialsService {
       where: { id: orderId },
       data: { approvalStatus: dto.status, approvalNotes: dto.notes },
     });
+  }
+
+  // The other half of the audit's own finding on Order.approvalStatus
+  // above: "no gateway call, no charge on order creation." Deliberately
+  // independent of approvalStatus — a buyer can pay whenever it wants to,
+  // same as a project deposit never required a milestone to be approved
+  // first; approval only ever gated the supplier's own pending->confirmed
+  // move, a different concern. "manual" (no provider given) completes
+  // instantly, same simulated-payment convention Payment.provider's own
+  // schema comment documents; a real gateway creates a pending
+  // OrderPayment and returns a real hosted-checkout URL, credited only
+  // once verifyOrderPayment confirms the charge actually succeeded — an
+  // abandoned checkout tab never phantom-pays the supplier.
+  async payOrder(orderId: string, accountId: string, email: string, provider?: string) {
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, accountId } });
+    if (!order) throw new NotFoundException('Order not found in your account');
+    const existing = await this.prisma.orderPayment.findUnique({ where: { orderId } });
+    if (existing && existing.status !== 'failed') {
+      throw new BadRequestException(`This order already has a payment (status: "${existing.status}")`);
+    }
+
+    const amount = Number(order.totalAmount);
+    const currency = order.currency;
+
+    if (provider === 'paystack') {
+      const reference = `potg_ord_${randomUUID()}`;
+      const webAppUrl = this.config.get<string>('WEB_APP_URL', 'http://localhost:3000');
+      const { authorizationUrl } = await this.paystack.initializeTransaction({
+        email: payableEmail(email),
+        amount,
+        currency,
+        reference,
+        callbackUrl: `${webAppUrl}/marketplace/materials/orders/${orderId}?paymentReference=${reference}`,
+        metadata: { orderId, accountId },
+      });
+      const payment = await this.upsertOrderPayment(orderId, accountId, {
+        amount, currency, provider: 'paystack', providerReference: reference, status: 'pending',
+      });
+      return { payment, authorizationUrl };
+    }
+
+    const gateway = provider ? this.orderPaymentGateways[provider] : undefined;
+    if (gateway) {
+      const reference = `potg_ord_${randomUUID()}`;
+      const webAppUrl = this.config.get<string>('WEB_APP_URL', 'http://localhost:3000');
+      const init = await gateway.initializeTransaction({
+        email: payableEmail(email),
+        amount,
+        currency,
+        reference,
+        callbackUrl: `${webAppUrl}/marketplace/materials/orders/${orderId}?paymentReference=${reference}`,
+        metadata: { orderId, accountId },
+      });
+      const payment = await this.upsertOrderPayment(orderId, accountId, {
+        amount, currency, provider: provider!, providerReference: init.reference, status: 'pending',
+      });
+      return { payment, authorizationUrl: init.authorizationUrl };
+    }
+
+    const payment = await this.upsertOrderPayment(orderId, accountId, {
+      amount, currency, provider: 'manual', providerReference: undefined, status: 'completed',
+    });
+    return { payment };
+  }
+
+  private upsertOrderPayment(
+    orderId: string,
+    accountId: string,
+    data: { amount: number; currency: string; provider: string; providerReference?: string; status: string },
+  ) {
+    return this.prisma.orderPayment.upsert({
+      where: { orderId },
+      update: data,
+      create: { orderId, accountId, ...data },
+    });
+  }
+
+  // The other half of the real gateway path — asks the gateway directly
+  // whether the charge actually succeeded, same real verify-not-trust
+  // shape PaymentsService.verifyDeposit already uses for project
+  // deposits. Callable more than once safely: an already-"completed"
+  // payment just returns itself.
+  async verifyOrderPayment(orderId: string, accountId: string) {
+    const order = await this.prisma.order.findFirst({ where: { id: orderId, accountId } });
+    if (!order) throw new NotFoundException('Order not found in your account');
+    const payment = await this.prisma.orderPayment.findUnique({ where: { orderId } });
+    if (!payment) throw new NotFoundException('This order has no payment to verify');
+
+    if (payment.status === 'completed') {
+      return { payment, alreadyVerified: true };
+    }
+    if (payment.status !== 'pending' || !payment.providerReference) {
+      throw new BadRequestException(`This payment is "${payment.status}" — nothing to verify`);
+    }
+
+    const result =
+      payment.provider === 'paystack'
+        ? await this.verifyPaystackOrderPayment(payment.providerReference)
+        : await this.orderPaymentGateways[payment.provider]?.verifyTransaction(payment.providerReference);
+    if (!result) throw new BadRequestException('Only a real-gateway payment needs verification');
+
+    if (result.status === 'failed') {
+      const updated = await this.prisma.orderPayment.update({ where: { id: payment.id }, data: { status: 'failed' } });
+      return { payment: updated, alreadyVerified: false };
+    }
+    if (result.status !== 'success') {
+      return { payment, alreadyVerified: false };
+    }
+
+    const expectedAmount = Number(payment.amount);
+    if (Math.abs(result.amount - expectedAmount) > 0.01 || result.currency !== payment.currency) {
+      throw new BadRequestException(
+        `${payment.provider} confirmed a different amount/currency than expected (got ${result.amount} ${result.currency})`,
+      );
+    }
+
+    const completed = await this.prisma.orderPayment.update({ where: { id: payment.id }, data: { status: 'completed' } });
+    return { payment: completed, alreadyVerified: false };
+  }
+
+  // Paystack's own real amount unit is kobo (minor units) — see
+  // PaymentsService.verifyDeposit's own Paystack branch for why this
+  // can't share OrderPaymentGateway's major-unit verifyTransaction shape.
+  private async verifyPaystackOrderPayment(reference: string): Promise<{ status: string; amount: number; currency: string }> {
+    const result = await this.paystack.verifyTransaction(reference);
+    return { status: result.status, amount: result.amountKobo / 100, currency: result.currency };
   }
 
   async upsertDelivery(orderId: string, accountId: string, dto: UpdateDeliveryDto) {

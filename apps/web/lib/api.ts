@@ -1732,6 +1732,24 @@ export type MaterialOrder = {
   delivery?: Delivery | null;
   supplier?: Supplier;
   review?: SupplierReview | null;
+  payment?: OrderPayment | null;
+};
+
+// The other half of the audit's own finding on Order.approvalStatus
+// above: "no gateway call, no charge on order creation." See
+// MaterialsService.payOrder's own comment for why this is its own model
+// rather than a reuse of Payment (which requires a real project/escrow
+// this never has).
+export type OrderPayment = {
+  id: string;
+  orderId: string;
+  accountId: string;
+  amount: string;
+  currency: string;
+  provider: "manual" | "paystack" | "flutterwave" | "stripe" | "paypal" | string;
+  providerReference?: string | null;
+  status: "pending" | "completed" | "failed" | string;
+  createdAt: string;
 };
 
 // ---- Client -------------------------------------------------------------
@@ -3487,6 +3505,26 @@ export class ApiClient {
     return request<MaterialOrder>(`/orders/${orderId}/approval`, {
       method: "PATCH",
       body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  // The other half of the audit's own finding on Order.approvalStatus
+  // above: "no gateway call, no charge on order creation." A real
+  // gateway (paystack/flutterwave/stripe/paypal) returns a real hosted
+  // checkout URL to open; "manual" (the default) completes instantly,
+  // same simulated-payment convention deposit() already uses.
+  payOrder(orderId: string, input: { provider?: string } = {}) {
+    return request<{ payment: OrderPayment; authorizationUrl?: string }>(`/orders/${orderId}/payment`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  verifyOrderPayment(orderId: string) {
+    return request<{ payment: OrderPayment; alreadyVerified: boolean }>(`/orders/${orderId}/payment/verify`, {
+      method: "POST",
       token: this.token,
       accountId: this.accountId,
     });

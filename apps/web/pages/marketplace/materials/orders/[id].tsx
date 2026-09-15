@@ -167,6 +167,12 @@ export default function OrderDetailPage() {
             )}
           </div>
 
+          {/* The audit's own finding on Order.approvalStatus: "no gateway
+              call, no charge on order creation." Buyer-only, independent
+              of approvalStatus — paying is the buyer's own ordinary
+              action, not the separate spend-authority sign-off above. */}
+          {!isSupplier && <OrderPaymentCard order={order} onChanged={load} />}
+
           <div className="potg-card" style={{ padding: 18 }}>
             <h3 style={{ fontSize: 14, marginBottom: 10 }}>Items</h3>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -263,6 +269,100 @@ export default function OrderDetailPage() {
         </div>
       )}
     </AppShell>
+  );
+}
+
+// Mirrors projects/[id].tsx's own DepositForm exactly — same real
+// gateway integrations, same "open hosted checkout in a new tab, verify
+// here once you're back" shape, just for an order's own fixed
+// totalAmount instead of a buyer-chosen escrow deposit amount.
+function OrderPaymentCard({ order, onChanged }: { order: MaterialOrder; onChanged: () => void }) {
+  const auth = useAuth();
+  const [provider, setProvider] = useState("manual");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const payment = order.payment;
+
+  async function onPay(e: FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      const result = await auth.api.payOrder(order.id, { provider });
+      if (result.authorizationUrl) {
+        window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
+        onChanged();
+      } else {
+        onChanged();
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't start that payment.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onVerify() {
+    setError(null);
+    setBusy(true);
+    try {
+      const result = await auth.api.verifyOrderPayment(order.id);
+      if (result.payment.status !== "completed") {
+        setError(`${payment?.provider} hasn't confirmed this payment yet (status: ${result.payment.status}). Complete checkout in the other tab, then try again.`);
+      }
+      onChanged();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Couldn't verify that payment.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="potg-card" style={{ padding: 18 }}>
+      <h3 style={{ fontSize: 14, marginBottom: 10 }}>Payment</h3>
+      {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
+
+      {payment?.status === "completed" && (
+        <p style={{ fontSize: 13, margin: 0 }}>
+          <span className="potg-badge" style={{ background: "#e7f3ea", borderColor: "#b7ddc3", color: "#2f7a4f" }}>paid</span>
+          {" "}{formatMoney(payment.amount, payment.currency)} via {payment.provider} · {new Date(payment.createdAt).toLocaleDateString()}
+        </p>
+      )}
+
+      {payment?.status === "pending" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
+            Complete the payment in the {payment.provider} tab that opened, then verify it here.
+          </p>
+          <div>
+            <button className="potg-btn potg-btn-primary" onClick={onVerify} disabled={busy || !auth.hasPermission("order:write")}>
+              {busy ? "Checking…" : "I've paid — verify"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {(!payment || payment.status === "failed") && (
+        <form onSubmit={onPay} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {payment?.status === "failed" && (
+            <p className="potg-muted" style={{ fontSize: 12, margin: 0, flexBasis: "100%" }}>That payment failed — try again.</p>
+          )}
+          <span style={{ fontSize: 13, fontWeight: 600 }}>{formatMoney(order.totalAmount, order.currency)}</span>
+          <select className="potg-input" value={provider} onChange={(e) => setProvider(e.target.value)} style={{ maxWidth: 220 }}>
+            <option value="manual">Manual (simulated)</option>
+            <option value="paystack">Paystack (real test payment)</option>
+            <option value="flutterwave">Flutterwave (real test payment)</option>
+            <option value="paypal">PayPal (real test payment)</option>
+            <option value="stripe">Stripe (real once configured)</option>
+          </select>
+          <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !auth.hasPermission("order:write")}>
+            {busy ? "…" : "Pay now"}
+          </button>
+        </form>
+      )}
+    </div>
   );
 }
 

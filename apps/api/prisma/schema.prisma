@@ -70,6 +70,7 @@ model Account {
   listings        PropertyListing[]
   supplier        Supplier?
   orders          Order[]
+  orderPayments   OrderPayment[]
   aiConversations AiConversation[]
   invites         AccountInvite[]
   rentalBookings  RentalBooking[]
@@ -1478,8 +1479,37 @@ model Order {
   delivery Delivery?
   review   SupplierReview?
   disputes Dispute[]
+  payment  OrderPayment?
 
   @@map("orders")
+}
+
+// The other half of the audit's own finding on Order.approvalStatus above:
+// "no gateway call, no charge on order creation." approvalStatus closed
+// the routing half; this closes the charge half — the exact same real
+// gateway integrations (PaystackService/FlutterwaveService/StripeService/
+// PaypalService) MaterialsService.payOrder dispatches through, generic
+// dispatch shape borrowed from PaymentsService's own DepositGateway.
+// Deliberately its own model, not a reuse of Payment — Payment requires a
+// real projectId/escrowAccountId (every order-derived Payout on it
+// notwithstanding, an Order isn't a project and never funds an escrow
+// account; a buyer pays a supplier directly, nothing sits in escrow
+// waiting on a milestone).
+model OrderPayment {
+  id                String   @id @default(uuid())
+  orderId           String   @unique
+  accountId         String
+  amount            Decimal  @db.Decimal(14, 2)
+  currency          String
+  provider          String   @default("manual") // manual | paystack | flutterwave | stripe | paypal
+  providerReference String?
+  status            String   @default("pending") // pending | completed | failed
+  createdAt         DateTime @default(now())
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("order_payments")
 }
 
 // The materials-marketplace counterpart to VendorReview — gated on the

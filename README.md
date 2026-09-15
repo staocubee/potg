@@ -9781,6 +9781,66 @@ safety), no password change or notification-preference controls here
 — the real report-digest toggle already has its own real UI on the
 Reports page and isn't duplicated onto this one.
 
+## Real gateway payment for materials orders (this pass)
+
+Closes the last genuinely large real gap left across the whole audit —
+named twice, from two angles: Workflow 6 step 6's own "Order/Payment
+are entirely disconnected — no gateway call, no charge on order
+creation" (the "pays" half; the "routes to approval" half closed an
+earlier pass), and the Supplier Sidebar's own "Payments — missing,
+since Order never creates a Payment/Payout." A buyer could approve an
+order's spend and a supplier could confirm/ship/deliver it, but no
+money ever actually moved anywhere real.
+
+**What's built**:
+
+- A new `OrderPayment` model (`schema.prisma`) — deliberately its own
+  model, not a reuse of `Payment`: `Payment` requires a real
+  `projectId`/`escrowAccountId`, and a materials order isn't a project
+  and never funds an escrow account; a buyer pays a supplier directly.
+- `MaterialsService.payOrder`/`verifyOrderPayment` — the exact same
+  real gateway integrations project deposits already use
+  (Paystack/Flutterwave/Stripe/PayPal, injected from the already-
+  imported `PaymentsModule`), the same generic dispatch shape
+  `PaymentsService`'s own `DepositGateway` established. `manual`
+  (default) completes instantly, same simulated-payment convention
+  `Payment.provider` already documents; a real gateway creates a
+  `pending` `OrderPayment` and returns a real hosted-checkout URL,
+  credited only once `verifyOrderPayment` confirms the charge actually
+  succeeded against the gateway directly — an abandoned checkout tab
+  never phantom-pays the supplier. Deliberately independent of
+  `Order.approvalStatus`: paying is the buyer's own ordinary action,
+  not the separate spend-authority sign-off that gate already covers.
+- Real `POST /orders/:orderId/payment` and `.../payment/verify`
+  endpoints, gated on `order:write` (the same permission that already
+  governs creating the order).
+- A real "Payment" card on the order detail page
+  (`marketplace/materials/orders/[id].tsx`), buyer-only, mirroring
+  `projects/[id].tsx`'s own `DepositForm` exactly: a provider picker,
+  a real "Pay now"/"I've paid — verify" flow, and a real paid/pending/
+  failed state.
+
+**Verified live**: on the real demo owner account, a real `manual`
+payment on a real, pre-existing order (NGN 25,500) completed
+instantly, persisted, and correctly rejected a second attempt on the
+same order ("already has a payment"); a real Flutterwave payment on a
+second real order (NGN 42,500) returned a genuine hosted-checkout URL
+(`checkout-v2.dev-flutterwave.com`) and a real verify call correctly
+reported it still `pending` rather than trusting the client — the same
+verify-not-trust rigor `PaymentsService.verifyDeposit` already applies
+to project deposits. Confirmed both states render correctly on the
+real order detail page: "Paid NGN 25,500 via manual" for the first
+order, and a real UI click on "I've paid — verify" for the second
+correctly reporting "flutterwave hasn't confirmed this payment yet."
+
+**Not done — explicit scope, not oversight**: paying doesn't
+automatically confirm/advance the order's own `status` — that stays
+the supplier's own separate, explicit action, the same way a project
+deposit never auto-released a milestone either. No webhook — same
+real constraint every other gateway integration in this codebase
+already documents (Paystack/Flutterwave/Stripe/PayPal's own service
+files), verification is manual/client-triggered throughout.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

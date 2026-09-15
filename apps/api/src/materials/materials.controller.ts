@@ -29,9 +29,10 @@ import { UpsertCartItemDto } from './dto/upsert-cart-item.dto';
 import { CheckoutCartDto } from './dto/checkout-cart.dto';
 import { RequestBulkQuoteDto } from './dto/request-bulk-quote.dto';
 import { RespondBulkQuoteDto } from './dto/respond-bulk-quote.dto';
+import { CheckoutOrderDto } from './dto/checkout-order.dto';
 
 type AccountMemberCtx = { accountId: string };
-type UserCtx = { id: string };
+type UserCtx = { id: string; email: string };
 
 // No :propertyId/:projectId route params here either (orders carry an
 // optional projectId in the body, not the URL) — every ownership check in
@@ -322,6 +323,30 @@ export class MaterialsController {
     @Body() dto: SetOrderApprovalDto,
   ) {
     return this.materials.setOrderApproval(orderId, member.accountId, dto);
+  }
+
+  // The other half of the audit's own finding on Order.approvalStatus
+  // above: "no gateway call, no charge on order creation." order:write —
+  // the same permission that already governs creating this order in the
+  // first place — not payment:approve, since paying is the buyer's own
+  // ordinary action, not the separate spend-authority sign-off above.
+  @RequirePermissions('order:write')
+  @Post('orders/:orderId/payment')
+  payOrder(
+    @Param('orderId') orderId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @CurrentUser() user: UserCtx,
+    @Body() dto: CheckoutOrderDto,
+  ) {
+    return this.materials.payOrder(orderId, member.accountId, user.email, dto.provider);
+  }
+
+  // The other half of the real gateway path — see
+  // MaterialsService.verifyOrderPayment's own comment.
+  @RequirePermissions('order:write')
+  @Post('orders/:orderId/payment/verify')
+  verifyOrderPayment(@Param('orderId') orderId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.materials.verifyOrderPayment(orderId, member.accountId);
   }
 
   @RequirePermissions('order:write')
