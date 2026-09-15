@@ -68,6 +68,15 @@ export class PropertiesController {
     return this.properties.findAllMaintenanceRequestsForAccount(member.accountId);
   }
 
+  // The nav audit's own finding: "Tenants & Leases — missing, only
+  // inside each property's own page." Same "must be registered before
+  // GET :propertyId" reasoning as 'search'/'maintenance-requests' above.
+  @RequirePermissions('lease:read')
+  @Get('leases')
+  findAllLeases(@CurrentAccountMember() member: AccountMemberCtx) {
+    return this.properties.findAllLeasesForAccount(member.accountId);
+  }
+
   // Manual backfill/reindex — see PropertiesService.reindexEmbeddings's
   // own comment on why this exists alongside the automatic on-create
   // indexing. property:write since it's a write to this account's own

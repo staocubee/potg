@@ -855,6 +855,27 @@ export class PropertiesService {
     }));
   }
 
+  // The nav audit's own finding on the Owner/Admin Sidebar: "Tenants &
+  // Leases — missing, only inside each property's own page." Same shape
+  // findAllMaintenanceRequestsForAccount above already established for
+  // this exact category of gap — join through the owning property, since
+  // Lease carries no accountId of its own either.
+  async findAllLeasesForAccount(accountId: string) {
+    const leases = await this.prisma.lease.findMany({
+      where: { property: { accountId } },
+      include: {
+        rentPayments: { include: { receipt: true }, orderBy: { periodStart: 'desc' } },
+        tenantAccount: { select: { id: true, name: true } },
+        property: { select: { id: true, name: true, addressLine: true, city: true, country: true } },
+      },
+      orderBy: { startDate: 'desc' },
+    });
+    return leases.map((lease) => ({
+      ...lease,
+      upcomingDueDates: lease.status === 'active' ? computeUpcomingRentDueDates(lease) : [],
+    }));
+  }
+
   async findLease(propertyId: string, leaseId: string) {
     const lease = await this.prisma.lease.findFirst({
       where: { id: leaseId, propertyId },

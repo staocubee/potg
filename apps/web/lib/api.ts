@@ -2202,6 +2202,9 @@ export class ApiClient {
   listLeases(propertyId: string) {
     return request<Lease[]>(`/properties/${propertyId}/leases`, { token: this.token, accountId: this.accountId });
   }
+  listAllLeases() {
+    return request<Lease[]>("/properties/leases", { token: this.token, accountId: this.accountId });
+  }
   updateLease(
     propertyId: string,
     leaseId: string,

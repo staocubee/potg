@@ -9021,6 +9021,57 @@ to its real property page.
   surfaces this session built earlier), and duplicating it here wasn't
   the gap this pass closes.
 
+## A portfolio-wide Tenants & Leases view (this pass)
+
+Closes the nav audit's own finding on the Owner/Admin Sidebar:
+"Tenants & Leases — missing, only inside each property's own page."
+The identical shape the Maintenance view above just closed, applied to
+the other resource the same audit named alongside it: every lease
+action (record payment, edit, end, link tenant, generate agreement)
+stays exactly where it already lived; this closes only the "see every
+lease across every property at once" half.
+
+**What's built**:
+
+- `PropertiesService.findAllLeasesForAccount(accountId)` — joins
+  through the owning property, same reasoning
+  `findAllMaintenanceRequestsForAccount` already documents, since
+  `Lease` carries no `accountId` of its own either.
+- `GET /properties/leases` (`lease:read`) — registered before
+  `GET /properties/:propertyId`, the same ordering `search` and
+  `maintenance-requests` above already use to avoid the route
+  collision.
+- A new `/leases` page: every lease across the account, each showing
+  its own property, tenant, rent, status, and (for active leases) the
+  next real due date, linking straight through to that property's own
+  page for the real actions.
+- A real "Tenants & Leases" item on the `AppShell` nav, between
+  Maintenance and Payments.
+
+**Verified live**: `GET /properties/leases` as the real seeded owner
+account returned all 9 real, pre-existing leases, each correctly
+carrying its own real property, and each active lease its own real
+next-due-date; confirmed `GET /properties/search` and
+`GET /properties/:propertyId` still resolved correctly afterward — no
+route collision regression. Confirmed real account isolation: the same
+call as the vendor account correctly 403'd (`vendor` never held
+`lease:read` in the first place — a real, pre-existing permission
+boundary, not something this pass changed). Then verified the real UI:
+the new "Tenants & Leases" nav item is present, `/leases` renders all
+9 real leases with their real details, and clicking one navigates
+straight to its real property page.
+
+**Not done — explicit scope, not oversight**:
+
+- Read-only — same restraint the Maintenance view above documents; the
+  finding was "no portfolio-wide view," not "no portfolio-wide
+  filtering."
+- No portfolio-wide overdue-rent rollup on this specific page — the
+  real overdue/ending-soon detection this session built earlier
+  (`assess_lease_risk`, the rent-reminder cron) already covers that
+  ground elsewhere; this page's own job is the plain list the audit
+  named as missing, not a second risk surface.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
