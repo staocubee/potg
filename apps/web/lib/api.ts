@@ -1374,6 +1374,20 @@ export type PlatformListingSummary = {
   property: { id: string; name: string };
 };
 
+// The nav audit's own finding: "Transactions — missing as a ledger —
+// only an aggregate 'Marketplace GMV' dollar total, not a transaction
+// count/list." Itemizes the exact two sources that dollar total already
+// sums (delivered orders, paid-out milestones) — same definition.
+export type PlatformTransaction = {
+  id: string;
+  type: "order" | "payout";
+  amount: string;
+  currency: string;
+  occurredAt: string;
+  counterparty: string;
+  account: { id: string; name: string } | null;
+};
+
 export type PlatformAdminActionEntry = {
   id: string;
   targetAccountId: string;
@@ -2997,6 +3011,9 @@ export class ApiClient {
   }
   listPlatformListings() {
     return request<PlatformListingSummary[]>("/platform-admin/listings", { token: this.token, accountId: this.accountId });
+  }
+  listPlatformTransactions() {
+    return request<PlatformTransaction[]>("/platform-admin/transactions", { token: this.token, accountId: this.accountId });
   }
   suspendPlatformAccount(targetAccountId: string, reason: string) {
     return request<PlatformAccountSummary>(`/platform-admin/accounts/${targetAccountId}/suspend`, {

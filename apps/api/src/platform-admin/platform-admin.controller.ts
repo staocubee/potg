@@ -42,6 +42,15 @@ export class PlatformAdminController {
     return this.admin.listListings();
   }
 
+  // The nav audit's own finding: "Transactions — missing as a ledger —
+  // only an aggregate 'Marketplace GMV' dollar total, not a transaction
+  // count/list."
+  @RequirePermissions('account:read_all')
+  @Get('transactions')
+  listTransactions() {
+    return this.admin.listTransactions();
+  }
+
   @RequirePermissions('account:suspend')
   @Post('accounts/:targetAccountId/suspend')
   suspendAccount(

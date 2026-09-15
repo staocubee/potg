@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { ApiError, PlatformAccountSummary, PlatformAdminActionEntry, PlatformListingSummary, PlatformPropertySummary, PlatformReports } from "../../lib/api";
+import { ApiError, PlatformAccountSummary, PlatformAdminActionEntry, PlatformListingSummary, PlatformPropertySummary, PlatformReports, PlatformTransaction } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 
 function statusColor(status: string) {
@@ -199,6 +199,54 @@ function PlatformPropertiesAndListingsSection() {
   );
 }
 
+// The nav audit's own finding: "Transactions — missing as a ledger —
+// only an aggregate 'Marketplace GMV' dollar total, not a transaction
+// count/list." Itemizes the exact same two sources that dollar total
+// already sums (delivered orders, paid-out milestones) — same
+// definition, just the individual rows instead of one summed number.
+function PlatformTransactionsSection() {
+  const auth = useAuth();
+  const [transactions, setTransactions] = useState<PlatformTransaction[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!auth.currentAccountId) return;
+    auth.api
+      .listPlatformTransactions()
+      .then(setTransactions)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load transactions."));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  if (error) return <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>;
+  if (!transactions) return <p className="potg-muted">Loading transactions…</p>;
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <h3 style={{ fontSize: 14, margin: "0 0 10px" }}>Transactions</h3>
+      <div className="potg-card" style={{ padding: 14 }}>
+        <p className="potg-muted" style={{ margin: "0 0 8px", fontSize: 11 }}>
+          {transactions.length} completed transaction{transactions.length === 1 ? "" : "s"} platform-wide —
+          delivered orders and paid-out milestones, the same two sources Marketplace GMV above sums
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 320, overflowY: "auto" }}>
+          {transactions.length === 0 && <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>None yet.</p>}
+          {transactions.map((t) => (
+            <div key={`${t.type}-${t.id}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, borderBottom: "1px solid var(--potg-border)", paddingBottom: 6 }}>
+              <div>
+                <span className="potg-badge" style={{ marginRight: 6, textTransform: "capitalize" }}>{t.type}</span>
+                {t.account?.name ?? "Unknown account"} → {t.counterparty}
+                <div className="potg-muted" style={{ fontSize: 10.5 }}>{new Date(t.occurredAt).toLocaleString()}</div>
+              </div>
+              <div style={{ fontWeight: 700, flexShrink: 0 }}>{formatMoney(Number(t.amount), t.currency)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Module 16-24's "admin operations" bucket, scoped to its one genuinely
 // buildable slice — see PlatformAdminAction's own schema comment for the
 // full reasoning. Gated entirely server-side (account:read_all/
@@ -255,6 +303,7 @@ export default function AdminPage() {
       </p>
       <PlatformReportsSection />
       <PlatformPropertiesAndListingsSection />
+      <PlatformTransactionsSection />
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
       {!accounts && !error && <p className="potg-muted">Loading…</p>}

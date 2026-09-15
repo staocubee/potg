@@ -93,6 +93,65 @@ export class PlatformAdminService {
     return listings;
   }
 
+  // The nav audit's own finding on the Platform Admin Sidebar:
+  // "Transactions — missing as a ledger — only an aggregate 'Marketplace
+  // GMV' dollar total, not a transaction count/list." Itemizes the exact
+  // same two real sources getPlatformReports' own GMV figure already
+  // sums (delivered orders, paid-out milestones) — same definition, no
+  // new modeling decision, just the individual rows instead of one
+  // summed number per currency.
+  async listTransactions() {
+    const [orders, payouts] = await Promise.all([
+      this.prisma.order.findMany({
+        where: { status: 'delivered' },
+        select: {
+          id: true,
+          totalAmount: true,
+          currency: true,
+          updatedAt: true,
+          account: { select: { id: true, name: true } },
+          supplier: { select: { businessName: true } },
+          delivery: { select: { deliveredAt: true } },
+        },
+      }),
+      this.prisma.payout.findMany({
+        where: { status: 'paid' },
+        select: {
+          id: true,
+          grossAmount: true,
+          currency: true,
+          paidAt: true,
+          createdAt: true,
+          vendor: { select: { businessName: true } },
+          project: { select: { id: true, title: true, account: { select: { id: true, name: true } } } },
+        },
+      }),
+    ]);
+
+    const transactions = [
+      ...orders.map((o) => ({
+        id: o.id,
+        type: 'order' as const,
+        amount: o.totalAmount,
+        currency: o.currency,
+        occurredAt: o.delivery?.deliveredAt ?? o.updatedAt,
+        counterparty: o.supplier?.businessName ?? 'Supplier',
+        account: o.account,
+      })),
+      ...payouts.map((p) => ({
+        id: p.id,
+        type: 'payout' as const,
+        amount: p.grossAmount,
+        currency: p.currency,
+        occurredAt: p.paidAt ?? p.createdAt,
+        counterparty: p.vendor?.businessName ?? 'Vendor',
+        account: p.project?.account ?? null,
+      })),
+    ];
+
+    return transactions.sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());
+  }
+
   private async requireAccount(accountId: string) {
     const account = await this.prisma.account.findUnique({ where: { id: accountId } });
     if (!account) throw new NotFoundException('Account not found');

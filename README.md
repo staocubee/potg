@@ -9168,6 +9168,47 @@ listings with their real owning-account names, prices, and statuses.
   the same scale assumption the existing account directory on this
   page already makes.
 
+## A real Transactions ledger for the Platform Admin console (this pass)
+
+Closes the nav audit's own finding on the Platform Admin Sidebar:
+"Transactions — missing as a ledger — only an aggregate 'Marketplace
+GMV' dollar total, not a transaction count/list." No new modeling
+decision here — `listTransactions` itemizes the exact two real sources
+`getPlatformReports`'s own GMV figure already sums (delivered orders,
+paid-out milestones), just as individual rows instead of one summed
+number per currency.
+
+**What's built**:
+
+- `PlatformAdminService.listTransactions()` — every delivered `Order`
+  and every paid `Payout` platform-wide, normalized into one list
+  (type, amount, currency, when it happened, counterparty, owning
+  account), sorted newest first.
+- `GET /platform-admin/transactions` (`account:read_all`).
+- A new "Transactions" section on `/admin`, between Properties &
+  listings and the account directory.
+
+**Verified live**: `GET /platform-admin/transactions` as the real
+platform-admin account returned 5 real rows (2 orders, 3 payouts); the
+5 amounts summed to exactly NGN 970,000 — the identical figure
+`GET /platform-admin/reports`'s own `marketplaceGmvByCurrency` already
+reports for NGN, confirming the ledger and the existing aggregate
+agree because they're built from the same two real sources, not two
+different definitions of "transaction." Confirmed the regular owner
+account still 403s. Then verified the real UI: `/admin` rendered all 5
+real transactions with their real accounts, counterparties, dates, and
+amounts.
+
+**Not done — explicit scope, not oversight**:
+
+- No property-listing sales — same restraint `getPlatformReports`'s
+  own GMV figure already documents: nothing in this schema ties a
+  confirmed closing price to a sold listing (`askingPrice` is an ask,
+  not a recorded sale amount), so including one here would mean
+  inventing a number this codebase doesn't actually have.
+- Read-only, no pagination or filtering — same restraints the
+  Properties & listings section above documents.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the
