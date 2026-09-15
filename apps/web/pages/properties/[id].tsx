@@ -2216,10 +2216,13 @@ function ScheduleInspectionForm({
   const [inspectionType, setInspectionType] = useState(INSPECTION_TYPES[0]);
   const [scheduledFor, setScheduledFor] = useState("");
   const [projectId, setProjectId] = useState("");
+  const [stageId, setStageId] = useState("");
   const [inspectorName, setInspectorName] = useState("");
   const [inspectorVendorId, setInspectorVendorId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const selectedProject = projects.find((p) => p.id === projectId);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -2230,6 +2233,7 @@ function ScheduleInspectionForm({
         inspectionType,
         scheduledFor: new Date(scheduledFor).toISOString(),
         projectId: projectId || undefined,
+        stageId: stageId || undefined,
         inspectorName: inspectorVendorId ? undefined : inspectorName || undefined,
         inspectorVendorId: inspectorVendorId || undefined,
       });
@@ -2260,7 +2264,14 @@ function ScheduleInspectionForm({
           onChange={(e) => setScheduledFor(e.target.value)}
         />
       </div>
-      <select className="potg-input" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+      <select
+        className="potg-input"
+        value={projectId}
+        onChange={(e) => {
+          setProjectId(e.target.value);
+          setStageId("");
+        }}
+      >
         <option value="">Not tied to a project</option>
         {projects.map((p) => (
           <option key={p.id} value={p.id}>
@@ -2268,6 +2279,21 @@ function ScheduleInspectionForm({
           </option>
         ))}
       </select>
+      {/* The audit's own finding on Workflows 3 & 4: "nothing wires an
+          inspection's result to gate or advance a stage." Only shown
+          once a project is picked — a stage without its own project
+          makes no sense. Optional: most inspections still aren't "for"
+          any one stage, same as before this pass. */}
+      {selectedProject && selectedProject.stages && selectedProject.stages.length > 0 && (
+        <select className="potg-input" value={stageId} onChange={(e) => setStageId(e.target.value)}>
+          <option value="">Not tied to a specific stage</option>
+          {selectedProject.stages.map((s) => (
+            <option key={s.id} value={s.id}>
+              Gates "{s.name}" on pass
+            </option>
+          ))}
+        </select>
+      )}
       <VendorOrNameField
         vendors={vendors}
         vendorId={inspectorVendorId}
@@ -2314,6 +2340,7 @@ function InspectionRow({
   const [editType, setEditType] = useState(inspection.inspectionType);
   const [editScheduledFor, setEditScheduledFor] = useState(inspection.scheduledFor.slice(0, 10));
   const [editProjectId, setEditProjectId] = useState(inspection.projectId ?? "");
+  const [editStageId, setEditStageId] = useState(inspection.stageId ?? "");
   const [editInspectorName, setEditInspectorName] = useState(inspection.inspectorVendorId ? "" : inspection.inspectorName ?? "");
   const [editInspectorVendorId, setEditInspectorVendorId] = useState(inspection.inspectorVendorId ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -2381,6 +2408,7 @@ function InspectionRow({
         inspectionType: editType,
         scheduledFor: new Date(editScheduledFor).toISOString(),
         projectId: editProjectId,
+        stageId: editProjectId ? editStageId : "",
         inspectorName: editInspectorVendorId ? "" : editInspectorName,
         inspectorVendorId: editInspectorVendorId,
       });
@@ -2402,6 +2430,9 @@ function InspectionRow({
             {new Date(inspection.scheduledFor).toLocaleDateString()}
             {inspection.inspectorVendor && ` · ${inspection.inspectorVendor.businessName} (vendor)`}
             {!inspection.inspectorVendor && inspection.inspectorName && ` · ${inspection.inspectorName}`}
+            {/* The audit's own finding on Workflows 3 & 4 — a real,
+                explicit stage link, not just a project one. */}
+            {inspection.stage && ` · gates "${inspection.stage.name}"`}
           </div>
           {inspection.status === "requested" && (
             <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
@@ -2467,7 +2498,14 @@ function InspectionRow({
             </select>
             <input className="potg-input" type="date" required value={editScheduledFor} onChange={(e) => setEditScheduledFor(e.target.value)} />
           </div>
-          <select className="potg-input" value={editProjectId} onChange={(e) => setEditProjectId(e.target.value)}>
+          <select
+            className="potg-input"
+            value={editProjectId}
+            onChange={(e) => {
+              setEditProjectId(e.target.value);
+              setEditStageId("");
+            }}
+          >
             <option value="">Not tied to a project</option>
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
@@ -2475,6 +2513,20 @@ function InspectionRow({
               </option>
             ))}
           </select>
+          {(() => {
+            const editProject = projects.find((p) => p.id === editProjectId);
+            if (!editProject?.stages?.length) return null;
+            return (
+              <select className="potg-input" value={editStageId} onChange={(e) => setEditStageId(e.target.value)}>
+                <option value="">Not tied to a specific stage</option>
+                {editProject.stages.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    Gates "{s.name}" on pass
+                  </option>
+                ))}
+              </select>
+            );
+          })()}
           <VendorOrNameField
             vendors={vendors}
             vendorId={editInspectorVendorId}

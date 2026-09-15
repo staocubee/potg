@@ -16,6 +16,13 @@ export class UpdateInspectionDto {
   @IsString()
   projectId?: string;
 
+  // Same empty-string-clears/undefined-leaves-unchanged shape as
+  // projectId above — see PropertyInspection.stageId's own schema
+  // comment.
+  @IsOptional()
+  @IsString()
+  stageId?: string;
+
   @IsOptional()
   @IsString()
   inspectorName?: string;

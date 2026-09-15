@@ -739,6 +739,12 @@ export type PropertyInspection = {
   id: string;
   propertyId: string;
   projectId?: string | null;
+  // The audit's own finding on Workflows 3 & 4: a real, explicit link to
+  // the specific stage this inspection is "for" — see
+  // ProjectsService.updateStage's own comment on how this closes the
+  // "gate or advance a stage" half for real, opt-in per stage.
+  stageId?: string | null;
+  stage?: { id: string; name: string } | null;
   inspectionType: "general" | "pre_purchase" | "move_in" | "move_out" | "safety" | "post_renovation" | string;
   status: "requested" | "scheduled" | "completed" | "cancelled" | string;
   scheduledFor: string;
@@ -2241,7 +2247,7 @@ export class ApiClient {
   }
   scheduleInspection(
     propertyId: string,
-    input: { inspectionType: string; scheduledFor: string; projectId?: string; inspectorName?: string; inspectorVendorId?: string },
+    input: { inspectionType: string; scheduledFor: string; projectId?: string; stageId?: string; inspectorName?: string; inspectorVendorId?: string },
   ) {
     return request<PropertyInspection>(`/properties/${propertyId}/inspections`, {
       method: "POST",
@@ -2262,7 +2268,7 @@ export class ApiClient {
   updateInspection(
     propertyId: string,
     inspectionId: string,
-    input: { inspectionType?: string; scheduledFor?: string; projectId?: string; inspectorName?: string; inspectorVendorId?: string },
+    input: { inspectionType?: string; scheduledFor?: string; projectId?: string; stageId?: string; inspectorName?: string; inspectorVendorId?: string },
   ) {
     return request<PropertyInspection>(`/properties/${propertyId}/inspections/${inspectionId}`, {
       method: "PATCH",

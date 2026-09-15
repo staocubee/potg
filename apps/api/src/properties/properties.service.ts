@@ -620,11 +620,17 @@ export class PropertiesService {
       const project = await this.prisma.project.findFirst({ where: { id: dto.projectId, propertyId } });
       if (!project) throw new BadRequestException('That project does not belong to this property');
     }
+    if (dto.stageId) {
+      if (!dto.projectId) throw new BadRequestException('A stage can only be set alongside the project it belongs to');
+      const stage = await this.prisma.projectStage.findFirst({ where: { id: dto.stageId, projectId: dto.projectId } });
+      if (!stage) throw new BadRequestException('That stage does not belong to this project');
+    }
     if (dto.inspectorVendorId) await this.requireVendor(dto.inspectorVendorId);
     return this.prisma.propertyInspection.create({
       data: {
         propertyId,
         projectId: dto.projectId,
+        stageId: dto.stageId,
         inspectionType: dto.inspectionType,
         scheduledFor: new Date(dto.scheduledFor),
         inspectorVendorId: dto.inspectorVendorId,
@@ -681,6 +687,12 @@ export class PropertiesService {
       const project = await this.prisma.project.findFirst({ where: { id: dto.projectId, propertyId } });
       if (!project) throw new BadRequestException('That project does not belong to this property');
     }
+    if (dto.stageId) {
+      const effectiveProjectId = dto.projectId !== undefined ? dto.projectId : inspection.projectId;
+      if (!effectiveProjectId) throw new BadRequestException('A stage can only be set alongside the project it belongs to');
+      const stage = await this.prisma.projectStage.findFirst({ where: { id: dto.stageId, projectId: effectiveProjectId } });
+      if (!stage) throw new BadRequestException('That stage does not belong to this project');
+    }
     if (dto.inspectorVendorId) await this.requireVendor(dto.inspectorVendorId);
     return this.prisma.propertyInspection.update({
       where: { id: inspectionId },
@@ -688,6 +700,7 @@ export class PropertiesService {
         inspectionType: dto.inspectionType ?? undefined,
         scheduledFor: dto.scheduledFor ? new Date(dto.scheduledFor) : undefined,
         projectId: dto.projectId !== undefined ? dto.projectId || null : undefined,
+        stageId: dto.stageId !== undefined ? dto.stageId || null : undefined,
         inspectorVendorId: dto.inspectorVendorId !== undefined ? dto.inspectorVendorId || null : dto.inspectorName ? null : undefined,
         inspectorName: dto.inspectorName !== undefined ? dto.inspectorName : dto.inspectorVendorId ? null : undefined,
       },
@@ -697,7 +710,7 @@ export class PropertiesService {
   findInspections(propertyId: string) {
     return this.prisma.propertyInspection.findMany({
       where: { propertyId },
-      include: { findings: true, inspectorVendor: { select: this.vendorSummarySelect } },
+      include: { findings: true, inspectorVendor: { select: this.vendorSummarySelect }, stage: { select: { id: true, name: true } } },
       orderBy: { scheduledFor: 'desc' },
     });
   }
@@ -721,7 +734,7 @@ export class PropertiesService {
   findInspection(propertyId: string, inspectionId: string) {
     return this.prisma.propertyInspection.findFirst({
       where: { id: inspectionId, propertyId },
-      include: { findings: true, inspectorVendor: { select: this.vendorSummarySelect } },
+      include: { findings: true, inspectorVendor: { select: this.vendorSummarySelect }, stage: { select: { id: true, name: true } } },
     });
   }
 
@@ -761,6 +774,21 @@ export class PropertiesService {
         label: `Inspection completed: ${inspection.inspectionType.replace(/_/g, ' ')} — ${dto.overallResult.replace(/_/g, ' ')}`,
       },
     });
+
+    // The "advance" half of the audit's own finding — see
+    // PropertyInspection.stageId's own schema comment. Only a real
+    // "pass" advances the stage it was actually scheduled against;
+    // needs_attention/fail leave the stage exactly where it was, same as
+    // if no inspection existed for it at all. Never regresses an
+    // already-completed stage back — this only ever moves a stage
+    // forward, matching how every other real state transition in this
+    // codebase works.
+    if (dto.overallResult === 'pass' && inspection.stageId) {
+      const stage = await this.prisma.projectStage.findUnique({ where: { id: inspection.stageId } });
+      if (stage && stage.status !== 'completed') {
+        await this.prisma.projectStage.update({ where: { id: stage.id }, data: { status: 'completed' } });
+      }
+    }
 
     return this.findInspection(propertyId, updated.id);
   }

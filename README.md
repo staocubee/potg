@@ -9841,6 +9841,76 @@ real constraint every other gateway integration in this codebase
 already documents (Paystack/Flutterwave/Stripe/PayPal's own service
 files), verification is manual/client-triggered throughout.
 
+## Real per-stage inspection gating and auto-advance (this pass)
+
+Closes Workflow 4 step 11 — "Inspections approve stages" —
+`PropertyInspection.projectId` already linked the two, but nothing
+wired an inspection's real result to gate or advance a stage; the two
+were updated completely independently. An earlier pass closed this
+narrowly for exactly one stage (Handover: any passing inspection on
+the project unblocks marking it complete) — deliberately scoped that
+way at the time, since a blanket "every stage needs an inspection"
+rule would have invented a requirement nothing in this blueprint
+actually asked for, and would have retroactively second-guessed every
+already-completed stage on every existing project.
+
+This pass makes the fuller version safe by making the link explicit
+rather than inferred: `PropertyInspection` can now optionally name the
+specific `ProjectStage` it's actually for. A stage nobody ever
+scheduled an inspection against behaves exactly as it always has —
+zero regression on any existing project, seeded or real. Only once a
+real inspection is explicitly linked to a stage does that stage gain a
+real gate — the same one Handover already had, generalized instead of
+duplicated — plus a real "advance": a linked inspection passing
+auto-completes the stage it was scheduled for, no separate manual
+click required.
+
+**What's built**:
+
+- `PropertyInspection.stageId` (nullable, optional) — schema, migration,
+  create/update DTOs (`ScheduleInspectionDto`/`UpdateInspectionDto`),
+  with the same referential-integrity check `projectId` already gets
+  (a stage must actually belong to the project it's paired with).
+- `ProjectsService.updateStage`: for any stage being marked
+  `completed`, if one or more inspections are explicitly linked to it,
+  require at least one to be `completed` with a `"pass"` result —
+  otherwise a real 400. Handover's own original project-wide fallback
+  (any passing inspection anywhere on the project) is untouched and
+  still applies whenever no inspection is specifically linked to
+  Handover itself.
+- `PropertiesService.completeInspection`: a linked inspection
+  completing with `overallResult: "pass"` auto-advances its own stage
+  to `completed` if it isn't already — `needs_attention`/`fail` leave
+  the stage exactly where it was.
+- A real stage picker on the "Schedule inspection" form and the
+  inspection edit form (`properties/[id].tsx`), shown once a project is
+  selected, and a real `gates "<stage>"` label on any inspection
+  that's linked to one.
+
+**Verified live**, against a real, freshly-created project with its
+own 5 real stages: (1) completing a stage with no linked inspection
+succeeded exactly as before — zero regression; (2) scheduling a real
+inspection linked to the "Materials" stage and trying to complete that
+stage got a real 400 ("hasn't passed yet"); (3) completing that same
+inspection with `overallResult: "pass"` auto-advanced "Materials" to
+`completed` with no separate manual call; (4) a second inspection
+linked to the "Work" stage, completed with `overallResult: "fail"`,
+correctly left "Work" un-advanced and still blocked; (5) Handover's
+own original project-wide fallback still triggered correctly off a
+real passing inspection with no stage link, unchanged from before this
+pass. The real stage picker was confirmed live on the property page,
+listing all 5 of the test project's own real stages, and two real
+`gates "Work"`/`gates "Materials"` labels rendered on their own
+inspection rows.
+
+**Not done — explicit scope, not oversight**: no stage can be
+"un-advanced" by a later failing inspection — once completed, a stage
+stays completed, the same one-way transition every other real state
+machine in this codebase already uses (a released milestone, a
+delivered order). No requirement that a stage *have* a linked
+inspection at all — an owner who never schedules one for a given stage
+completes it exactly as freely as before this pass, on purpose.
+
 ## Not built yet
 
 Deliberately out of scope for this pass — beyond Priority 6 in the

@@ -846,7 +846,8 @@ model ProjectStage {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project      Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  inspections  PropertyInspection[]
 
   @@unique([projectId, sortOrder])
   @@map("project_stages")
@@ -1651,6 +1652,20 @@ model PropertyInspection {
   id                String    @id @default(uuid())
   propertyId        String
   projectId         String? // set when this inspection is tied to a renovation project (e.g. a post-work inspection)
+  // The audit's own finding on Workflows 3 & 4: "nothing wires an
+  // inspection's result to gate or advance a stage — they're
+  // independently updated, no automatic connection." Handover's own gate
+  // (updateStage, below) already checks for any passing inspection
+  // *anywhere on the project* — a reasonable proxy for the very last
+  // stage, but wrong for an earlier one: a "final walkthrough" inspection
+  // has no business satisfying a "Foundation" stage's own sign-off. This
+  // is the real, explicit link that makes an earlier stage's gate
+  // possible without guessing which inspection was "for" it. Optional —
+  // an inspection not scheduled against any particular stage (the only
+  // kind that existed before this field) behaves exactly as it always
+  // has; only a stage someone actually links an inspection to gets a
+  // real gate, never an invented "every stage needs one" rule.
+  stageId           String?
   inspectionType    String // general | pre_purchase | move_in | move_out | safety | post_renovation
   // The audit's own finding on Workflow 2: "PropertyInspection is real
   // but every route is ABAC-scoped to the property's own owning account
@@ -1686,6 +1701,7 @@ model PropertyInspection {
 
   property        Property             @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   project         Project?             @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  stage           ProjectStage?        @relation(fields: [stageId], references: [id], onDelete: SetNull)
   inspectorVendor Vendor?              @relation(fields: [inspectorVendorId], references: [id], onDelete: SetNull)
   findings        InspectionFinding[]
 

@@ -154,21 +154,43 @@ export class ProjectsService {
   // projectId links the two, but nothing wires an inspection's result to
   // gate or advance a stage — they're independently updated, no
   // automatic connection" / "'Handover' is just one more seeded stage
-  // name — no distinct sign-off/final-inspection logic." Scoped to the
-  // one stage a final inspection actually belongs to, rather than an
-  // invented "every stage needs an inspection" rule this blueprint
-  // never asked for.
+  // name — no distinct sign-off/final-inspection logic." Originally
+  // scoped to just Handover, on purpose — extending a blanket "every
+  // stage needs an inspection" rule to every existing project's own
+  // already-completed stages would have been inventing a requirement
+  // this blueprint never asked for. PropertyInspection.stageId (a later
+  // pass) makes the fuller version safe: a real, explicit link, opt-in
+  // per stage. A stage nobody ever scheduled an inspection against
+  // completes exactly as it always has — zero regression for any
+  // existing project. Only once someone actually links a real
+  // inspection to a specific stage does that stage gain a real gate,
+  // the same one Handover already had, generalized rather than
+  // duplicated. Handover's own original project-wide fallback stays
+  // exactly as it was, for the (still very real) case of an inspection
+  // never explicitly tied to any one stage.
   async updateStage(projectId: string, stageId: string, dto: UpdateProjectStageDto) {
     const stage = await this.prisma.projectStage.findFirst({ where: { id: stageId, projectId } });
     if (!stage) throw new NotFoundException('Stage not found on this project');
-    if (stage.name === 'Handover' && dto.status === 'completed') {
-      const passingInspection = await this.prisma.propertyInspection.findFirst({
-        where: { projectId, status: 'completed', overallResult: 'pass' },
-      });
-      if (!passingInspection) {
-        throw new BadRequestException(
-          'Handover requires a completed inspection on this project with a "pass" result before it can be marked complete',
-        );
+    if (dto.status === 'completed') {
+      const linkedInspection = await this.prisma.propertyInspection.findFirst({ where: { stageId } });
+      if (linkedInspection) {
+        const passingLinked = await this.prisma.propertyInspection.findFirst({
+          where: { stageId, status: 'completed', overallResult: 'pass' },
+        });
+        if (!passingLinked) {
+          throw new BadRequestException(
+            `An inspection is scheduled against this stage but hasn't passed yet — it must be completed with a "pass" result before "${stage.name}" can be marked complete`,
+          );
+        }
+      } else if (stage.name === 'Handover') {
+        const passingInspection = await this.prisma.propertyInspection.findFirst({
+          where: { projectId, status: 'completed', overallResult: 'pass' },
+        });
+        if (!passingInspection) {
+          throw new BadRequestException(
+            'Handover requires a completed inspection on this project with a "pass" result before it can be marked complete',
+          );
+        }
       }
     }
     return this.prisma.projectStage.update({ where: { id: stageId }, data: { status: dto.status } });
