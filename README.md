@@ -7737,13 +7737,25 @@ is already 'requested'"); confirmed it and watched `status` flip to
   (`GET /listings/me/inspection-requests`), same as how an offer's own
   status is checked today rather than pushed.
 
-## A structured resolution type for disputes (this pass)
+## A structured resolution type for disputes (superseded — see
+"Structured dispute resolution proposals" further down)
 
-Closes the audit's own finding on Workflow 9: "'proposing a resolution'
-is just a status flip + free-text note, no structured proposal object."
-A resolved dispute recorded whatever words happened to end up in
-`resolutionNotes` — nothing said, in a queryable way, whether the
-outcome was a refund, a release, rework, or nothing at all.
+**Superseded**: a later pass added a real `DisputeResolutionProposal`
+thread with counter-response — see "Structured dispute resolution
+proposals (this pass)" further down for what's actually in the
+codebase now. Everything below is still accurate about
+`Dispute.resolutionType` itself (that field, and the four resolving
+surfaces' own dropdowns, are all still exactly as described), it's only
+the section title's own "closes the audit's own finding" claim that no
+longer holds — a categorized reason attached to a unilateral status
+flip turned out not to be the whole gap; "proposing" needed its own
+real object, which this pass didn't yet add.
+
+Closes half of the audit's own finding on Workflow 9: "'proposing a
+resolution' is just a status flip + free-text note, no structured
+proposal object." A resolved dispute recorded whatever words happened
+to end up in `resolutionNotes` — nothing said, in a queryable way,
+whether the outcome was a refund, a release, rework, or nothing at all.
 
 **What's built**:
 
@@ -10077,6 +10089,108 @@ same integration `OrderPayment` already has for materials orders) is a
 separate, larger gap left for a future pass, not folded in here. No way
 for a tenant to pay free-form (no real entry) or partially — only the
 exact amount already sitting on a real due row.
+
+## Structured dispute resolution proposals (this pass)
+
+Closes Workflow 9 step 6 — "Resolution is proposed" — for real. An
+earlier pass ("A structured resolution type for disputes," above) gave
+a resolution a real categorized `resolutionType` instead of only
+free-text `resolutionNotes`, but the underlying action stayed exactly
+what it always was: whichever party didn't raise the dispute unilaterally
+flips its status to `resolved`/`rejected`. The account that raised a
+dispute had — and still has, via that path — no way to act on its own
+dispute at all. Neither side could actually negotiate: no counter, no
+history of what either side had offered, nothing to accept. This pass
+adds the real object the audit's own finding named — a proposal either
+party can make, and a real accept/reject/counter response, not a status
+flip.
+
+**What's built**:
+
+- **`DisputeResolutionProposal`** (new model) — an append-only thread,
+  not a mutable field: `proposedByAccountId`, `resolutionType`,
+  `resolutionNotes`, `status` (`proposed | accepted | rejected |
+  superseded`). Deliberately not modeled on the marketplace's own
+  `ListingOffer` (which overwrites its single `amount` field in place on
+  a counter, keeping no history) — a counter here creates a brand-new
+  row and marks the old one `superseded`, so the full back-and-forth
+  stays real, queryable history. `RespondToResolutionProposalDto` is
+  also deliberately *not* capped at accept/reject the way the
+  marketplace's own `RespondToCounterDto` is (that DTO's own comment:
+  "a buyer accepts or walks away... it doesn't re-counter again") — a
+  dispute counter-response can loop indefinitely, precisely because nothing
+  is being mutated in place.
+- **`PaymentsService.proposeResolution`** — either party
+  (`requireDisputeParty` admits both, including whoever raised the
+  dispute — the one account the old direct-resolve path always excluded)
+  can propose, as long as the dispute isn't already final and no
+  platform reviewer has taken it under arbitration (`under_review`
+  locks this out exactly the way it already locked out
+  `applyDisputeResolution`). Only one proposal can be `proposed`
+  (awaiting a response) on a dispute at a time — a real 409 otherwise —
+  so the thread stays single-file.
+- **`PaymentsService.respondToResolutionProposal`** — the other party
+  only (a real 403 if the proposer tries to respond to their own
+  proposal, the same self-resolution lockout `applyDisputeResolution`
+  already enforced, just moved here since proposing and deciding are no
+  longer the same action). *Accept* writes the identical
+  `status`/`resolutionType`/`resolutionNotes`/`resolvedAt` fields onto
+  `Dispute` that the old direct-resolve path always wrote — so
+  `scheduleReworkInspection`/`releaseMilestone`/`refundPayment`'s own
+  dispute checks keep working completely unchanged, zero regression.
+  *Reject* leaves the dispute open for a fresh proposal from either
+  side. *Counter* marks the old proposal `superseded` and creates a new
+  one with the responder as the new proposer.
+- **Real notifications on every transition** — proposed, accepted,
+  rejected, and countered each notify the other party
+  (`dispute_resolution_proposed`/`_accepted`/`_rejected`/`_countered`).
+  A real gap closed alongside this one: the existing direct
+  resolve/reject/arbitrate paths had never sent a notification on
+  resolution at all, only on raise.
+- **Reused across all three dispute surfaces** — project two-party
+  (`PaymentsController`), vendor-side (`VendorsController`), and order
+  two-party (`MaterialsController`) — via the same generic
+  `requireDisputeParty`-gated service methods every existing evidence
+  route already funnels through, not three separate implementations.
+- **UI**: a real proposal thread on both the project owner's dispute
+  card (`projects/[id].tsx`) and the vendor's own (`vendors/me.tsx`) —
+  every proposal shown with its own status, Accept/Reject/Counter on
+  the one currently awaiting a response, and a real counter form. The
+  stale "you raised this, the other party needs to resolve it" copy on
+  both pages was corrected — a raiser can now propose, it just still
+  can't unilaterally decide. No order-side UI this pass (see below).
+
+**Verified live** against the real "Kitchen Renovation" project, both
+directly against the API and with real browser clicks on both sides:
+the account that raised a fresh dispute proposed `no_action`; a self-
+response attempt got a real 403; a second proposal attempt while one
+was still pending got a real 409. The assigned vendor countered with
+`rework` — confirmed the original proposal flipped to `superseded` and
+a new one appeared as `proposed`, attributed to the vendor. The owner
+then accepted the counter: the dispute flipped to `resolved` with
+`resolutionType: "rework"`, and the pre-existing
+`schedule-rework-inspection` endpoint — completely untouched by this
+pass — worked immediately against it with no special-casing, confirming
+the shared-field design holds. A further propose attempt on the now-
+resolved dispute correctly got a real 409. Real
+`dispute_resolution_proposed`/`_countered`/`_accepted` notifications
+were confirmed on both accounts' own notification feeds. Separately
+verified the order-side routes directly: proposed a refund on a real
+order dispute as the buyer, accepted as the supplier, confirmed the
+same resolved state — the identical backend path, no order-specific
+code needed.
+
+**Not done — explicit scope, not oversight**: no order-side UI — the
+three backend routes are real and fully verified (see above), but
+`marketplace/materials/orders/[id].tsx` doesn't yet render the proposal
+thread the way the project/vendor pages do; reachable directly via the
+API today. The existing direct resolve/reject/arbitrate paths are
+untouched, not removed — a fast path for a unilateral call still exists
+alongside the new negotiation path, the same way `OrderPayment`'s
+`manual` default coexists with its real gateway option elsewhere in
+this codebase. Platform-reviewer arbitration itself stays a separate,
+unstructured status flip — a neutral third party making a final call
+isn't negotiating, so it wasn't brought into this proposal thread.
 
 ## Not built yet
 

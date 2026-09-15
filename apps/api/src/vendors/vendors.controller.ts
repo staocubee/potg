@@ -12,6 +12,8 @@ import { SubmitMaintenanceQuoteDto } from './dto/submit-maintenance-quote.dto';
 import { RaiseDisputeAsVendorDto } from './dto/raise-dispute-as-vendor.dto';
 import { ResolveDisputeDto } from '../payments/dto/resolve-dispute.dto';
 import { SubmitDisputeEvidenceDto } from '../payments/dto/submit-dispute-evidence.dto';
+import { ProposeResolutionDto } from '../payments/dto/propose-resolution.dto';
+import { RespondToResolutionProposalDto } from '../payments/dto/respond-to-resolution-proposal.dto';
 import { ReplyToReviewDto } from './dto/reply-to-review.dto';
 import { SetVendorVerificationDto } from './dto/set-vendor-verification.dto';
 import { SubmitVendorTrustAuditDto } from './dto/submit-vendor-trust-audit.dto';
@@ -212,6 +214,39 @@ export class VendorsController {
   @Get('me/disputes/:disputeId/evidence')
   findDisputeEvidence(@CurrentAccountMember() member: AccountMemberCtx, @Param('disputeId') disputeId: string) {
     return this.payments.findDisputeEvidence(disputeId, member.accountId);
+  }
+
+  // The vendor-side counterpart to PaymentsController's identical
+  // proposal routes — see PaymentsService.proposeResolution/
+  // respondToResolutionProposal, which both sides funnel into. This is
+  // the vendor's own real path to propose a resolution, something the
+  // older resolveDispute route above never let it do on a dispute it
+  // raised itself.
+  @RequirePermissions('dispute:write')
+  @Post('me/disputes/:disputeId/proposals')
+  proposeResolution(
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Param('disputeId') disputeId: string,
+    @Body() dto: ProposeResolutionDto,
+  ) {
+    return this.payments.proposeResolution(disputeId, member.accountId, dto);
+  }
+
+  @RequirePermissions('dispute:read')
+  @Get('me/disputes/:disputeId/proposals')
+  findResolutionProposals(@CurrentAccountMember() member: AccountMemberCtx, @Param('disputeId') disputeId: string) {
+    return this.payments.findResolutionProposals(disputeId, member.accountId);
+  }
+
+  @RequirePermissions('dispute:write')
+  @Post('me/disputes/:disputeId/proposals/:proposalId/respond')
+  respondToResolutionProposal(
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Param('disputeId') disputeId: string,
+    @Param('proposalId') proposalId: string,
+    @Body() dto: RespondToResolutionProposalDto,
+  ) {
+    return this.payments.respondToResolutionProposal(disputeId, proposalId, member.accountId, dto);
   }
 
   // The vendor's own reply to a review on its profile — see the comment on

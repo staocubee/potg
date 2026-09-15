@@ -10,6 +10,8 @@ import { RaiseDisputeDto } from './dto/raise-dispute.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { ArbitrateDisputeDto } from './dto/arbitrate-dispute.dto';
 import { SubmitDisputeEvidenceDto } from './dto/submit-dispute-evidence.dto';
+import { ProposeResolutionDto } from './dto/propose-resolution.dto';
+import { RespondToResolutionProposalDto } from './dto/respond-to-resolution-proposal.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
 import { FinalizePayoutOtpDto } from './dto/finalize-payout-otp.dto';
 
@@ -185,6 +187,38 @@ export class PaymentsController {
     @Body() dto: ResolveDisputeDto,
   ) {
     return this.payments.resolveDispute(projectId, disputeId, member.accountId, dto);
+  }
+
+  // The audit's own finding on Workflow 9: "proposing a resolution is
+  // just a status flip + free-text note, no structured proposal
+  // object." Same requireDisputeParty-only shape as the evidence routes
+  // above — disputeId alone is enough, :projectId is only here for
+  // PermissionsGuard's ABAC.
+  @RequirePermissions('dispute:write')
+  @Post('disputes/:disputeId/proposals')
+  proposeResolution(
+    @Param('disputeId') disputeId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Body() dto: ProposeResolutionDto,
+  ) {
+    return this.payments.proposeResolution(disputeId, member.accountId, dto);
+  }
+
+  @RequirePermissions('dispute:read')
+  @Get('disputes/:disputeId/proposals')
+  findResolutionProposals(@Param('disputeId') disputeId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.payments.findResolutionProposals(disputeId, member.accountId);
+  }
+
+  @RequirePermissions('dispute:write')
+  @Post('disputes/:disputeId/proposals/:proposalId/respond')
+  respondToResolutionProposal(
+    @Param('disputeId') disputeId: string,
+    @Param('proposalId') proposalId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Body() dto: RespondToResolutionProposalDto,
+  ) {
+    return this.payments.respondToResolutionProposal(disputeId, proposalId, member.accountId, dto);
   }
 
   // The audit's own finding on Workflow 9: "'Rework' has no mechanism at

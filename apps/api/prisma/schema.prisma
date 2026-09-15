@@ -1141,9 +1141,47 @@ model Dispute {
   order    Order?            @relation(fields: [orderId], references: [id], onDelete: Cascade)
   payment  Payment?          @relation(fields: [paymentId], references: [id], onDelete: SetNull)
   payout   Payout?           @relation(fields: [payoutId], references: [id], onDelete: SetNull)
-  evidence DisputeEvidence[]
+  evidence  DisputeEvidence[]
+  proposals DisputeResolutionProposal[]
 
   @@map("disputes")
+}
+
+// Closes the audit's own finding on Workflow 9: "proposing a resolution
+// is just a status flip + free-text note, no structured proposal
+// object" — see Dispute.resolutionType's own comment above, which this
+// model finally gives a real thread instead of a single mutable field.
+// Deliberately its own append-only table, not a mutable field on
+// Dispute the way ListingOffer.amount gets overwritten in place on a
+// counter — a counter here creates a new row (status: "proposed") and
+// marks the old one "superseded", so the full back-and-forth stays
+// visible, not just whatever the latest number happened to be.
+// Deliberately symmetric — either party (the one who raised the
+// dispute included, which the older resolveDispute/resolveDisputeAsVendor/
+// resolveOrderDispute path never let act at all) can propose; the other
+// side must accept, reject, or counter — never the same account that
+// made the proposal (PaymentsService's own respondToResolutionProposal
+// enforces this, same self-resolution lockout applyDisputeResolution
+// already used). Only ever one "proposed" row open on a dispute at a
+// time, so the thread stays single-file, not several simultaneous
+// competing proposals. This is additive, not a replacement: the
+// existing direct resolveDispute/arbitrateDispute paths are untouched —
+// this is the new path for an actual negotiation, they're still the
+// fast path for a unilateral call once the non-raising party already
+// knows the outcome.
+model DisputeResolutionProposal {
+  id                  String    @id @default(uuid())
+  disputeId           String
+  proposedByAccountId String
+  resolutionType      String // refund | release | rework | no_action | other
+  resolutionNotes     String?
+  status              String    @default("proposed") // proposed | accepted | rejected | superseded
+  createdAt           DateTime  @default(now())
+  respondedAt         DateTime?
+
+  dispute Dispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+
+  @@map("dispute_resolution_proposals")
 }
 
 // The structured "submit more evidence" channel the arbitration

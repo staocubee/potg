@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
-import { AccessGrant, ApiError, Dispute, DisputeEvidence, DISPUTE_TYPES, EscrowAccount, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, PropertyInspection, Receipt, RESOLUTION_TYPES, Vendor, VendorReview } from "../../lib/api";
+import { AccessGrant, ApiError, Dispute, DisputeEvidence, DisputeResolutionProposal, DISPUTE_TYPES, EscrowAccount, Payout, Project, ProjectMilestone, ProjectVendorAssignment, Property, PropertyInspection, Receipt, RESOLUTION_TYPES, Vendor, VendorReview } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
@@ -1284,6 +1284,22 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
   const [schedulingRework, setSchedulingRework] = useState(false);
   const [reworkScheduled, setReworkScheduled] = useState(false);
 
+  // The audit's own finding on Workflow 9: "proposing a resolution is
+  // just a status flip + free-text note, no structured proposal
+  // object." Real thread now — lazily loaded on first expand, same
+  // shape the evidence thread above already established.
+  const [proposals, setProposals] = useState<DisputeResolutionProposal[] | null>(null);
+  const [showProposals, setShowProposals] = useState(false);
+  const [proposing, setProposing] = useState(false);
+  const [proposeType, setProposeType] = useState("");
+  const [proposeNotes, setProposeNotes] = useState("");
+  const [proposeError, setProposeError] = useState<string | null>(null);
+  const [proposeBusy, setProposeBusy] = useState(false);
+  const [counteringId, setCounteringId] = useState<string | null>(null);
+  const [counterType, setCounterType] = useState("");
+  const [counterNotes, setCounterNotes] = useState("");
+  const [respondBusy, setRespondBusy] = useState<string | null>(null);
+
   // Module 20 Phase 1's "AI dispute summary" — same per-item "✦" button
   // shape narrate_report already established on the report builder page,
   // since a dispute (like a saved report) has no sensible default id an
@@ -1384,6 +1400,59 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
     }
   }
 
+  async function loadProposals() {
+    setProposeError(null);
+    try {
+      setProposals(await auth.api.findResolutionProposals(projectId, dispute.id));
+    } catch (err) {
+      setProposeError(err instanceof ApiError ? err.message : "Couldn't load proposals.");
+    }
+  }
+
+  function onToggleProposals() {
+    if (!showProposals && proposals === null) loadProposals();
+    setShowProposals((v) => !v);
+  }
+
+  async function onPropose(e: FormEvent) {
+    e.preventDefault();
+    setProposeBusy(true);
+    setProposeError(null);
+    try {
+      await auth.api.proposeResolution(projectId, dispute.id, { resolutionType: proposeType, resolutionNotes: proposeNotes || undefined });
+      setProposeType("");
+      setProposeNotes("");
+      setProposing(false);
+      await loadProposals();
+    } catch (err) {
+      setProposeError(err instanceof ApiError ? err.message : "Couldn't propose that resolution.");
+    } finally {
+      setProposeBusy(false);
+    }
+  }
+
+  async function onRespond(proposalId: string, action: "accepted" | "rejected" | "countered") {
+    if (action === "countered" && !counterType) return;
+    setRespondBusy(proposalId);
+    setProposeError(null);
+    try {
+      await auth.api.respondToResolutionProposal(projectId, dispute.id, proposalId, {
+        action,
+        resolutionType: action === "countered" ? counterType : undefined,
+        resolutionNotes: action === "countered" ? counterNotes || undefined : undefined,
+      });
+      setCounteringId(null);
+      setCounterType("");
+      setCounterNotes("");
+      await loadProposals();
+      if (action === "accepted") onResolved();
+    } catch (err) {
+      setProposeError(err instanceof ApiError ? err.message : "Couldn't respond to that proposal.");
+    } finally {
+      setRespondBusy(null);
+    }
+  }
+
   return (
     <div style={{ fontSize: 13, borderBottom: "1px solid var(--potg-border)", paddingBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -1417,7 +1486,7 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
       </div>
       {open && !otherPartyRaisedIt && (
         <div className="potg-muted" style={{ fontSize: 11, marginTop: 6 }}>
-          You raised this dispute — the other party needs to resolve it.
+          You raised this dispute — you can propose a resolution below, but the other party has to accept it (or resolve it directly) for it to actually close.
         </div>
       )}
       {open && otherPartyRaisedIt && !canResolve && (
@@ -1463,6 +1532,11 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
         >
           {showEvidence ? "Hide evidence" : "View/add evidence"}
         </button>
+        {open && (
+          <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={onToggleProposals}>
+            {showProposals ? "Hide proposals" : "View/propose resolution"}
+          </button>
+        )}
         <button className="potg-btn potg-btn-ai" style={{ padding: "3px 8px", fontSize: 11 }} disabled={summarizing} onClick={onSummarize}>
           {summarizing ? "…" : "✦ Summarize"}
         </button>
@@ -1524,6 +1598,137 @@ function DisputeRow({ projectId, dispute, onResolved }: { projectId: string; dis
                   className="potg-btn potg-btn-secondary"
                   type="button"
                   onClick={() => setAddingEvidence(false)}
+                  style={{ padding: "3px 8px", fontSize: 11 }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      )}
+      {showProposals && (
+        <div style={{ marginTop: 8, borderTop: "1px solid var(--potg-border)", paddingTop: 8 }}>
+          {proposeError && <div className="potg-error" style={{ marginBottom: 6 }}>{proposeError}</div>}
+          {proposals === null && <p className="potg-muted" style={{ fontSize: 11 }}>Loading…</p>}
+          {proposals && proposals.length === 0 && <p className="potg-muted" style={{ fontSize: 11 }}>No resolution has been proposed yet.</p>}
+          {proposals && proposals.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 8 }}>
+              {proposals.map((p) => {
+                const mine = p.proposedByAccountId === auth.currentAccountId;
+                const pending = p.status === "proposed";
+                return (
+                  <div key={p.id} style={{ fontSize: 12, borderLeft: "2px solid var(--potg-border)", paddingLeft: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <span>
+                        <b>{mine ? "You" : "They"} proposed:</b> {p.resolutionType.replace(/_/g, " ")}
+                      </span>
+                      <span className="potg-badge" style={{ fontSize: 10 }}>{p.status}</span>
+                    </div>
+                    {p.resolutionNotes && <div className="potg-muted" style={{ marginTop: 2 }}>{p.resolutionNotes}</div>}
+                    <div className="potg-muted" style={{ fontSize: 10, marginTop: 2 }}>{new Date(p.createdAt).toLocaleString()}</div>
+                    {pending && !mine && auth.hasPermission("dispute:write") && counteringId !== p.id && (
+                      <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+                        <button
+                          className="potg-btn potg-btn-primary"
+                          style={{ padding: "3px 8px", fontSize: 11 }}
+                          disabled={respondBusy !== null}
+                          onClick={() => onRespond(p.id, "accepted")}
+                        >
+                          {respondBusy === p.id ? "…" : "Accept"}
+                        </button>
+                        <button
+                          className="potg-btn potg-btn-danger"
+                          style={{ padding: "3px 8px", fontSize: 11 }}
+                          disabled={respondBusy !== null}
+                          onClick={() => onRespond(p.id, "rejected")}
+                        >
+                          Reject
+                        </button>
+                        <button
+                          className="potg-btn potg-btn-secondary"
+                          style={{ padding: "3px 8px", fontSize: 11 }}
+                          disabled={respondBusy !== null}
+                          onClick={() => setCounteringId(p.id)}
+                        >
+                          Counter
+                        </button>
+                      </div>
+                    )}
+                    {pending && mine && (
+                      <div className="potg-muted" style={{ fontSize: 11, marginTop: 6 }}>
+                        Awaiting the other party's response.
+                      </div>
+                    )}
+                    {pending && counteringId === p.id && (
+                      <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+                        <select className="potg-input" value={counterType} onChange={(e) => setCounterType(e.target.value)}>
+                          <option value="">Counter with…</option>
+                          {RESOLUTION_TYPES.map((t) => (
+                            <option key={t.value} value={t.value}>
+                              {t.label}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          className="potg-input"
+                          placeholder="Notes (optional)"
+                          value={counterNotes}
+                          onChange={(e) => setCounterNotes(e.target.value)}
+                        />
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button
+                            className="potg-btn potg-btn-primary"
+                            style={{ padding: "3px 8px", fontSize: 11 }}
+                            disabled={respondBusy !== null || !counterType}
+                            onClick={() => onRespond(p.id, "countered")}
+                          >
+                            {respondBusy === p.id ? "…" : "Send counter"}
+                          </button>
+                          <button
+                            className="potg-btn potg-btn-secondary"
+                            style={{ padding: "3px 8px", fontSize: 11 }}
+                            onClick={() => setCounteringId(null)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {!proposals?.some((p) => p.status === "proposed") && !proposing && auth.hasPermission("dispute:write") && (
+            <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} onClick={() => setProposing(true)}>
+              + Propose a resolution
+            </button>
+          )}
+          {proposing && (
+            <form onSubmit={onPropose} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <select className="potg-input" required value={proposeType} onChange={(e) => setProposeType(e.target.value)}>
+                <option value="">Resolution type</option>
+                {RESOLUTION_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                className="potg-input"
+                placeholder="Notes (optional)"
+                value={proposeNotes}
+                onChange={(e) => setProposeNotes(e.target.value)}
+              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="potg-btn potg-btn-primary" type="submit" disabled={proposeBusy} style={{ padding: "3px 8px", fontSize: 11 }}>
+                  {proposeBusy ? "…" : "Send proposal"}
+                </button>
+                <button
+                  className="potg-btn potg-btn-secondary"
+                  type="button"
+                  onClick={() => setProposing(false)}
                   style={{ padding: "3px 8px", fontSize: 11 }}
                 >
                   Cancel

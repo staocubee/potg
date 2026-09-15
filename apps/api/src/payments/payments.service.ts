@@ -8,6 +8,8 @@ import { RaiseOrderDisputeDto } from './dto/raise-order-dispute.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { ArbitrateDisputeDto } from './dto/arbitrate-dispute.dto';
 import { SubmitDisputeEvidenceDto } from './dto/submit-dispute-evidence.dto';
+import { ProposeResolutionDto } from './dto/propose-resolution.dto';
+import { RespondToResolutionProposalDto } from './dto/respond-to-resolution-proposal.dto';
 import { RefundPaymentDto } from './dto/refund-payment.dto';
 import { PaystackService } from './paystack.service';
 import { FlutterwaveService } from './flutterwave.service';
@@ -1101,6 +1103,183 @@ export class PaymentsService {
   async findDisputeEvidence(disputeId: string, accountId: string) {
     await this.requireDisputeParty(disputeId, accountId);
     return this.prisma.disputeEvidence.findMany({ where: { disputeId }, orderBy: { createdAt: 'asc' } });
+  }
+
+  // Shared by proposeResolution/respondToResolutionProposal below —
+  // resolving "who's the other side" the same way raiseDispute/
+  // raiseDisputeAsVendor/raiseOrderDispute each already do inline, just
+  // generalized to one place since both new methods need it (a project
+  // dispute fans out to every assigned vendor when the owner is the
+  // acting account, same as raiseDispute already does; an order dispute
+  // notifies the single other order party, same as raiseOrderDispute).
+  private async notifyDisputeCounterparty(
+    dispute: { projectId: string | null; orderId: string | null },
+    excludeAccountId: string,
+    type: string,
+    title: string,
+    body: string,
+    link: string,
+  ) {
+    if (dispute.orderId) {
+      const order = await this.prisma.order.findUnique({ where: { id: dispute.orderId } });
+      if (!order) return;
+      const supplier = await this.prisma.supplier.findUnique({ where: { id: order.supplierId }, select: { accountId: true } });
+      const other = excludeAccountId === order.accountId ? supplier?.accountId : order.accountId;
+      if (other) this.notifications.notify(other, type, title, body, link);
+      return;
+    }
+    if (dispute.projectId) {
+      const project = await this.prisma.project.findUnique({ where: { id: dispute.projectId }, select: { accountId: true } });
+      if (!project) return;
+      if (excludeAccountId === project.accountId) {
+        const assignments = await this.prisma.projectVendorAssignment.findMany({
+          where: { projectId: dispute.projectId },
+          select: { vendor: { select: { accountId: true } } },
+        });
+        for (const assignment of assignments) {
+          this.notifications.notify(assignment.vendor.accountId, type, title, body, link);
+        }
+      } else {
+        this.notifications.notify(project.accountId, type, title, body, link);
+      }
+    }
+  }
+
+  // The audit's own finding on Workflow 9: "proposing a resolution is
+  // just a status flip + free-text note, no structured proposal
+  // object." This is that real object. Deliberately symmetric —
+  // requireDisputeParty admits either side, including the account that
+  // raised the dispute, which the older resolveDispute/
+  // resolveDisputeAsVendor/resolveOrderDispute path never let act on its
+  // own dispute at all (applyDisputeResolution's own self-resolution
+  // guard is still there, just moved to "can't respond to your own
+  // proposal" below, since proposing is no longer the same action as
+  // deciding). Locked out under the identical conditions
+  // applyDisputeResolution already uses — already-final, or a reviewer
+  // has taken it over — so this can't be used to route around
+  // arbitration once a platform_reviewer is involved.
+  async proposeResolution(disputeId: string, accountId: string, dto: ProposeResolutionDto) {
+    const dispute = await this.requireDisputeParty(disputeId, accountId);
+    if (dispute.status === 'resolved' || dispute.status === 'rejected') {
+      throw new ConflictException('This dispute has already been resolved');
+    }
+    if (dispute.status === 'under_review') {
+      throw new ConflictException(
+        'A platform reviewer is arbitrating this dispute — the two-party proposal path is no longer available on it',
+      );
+    }
+    const pending = await this.prisma.disputeResolutionProposal.findFirst({ where: { disputeId, status: 'proposed' } });
+    if (pending) {
+      throw new ConflictException('A proposal is already awaiting a response on this dispute — respond to it before proposing another');
+    }
+    const proposal = await this.prisma.disputeResolutionProposal.create({
+      data: { disputeId, proposedByAccountId: accountId, resolutionType: dto.resolutionType, resolutionNotes: dto.resolutionNotes },
+    });
+    await this.notifyDisputeCounterparty(
+      dispute,
+      accountId,
+      'dispute_resolution_proposed',
+      'A resolution was proposed on your dispute',
+      `Proposed: ${dto.resolutionType}${dto.resolutionNotes ? ` — ${dto.resolutionNotes}` : ''}`,
+      dispute.orderId ? `/marketplace/materials/orders/${dispute.orderId}` : `/projects/${dispute.projectId}`,
+    );
+    return proposal;
+  }
+
+  // Accept closes the dispute for real — writes the identical
+  // status/resolutionType/resolutionNotes/resolvedAt fields
+  // applyDisputeResolution already writes, so
+  // scheduleReworkInspection/releaseMilestone/refundPayment's own
+  // dispute checks keep working completely unchanged, zero regression.
+  // Reject leaves the dispute open for a fresh proposal from either
+  // side. Counter never mutates the old proposal in place — it's marked
+  // "superseded" and a new "proposed" row is created with the responder
+  // as the new proposer, so the full thread of what each side actually
+  // offered stays real history, not just whatever the latest number
+  // happened to be (the same flaw ListingOffer.amount has, deliberately
+  // not repeated here).
+  async respondToResolutionProposal(disputeId: string, proposalId: string, accountId: string, dto: RespondToResolutionProposalDto) {
+    const dispute = await this.requireDisputeParty(disputeId, accountId);
+    const proposal = await this.prisma.disputeResolutionProposal.findFirst({ where: { id: proposalId, disputeId } });
+    if (!proposal) throw new NotFoundException('Proposal not found on this dispute');
+    if (proposal.status !== 'proposed') {
+      throw new ConflictException(`This proposal is already "${proposal.status}" — nothing to respond to`);
+    }
+    if (proposal.proposedByAccountId === accountId) {
+      throw new ForbiddenException('The account that made this proposal cannot respond to it — the other party needs to weigh in');
+    }
+    if (dto.action === 'countered' && !dto.resolutionType) {
+      throw new BadRequestException('A counter-proposal needs its own resolutionType');
+    }
+
+    if (dto.action === 'accepted') {
+      await this.prisma.disputeResolutionProposal.update({
+        where: { id: proposalId },
+        data: { status: 'accepted', respondedAt: new Date() },
+      });
+      const resolved = await this.prisma.dispute.update({
+        where: { id: disputeId },
+        data: {
+          status: 'resolved',
+          resolutionType: proposal.resolutionType,
+          resolutionNotes: proposal.resolutionNotes,
+          resolvedAt: new Date(),
+        },
+      });
+      await this.notifyDisputeCounterparty(
+        dispute,
+        accountId,
+        'dispute_resolution_accepted',
+        'Your proposed resolution was accepted',
+        `Resolved as: ${proposal.resolutionType}`,
+        dispute.orderId ? `/marketplace/materials/orders/${dispute.orderId}` : `/projects/${dispute.projectId}`,
+      );
+      return resolved;
+    }
+
+    if (dto.action === 'rejected') {
+      const updated = await this.prisma.disputeResolutionProposal.update({
+        where: { id: proposalId },
+        data: { status: 'rejected', respondedAt: new Date() },
+      });
+      await this.notifyDisputeCounterparty(
+        dispute,
+        accountId,
+        'dispute_resolution_rejected',
+        'Your proposed resolution was rejected',
+        proposal.resolutionNotes ?? `Proposed "${proposal.resolutionType}" was declined.`,
+        dispute.orderId ? `/marketplace/materials/orders/${dispute.orderId}` : `/projects/${dispute.projectId}`,
+      );
+      return updated;
+    }
+
+    // countered
+    await this.prisma.disputeResolutionProposal.update({
+      where: { id: proposalId },
+      data: { status: 'superseded', respondedAt: new Date() },
+    });
+    const counter = await this.prisma.disputeResolutionProposal.create({
+      data: {
+        disputeId,
+        proposedByAccountId: accountId,
+        resolutionType: dto.resolutionType!,
+        resolutionNotes: dto.resolutionNotes,
+      },
+    });
+    await this.notifyDisputeCounterparty(
+      dispute,
+      accountId,
+      'dispute_resolution_countered',
+      'Your proposed resolution was countered',
+      `Countered with: ${dto.resolutionType}${dto.resolutionNotes ? ` — ${dto.resolutionNotes}` : ''}`,
+      dispute.orderId ? `/marketplace/materials/orders/${dispute.orderId}` : `/projects/${dispute.projectId}`,
+    );
+    return counter;
+  }
+
+  async findResolutionProposals(disputeId: string, accountId: string) {
+    await this.requireDisputeParty(disputeId, accountId);
+    return this.prisma.disputeResolutionProposal.findMany({ where: { disputeId }, orderBy: { createdAt: 'asc' } });
   }
 
   // Module 6's actual neutral-reviewer path for disputes, the payments

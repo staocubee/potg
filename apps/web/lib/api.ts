@@ -1326,6 +1326,22 @@ export type DisputeEvidence = {
   createdAt: string;
 };
 
+// The audit's own finding on Workflow 9, closed: "proposing a
+// resolution is just a status flip + free-text note, no structured
+// proposal object." A real, append-only thread — a counter creates a
+// new row (proposedByAccountId flips to whoever's countering) rather
+// than mutating one in place, so the full back-and-forth stays visible.
+export type DisputeResolutionProposal = {
+  id: string;
+  disputeId: string;
+  proposedByAccountId: string;
+  resolutionType: "refund" | "release" | "rework" | "no_action" | "other" | string;
+  resolutionNotes?: string | null;
+  status: "proposed" | "accepted" | "rejected" | "superseded" | string;
+  createdAt: string;
+  respondedAt?: string | null;
+};
+
 // GET /payments/overview — the account-wide rollup that finally backs the
 // sidebar's "Payments" screen (previously every route lived only inside a
 // single project's page). Money is grouped by currency rather than summed
@@ -2806,6 +2822,32 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  proposeResolutionAsVendor(disputeId: string, input: { resolutionType: string; resolutionNotes?: string }) {
+    return request<DisputeResolutionProposal>(`/vendors/me/disputes/${disputeId}/proposals`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  findResolutionProposalsAsVendor(disputeId: string) {
+    return request<DisputeResolutionProposal[]>(`/vendors/me/disputes/${disputeId}/proposals`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  respondToResolutionProposalAsVendor(
+    disputeId: string,
+    proposalId: string,
+    input: { action: "accepted" | "rejected" | "countered"; resolutionType?: string; resolutionNotes?: string },
+  ) {
+    return request<DisputeResolutionProposal | Dispute>(`/vendors/me/disputes/${disputeId}/proposals/${proposalId}/respond`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
 
   // --- Payments & escrow (per-project routes below; the account-wide
   // rollup is getPaymentsOverview() further down) ---
@@ -2906,6 +2948,38 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  // The audit's own finding on Workflow 9: "proposing a resolution is
+  // just a status flip + free-text note, no structured proposal
+  // object." Real thread now — proposeResolution/respondToResolution
+  // mirror the marketplace's own offer/counter shape, but unlike
+  // respondToCounter (capped at accept/reject), "countered" here can
+  // loop indefinitely since each counter is its own new row, not a
+  // mutated field.
+  proposeResolution(projectId: string, disputeId: string, input: { resolutionType: string; resolutionNotes?: string }) {
+    return request<DisputeResolutionProposal>(`/projects/${projectId}/disputes/${disputeId}/proposals`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  findResolutionProposals(projectId: string, disputeId: string) {
+    return request<DisputeResolutionProposal[]>(`/projects/${projectId}/disputes/${disputeId}/proposals`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  respondToResolutionProposal(
+    projectId: string,
+    disputeId: string,
+    proposalId: string,
+    input: { action: "accepted" | "rejected" | "countered"; resolutionType?: string; resolutionNotes?: string },
+  ) {
+    return request<DisputeResolutionProposal | Dispute>(
+      `/projects/${projectId}/disputes/${disputeId}/proposals/${proposalId}/respond`,
+      { method: "POST", body: input, token: this.token, accountId: this.accountId },
+    );
+  }
   // Module 18 Phase 1 — order disputes. One unified route both the buyer
   // and the supplier call (see PaymentsService.requireOrderParty's own
   // comment for why), unlike the owner/vendor pair above.
@@ -2941,6 +3015,31 @@ export class ApiClient {
       token: this.token,
       accountId: this.accountId,
     });
+  }
+  proposeOrderDisputeResolution(orderId: string, disputeId: string, input: { resolutionType: string; resolutionNotes?: string }) {
+    return request<DisputeResolutionProposal>(`/orders/${orderId}/disputes/${disputeId}/proposals`, {
+      method: "POST",
+      body: input,
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  findOrderDisputeResolutionProposals(orderId: string, disputeId: string) {
+    return request<DisputeResolutionProposal[]>(`/orders/${orderId}/disputes/${disputeId}/proposals`, {
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  respondToOrderDisputeResolutionProposal(
+    orderId: string,
+    disputeId: string,
+    proposalId: string,
+    input: { action: "accepted" | "rejected" | "countered"; resolutionType?: string; resolutionNotes?: string },
+  ) {
+    return request<DisputeResolutionProposal | Dispute>(
+      `/orders/${orderId}/disputes/${disputeId}/proposals/${proposalId}/respond`,
+      { method: "POST", body: input, token: this.token, accountId: this.accountId },
+    );
   }
   getPaymentsOverview() {
     return request<PaymentsOverview>("/payments/overview", { token: this.token, accountId: this.accountId });

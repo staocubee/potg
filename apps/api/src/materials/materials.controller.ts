@@ -9,6 +9,8 @@ import { PaymentsService } from '../payments/payments.service';
 import { RaiseOrderDisputeDto } from '../payments/dto/raise-order-dispute.dto';
 import { ResolveDisputeDto } from '../payments/dto/resolve-dispute.dto';
 import { SubmitDisputeEvidenceDto } from '../payments/dto/submit-dispute-evidence.dto';
+import { ProposeResolutionDto } from '../payments/dto/propose-resolution.dto';
+import { RespondToResolutionProposalDto } from '../payments/dto/respond-to-resolution-proposal.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -419,6 +421,36 @@ export class MaterialsController {
   @Get('orders/:orderId/disputes/:disputeId/evidence')
   findOrderDisputeEvidence(@Param('disputeId') disputeId: string, @CurrentAccountMember() member: AccountMemberCtx) {
     return this.payments.findDisputeEvidence(disputeId, member.accountId);
+  }
+
+  // Same proposal methods a project dispute's own routes call —
+  // requireDisputeParty branches on projectId/orderId internally, so
+  // nothing order-specific is needed here either.
+  @RequirePermissions('dispute:write')
+  @Post('orders/:orderId/disputes/:disputeId/proposals')
+  proposeOrderDisputeResolution(
+    @Param('disputeId') disputeId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Body() dto: ProposeResolutionDto,
+  ) {
+    return this.payments.proposeResolution(disputeId, member.accountId, dto);
+  }
+
+  @RequirePermissions('dispute:read')
+  @Get('orders/:orderId/disputes/:disputeId/proposals')
+  findOrderDisputeResolutionProposals(@Param('disputeId') disputeId: string, @CurrentAccountMember() member: AccountMemberCtx) {
+    return this.payments.findResolutionProposals(disputeId, member.accountId);
+  }
+
+  @RequirePermissions('dispute:write')
+  @Post('orders/:orderId/disputes/:disputeId/proposals/:proposalId/respond')
+  respondToOrderDisputeResolutionProposal(
+    @Param('disputeId') disputeId: string,
+    @Param('proposalId') proposalId: string,
+    @CurrentAccountMember() member: AccountMemberCtx,
+    @Body() dto: RespondToResolutionProposalDto,
+  ) {
+    return this.payments.respondToResolutionProposal(disputeId, proposalId, member.accountId, dto);
   }
 
   // Buyer-only, once their own order is delivered — see the gate in
