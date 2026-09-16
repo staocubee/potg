@@ -592,6 +592,29 @@ h4 {
   }
 }
 
+/* pages/index.tsx (landing page) — the hero grid had no stacking
+   breakpoint at all before this redesign (confirmed: the only
+   size-responsive rule anywhere on the page was the hero heading's own
+   clamp(), not the two-column grid around it), so a narrow viewport
+   would squeeze both columns rather than stack them. */
+.potg-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: var(--potg-space-10);
+  align-items: center;
+}
+@media (max-width: 860px) {
+  .potg-hero-grid {
+    grid-template-columns: 1fr;
+    gap: var(--potg-space-8);
+  }
+}
+.potg-landing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--potg-space-4);
+}
+
 /* AccountSwitcher.tsx's trigger button — full name+role on desktop, just
    the account name on narrow viewports so it doesn't dominate the header
    next to everything else there. */
