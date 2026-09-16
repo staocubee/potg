@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Branch } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import ConfirmDialog from "../../components/ConfirmDialog";
+import { useToast } from "../../components/Toast";
 
 function formatMoney(value?: string | null) {
   if (!value) return null;
@@ -14,11 +16,13 @@ function formatMoney(value?: string | null) {
 export default function BranchDetailPage() {
   const auth = useAuth();
   const router = useRouter();
+  const { showToast } = useToast();
   const id = typeof router.query.id === "string" ? router.query.id : undefined;
   const [branch, setBranch] = useState<Branch | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   function load() {
     if (!id || !auth.currentAccountId) return;
@@ -36,13 +40,14 @@ export default function BranchDetailPage() {
 
   async function onDelete() {
     if (!id || !branch) return;
-    if (!window.confirm(`Remove "${branch.name}"? Its properties become unassigned, not deleted.`)) return;
     setBusy(true);
     try {
       await auth.api.deleteBranch(id);
+      showToast(`"${branch.name}" removed`, "success");
       router.push("/branches");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't remove that branch.");
+      showToast("Couldn't remove that branch", "error");
       setBusy(false);
     }
   }
@@ -76,13 +81,21 @@ export default function BranchDetailPage() {
             </button>
           )}
           {auth.hasPermission("branch:write") && (
-            <button className="potg-btn potg-btn-danger" onClick={onDelete} disabled={busy}>
+            <button className="potg-btn potg-btn-danger" onClick={() => setConfirmingDelete(true)} disabled={busy}>
               {busy ? "…" : "Remove branch"}
             </button>
           )}
         </div>
       }
     >
+      <ConfirmDialog
+        open={confirmingDelete}
+        onClose={() => setConfirmingDelete(false)}
+        onConfirm={onDelete}
+        title="Remove branch"
+        description={`Remove "${branch.name}"? Its properties become unassigned, not deleted.`}
+        confirmLabel="Remove branch"
+      />
       {editing ? (
         <EditBranchForm
           branch={branch}
@@ -137,6 +150,7 @@ export default function BranchDetailPage() {
 
 function EditBranchForm({ branch, onSaved }: { branch: Branch; onSaved: (b: Branch) => void }) {
   const auth = useAuth();
+  const { showToast } = useToast();
   const [name, setName] = useState(branch.name);
   const [city, setCity] = useState(branch.city ?? "");
   const [state, setState] = useState(branch.state ?? "");
@@ -151,6 +165,7 @@ function EditBranchForm({ branch, onSaved }: { branch: Branch; onSaved: (b: Bran
     try {
       const updated = await auth.api.updateBranch(branch.id, { name, city, state, country });
       onSaved(updated);
+      showToast("Branch updated", "success");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't save those changes.");
     } finally {

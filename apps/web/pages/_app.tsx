@@ -1,5 +1,6 @@
 import type { AppProps } from "next/app";
 import { AuthProvider } from "../lib/auth";
+import { ToastProvider } from "../components/Toast";
 import { inter, fraunces } from "../lib/fonts";
 import "../styles/globals.css";
 
@@ -15,7 +16,9 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <div className={`${inter.className} ${inter.variable} ${fraunces.variable}`}>
       <AuthProvider>
-        <Component {...pageProps} />
+        <ToastProvider>
+          <Component {...pageProps} />
+        </ToastProvider>
       </AuthProvider>
     </div>
   );

@@ -342,6 +342,125 @@ h4 {
   color: var(--potg-text-muted);
 }
 
+/* Solid-filled danger button — for a confirm dialog's actual destructive
+   action, where .potg-btn-danger's white/bordered treatment (correct for
+   a secondary-tier action elsewhere) would be too quiet to read as "the
+   primary action here is dangerous." */
+.potg-btn-danger-solid {
+  background: var(--potg-danger);
+  color: #fff;
+}
+.potg-btn-danger-solid:hover {
+  background: #a8331f;
+}
+.potg-btn-danger-solid:disabled {
+  background: #e3a89f;
+  cursor: not-allowed;
+}
+
+/* Toast.tsx */
+.potg-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--potg-space-2);
+  background: var(--potg-surface);
+  border: 1px solid var(--potg-border);
+  border-radius: var(--potg-radius);
+  box-shadow: var(--potg-shadow-lg);
+  padding: var(--potg-space-3) var(--potg-space-4);
+  animation: potg-toast-in 0.16s ease;
+}
+@keyframes potg-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Skeleton.tsx */
+.potg-skeleton {
+  border-radius: var(--potg-radius-sm);
+  background: linear-gradient(90deg, var(--potg-gray-100) 25%, var(--potg-gray-200) 37%, var(--potg-gray-100) 63%);
+  background-size: 400% 100%;
+  animation: potg-shimmer 1.4s ease infinite;
+}
+@keyframes potg-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .potg-skeleton {
+    animation: none;
+    background: var(--potg-gray-100);
+  }
+}
+
+/* Tabs.tsx */
+.potg-tabs {
+  display: flex;
+  gap: var(--potg-space-1);
+  border-bottom: 1px solid var(--potg-border);
+  overflow-x: auto;
+}
+.potg-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--potg-space-3) var(--potg-space-1);
+  margin-bottom: -1px;
+  font-size: var(--potg-text-sm);
+  font-weight: 600;
+  color: var(--potg-text-muted);
+  white-space: nowrap;
+}
+.potg-tab + .potg-tab {
+  margin-left: var(--potg-space-4);
+}
+.potg-tab:hover {
+  color: var(--potg-text);
+}
+.potg-tab-active {
+  color: var(--potg-teal);
+  border-bottom-color: var(--potg-teal);
+}
+
+/* DataTable.tsx */
+.potg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--potg-text-sm);
+}
+.potg-table th {
+  text-align: left;
+  font-size: var(--potg-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--potg-text-faint);
+  padding: var(--potg-space-2) var(--potg-space-3);
+  border-bottom: 1px solid var(--potg-border);
+  white-space: nowrap;
+}
+.potg-table td {
+  padding: var(--potg-space-3);
+  border-bottom: 1px solid var(--potg-border);
+  vertical-align: middle;
+}
+.potg-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.potg-table tbody tr:hover {
+  background: var(--potg-gray-50);
+}
+
 /* Breakpoints used consistently across the app's responsive rules:
    mobile   < 640px
    tablet   640px – 1024px
