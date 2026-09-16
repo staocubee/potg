@@ -19,6 +19,20 @@ export class DocumentsService {
       }
       propertyId = lease.propertyId;
     }
+    // Security fix: this route isn't nested under :propertyId (see
+    // DocumentsController's own comment on why — a document isn't always
+    // property-scoped), so PermissionsGuard's ABAC never runs for it.
+    // Without this check, any account holding document:write could tag a
+    // document — with an attacker-controlled fileUrl — onto any other
+    // account's own property (and its timeline) just by supplying its id,
+    // since nothing here previously confirmed the property/lease named
+    // actually belongs to the uploading account.
+    if (propertyId) {
+      const property = await this.prisma.property.findUnique({ where: { id: propertyId }, select: { accountId: true } });
+      if (!property || property.accountId !== accountId) {
+        throw new BadRequestException('That property does not belong to this account');
+      }
+    }
     const document = await this.prisma.document.create({
       data: {
         accountId,

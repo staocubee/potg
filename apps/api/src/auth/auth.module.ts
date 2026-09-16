@@ -23,7 +23,15 @@ import { NotificationsModule } from '../notifications/notifications.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET', 'dev-secret-change-me'),
+        // No fallback default on purpose — main.ts's own
+        // assertRealJwtSecret() refuses to let the app start listening at
+        // all once JWT_SECRET is missing/still the .env.example
+        // placeholder, so this only ever runs with a real secret already
+        // in process.env by the time a request can reach it. A hardcoded
+        // fallback here used to be the actual signing key whenever
+        // JWT_SECRET was unset — a real authentication bypass, since that
+        // fallback string was published in .env.example.
+        secret: config.get<string>('JWT_SECRET'),
         // Unused in practice — AuthService.issueTokenPair always passes an
         // explicit expiresIn per token (1h access / 30d refresh, see that
         // file), this is just a safety-net default for any future

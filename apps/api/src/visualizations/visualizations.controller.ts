@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -20,8 +21,12 @@ export class VisualizationsController {
   constructor(private readonly visualizations: VisualizationsService) {}
 
   // property:write — same tier addValuation already sits at, a new
-  // record scoped to the property, not just a read.
+  // record scoped to the property, not just a read. Security fix:
+  // OpenAI's Images API has no sandbox mode (see .env.example's own
+  // comment) — every call here is real, billed money, so it gets the
+  // same tighter-than-default throttle the AI action endpoints do.
   @RequirePermissions('property:write')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('property/:propertyId')
   create(@Param('propertyId') propertyId: string, @CurrentUser() user: UserCtx, @Body() dto: CreateVisualizationDto) {
     return this.visualizations.create(propertyId, user.id, dto);

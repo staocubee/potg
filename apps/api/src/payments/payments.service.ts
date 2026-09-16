@@ -783,7 +783,39 @@ export class PaymentsService {
   // this, so the other party is every vendor assigned to the project
   // (same "who's the other side" reasoning ProjectsService.addUpdate's
   // own comment gives for its identical assignment lookup).
+  // Security fix: neither raiseDispute nor raiseDisputeAsVendor previously
+  // verified that an optional milestoneId/paymentId/payoutId actually
+  // belongs to the project the dispute is being raised on — every
+  // guard elsewhere in this codebase that later checks "is there an open
+  // dispute blocking this" (releaseMilestone/refundPayment) queries only
+  // by that bare id, with no projectId filter of its own. Without this
+  // check, any account could raise a dispute on a project of its own
+  // choosing but reference a milestone/payment id belonging to a
+  // completely different account's project, permanently blocking that
+  // other project's own release/refund — the dispute's only resolver
+  // besides the raiser is derived from raisedByAccountId/projectId, so an
+  // attacker referencing someone else's target could never be forced to
+  // resolve a dispute they have no real reason to ever close.
+  private async assertDisputeTargetsBelongToProject(
+    projectId: string,
+    dto: { milestoneId?: string; paymentId?: string; payoutId?: string },
+  ) {
+    if (dto.milestoneId) {
+      const milestone = await this.prisma.projectMilestone.findFirst({ where: { id: dto.milestoneId, projectId } });
+      if (!milestone) throw new BadRequestException('That milestone does not belong to this project');
+    }
+    if (dto.paymentId) {
+      const payment = await this.prisma.payment.findFirst({ where: { id: dto.paymentId, projectId } });
+      if (!payment) throw new BadRequestException('That payment does not belong to this project');
+    }
+    if (dto.payoutId) {
+      const payout = await this.prisma.payout.findFirst({ where: { id: dto.payoutId, projectId } });
+      if (!payout) throw new BadRequestException('That payout does not belong to this project');
+    }
+  }
+
   async raiseDispute(accountId: string, projectId: string, dto: RaiseDisputeDto) {
+    await this.assertDisputeTargetsBelongToProject(projectId, dto);
     const dispute = await this.prisma.dispute.create({
       data: {
         projectId,
@@ -1375,6 +1407,7 @@ export class PaymentsService {
     if (!assignment) {
       throw new BadRequestException('This vendor is not assigned to this project');
     }
+    await this.assertDisputeTargetsBelongToProject(dto.projectId, dto);
     const dispute = await this.prisma.dispute.create({
       data: {
         projectId: dto.projectId,

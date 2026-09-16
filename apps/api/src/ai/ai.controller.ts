@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AccountContextGuard } from '../common/guards/account-context.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
@@ -44,7 +45,12 @@ export class AiController {
     return this.ai.getUsageSummary(member.accountId);
   }
 
+  // Security fix: every AI action routes to a real, billed LLM/image call
+  // (OpenAI/Anthropic) with only the blanket 100/min global limit
+  // bounding it — the same class of cost-exposure risk auth's own login
+  // endpoint is deliberately throttled tighter than the default for.
   @RequirePermissions('ai:act')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post('actions')
   runAction(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: RunAiActionDto) {
     return this.ai.runAction(member, dto.moduleContext, dto.actionType, dto.input ?? {});
@@ -66,6 +72,7 @@ export class AiController {
   // whatever permission the tool it ends up calling requires, checked
   // exactly as if that tool had been invoked directly via POST /ai/actions.
   @RequirePermissions('ai:act')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post('chat')
   sendMessage(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: SendChatMessageDto) {
     return this.chat.sendMessage(member, dto);

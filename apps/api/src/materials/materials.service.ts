@@ -480,6 +480,18 @@ export class MaterialsService {
   async createOrder(accountId: string, dto: CreateOrderDto) {
     const supplier = await this.prisma.supplier.findUnique({ where: { id: dto.supplierId } });
     if (!supplier) throw new NotFoundException('Supplier not found');
+    // Security/integrity fix: an unvalidated projectId let a buyer tag an
+    // order onto any account's project, silently inflating that other
+    // project's own materialsSpent total (ProjectsService.getSpend) — no
+    // cross-account read/write of the project itself, but a real data-
+    // integrity gap since nothing previously confirmed the project named
+    // actually belongs to the ordering account.
+    if (dto.projectId) {
+      const project = await this.prisma.project.findUnique({ where: { id: dto.projectId }, select: { accountId: true } });
+      if (!project || project.accountId !== accountId) {
+        throw new BadRequestException('That project does not belong to this account');
+      }
+    }
 
     const productIds = dto.items.map((i) => i.productId);
     const products = await this.prisma.product.findMany({ where: { id: { in: productIds }, supplierId: supplier.id } });
@@ -556,6 +568,15 @@ export class MaterialsService {
   async requestBulkQuote(accountId: string, productId: string, dto: RequestBulkQuoteDto) {
     const product = await this.prisma.product.findUnique({ where: { id: productId } });
     if (!product) throw new NotFoundException('Product not found');
+    // Same fix as createOrder above — acceptBulkQuote later copies this
+    // same projectId onto a real Order unchanged, so checking it here
+    // covers both.
+    if (dto.projectId) {
+      const project = await this.prisma.project.findUnique({ where: { id: dto.projectId }, select: { accountId: true } });
+      if (!project || project.accountId !== accountId) {
+        throw new BadRequestException('That project does not belong to this account');
+      }
+    }
     return this.prisma.bulkQuoteRequest.create({
       data: {
         accountId,

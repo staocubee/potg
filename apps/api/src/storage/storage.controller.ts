@@ -7,6 +7,28 @@ import { StorageService } from './storage.service';
 
 type AccountMemberCtx = { accountId: string };
 
+// Security fix: this route previously accepted any content-type at all —
+// a real risk since the resulting URL gets attached wherever a fileUrl
+// field already exists (documents, dispute evidence, vendor/supplier
+// verification), all served back from a public R2 bucket. An uploaded
+// text/html or image/svg+xml file is itself active content once served
+// back with its own content-type intact (StorageService.upload passes the
+// client-supplied contentType straight through to R2) — a real stored-
+// content hosting risk, not just an oversized-file one. Images and
+// documents only; nothing here is meant to ever be executable/renderable
+// as a page in its own right.
+const ALLOWED_UPLOAD_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]);
+
 // The general file-upload pipeline the README used to flag as missing —
 // before this, StorageService (Cloudflare R2) was wired only into the
 // one narrow AI-visualization path, and every other "file" in this
@@ -33,6 +55,9 @@ export class StorageController {
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 25 * 1024 * 1024 } }))
   async upload(@UploadedFile() file: Express.Multer.File, @CurrentAccountMember() member: AccountMemberCtx) {
     if (!file) throw new BadRequestException('No file provided — send it as multipart/form-data field "file"');
+    if (!ALLOWED_UPLOAD_MIME_TYPES.has(file.mimetype)) {
+      throw new BadRequestException(`"${file.mimetype}" isn't an accepted file type — upload an image, PDF, or Word/Excel document`);
+    }
     const url = await this.storage.upload(file.buffer, file.mimetype, `uploads/${member.accountId}`, file.originalname);
     return { url };
   }

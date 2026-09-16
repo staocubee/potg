@@ -20,6 +20,19 @@ const DEFAULT_OWNER_ROLE_BY_ACCOUNT_TYPE: Record<string, string> = {
 
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+// Security fix: addMember previously accepted any roleKey that happened to
+// be seeded, including platform_admin/platform_reviewer — both of which
+// this codebase's own seed.ts comments describe as meant to exist only via
+// direct seed/DB access, never a self-service invite. PermissionsGuard's
+// :accountId ABAC check only proves the target account is the caller's
+// own; it says nothing about which role the caller is granting there, so
+// nothing previously stopped any account:manage_members holder (e.g. any
+// ordinary property_owner) from adding themselves as platform_admin on
+// their own account and inheriting account:read_all/account:suspend
+// platform-wide. Both this direct-member path and the pending-invite path
+// below share this one check since both start from the same role lookup.
+const PLATFORM_ONLY_ROLE_KEYS = new Set(['platform_admin', 'platform_reviewer']);
+
 @Injectable()
 export class AccountsService {
   private readonly logger = new Logger(AccountsService.name);
@@ -155,6 +168,9 @@ export class AccountsService {
     const role = await this.prisma.role.findUnique({ where: { key: dto.roleKey } });
     if (!role) {
       throw new BadRequestException(`Unknown role key "${dto.roleKey}"`);
+    }
+    if (PLATFORM_ONLY_ROLE_KEYS.has(role.key)) {
+      throw new ForbiddenException(`"${role.key}" can't be granted through account membership — it's platform-wide, not account-scoped`);
     }
 
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
