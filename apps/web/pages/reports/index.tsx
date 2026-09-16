@@ -125,7 +125,7 @@ export default function ReportsPage() {
       title="Reports"
       actions={
         overview &&
-        auth.hasPermission("property:read") && (
+        auth.hasPermission("report:read") && (
           <button className="potg-btn potg-btn-secondary" onClick={onExport} disabled={exporting}>
             {exporting ? "Exporting…" : "Export CSV"}
           </button>
@@ -461,7 +461,7 @@ function DigestSubscriptionCard({ frequency, onChanged }: { frequency: string; o
           <button
             key={f}
             className={f === frequency ? "potg-btn potg-btn-primary" : "potg-btn potg-btn-secondary"}
-            disabled={saving || !auth.hasPermission("property:write")}
+            disabled={saving || !auth.hasPermission("report:write")}
             onClick={() => onFrequencyChange(f)}
             style={{ padding: "4px 9px", fontSize: 11, textTransform: "capitalize" }}
           >
@@ -470,7 +470,7 @@ function DigestSubscriptionCard({ frequency, onChanged }: { frequency: string; o
         ))}
         <button
           className="potg-btn potg-btn-secondary"
-          disabled={sending || !auth.hasPermission("property:read")}
+          disabled={sending || !auth.hasPermission("report:read")}
           onClick={onSendNow}
           style={{ padding: "4px 9px", fontSize: 11, marginLeft: "auto" }}
         >
@@ -657,7 +657,7 @@ function ReportBuilderCard() {
             <button
               className="potg-btn potg-btn-primary"
               onClick={onSave}
-              disabled={saving || !name.trim() || selected.length === 0 || !auth.hasPermission("property:write")}
+              disabled={saving || !name.trim() || selected.length === 0 || !auth.hasPermission("report:write")}
             >
               {saving ? "Saving…" : "Save report"}
             </button>
@@ -684,7 +684,7 @@ function ReportBuilderCard() {
                   <button
                     className="potg-btn potg-btn-secondary"
                     style={{ padding: "3px 8px", fontSize: 11 }}
-                    disabled={busyId === def.id || !auth.hasPermission("property:read")}
+                    disabled={busyId === def.id || !auth.hasPermission("report:read")}
                     onClick={() => onRun(def)}
                   >
                     Run
@@ -692,7 +692,7 @@ function ReportBuilderCard() {
                   <button
                     className="potg-btn potg-btn-secondary"
                     style={{ padding: "3px 8px", fontSize: 11 }}
-                    disabled={busyId === def.id || !auth.hasPermission("property:read")}
+                    disabled={busyId === def.id || !auth.hasPermission("report:read")}
                     onClick={() => onExport(def)}
                   >
                     Export CSV
@@ -703,7 +703,7 @@ function ReportBuilderCard() {
                   <button
                     className="potg-btn potg-btn-secondary"
                     style={{ padding: "3px 8px", fontSize: 11 }}
-                    disabled={busyId === def.id || !auth.hasPermission("property:write")}
+                    disabled={busyId === def.id || !auth.hasPermission("report:write")}
                     onClick={() => onDelete(def)}
                   >
                     Delete

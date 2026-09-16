@@ -10,6 +10,19 @@ const prisma = new PrismaClient();
 const PERMISSIONS = [
   { key: 'property:read', label: 'View properties' },
   { key: 'property:write', label: 'Add or edit properties' },
+  // The RBAC/ABAC audit's own finding: PropertyOwner (who legally owns
+  // what share of a property) had no permission of its own, riding on
+  // property:write even though editing ownership structure is a
+  // meaningfully different, higher-trust action than editing the
+  // property record itself. Deliberately granted only to the
+  // account-admin tier (property_owner/family_admin/company_admin) below
+  // — unlike property:write, property_manager does NOT get this: running
+  // a property's day-to-day (leases, maintenance, documents) shouldn't
+  // imply the ability to rewrite who owns it. No matching :read — there's
+  // no separate read route, ownership is returned inline on the property
+  // record itself (property:read), same pattern valuations/roi-summary
+  // already use.
+  { key: 'ownership:write', label: "Add, edit, or remove a property's co-owners" },
   { key: 'inspection:read', label: 'View property inspections' },
   { key: 'inspection:write', label: 'Schedule, complete, or cancel a property inspection' },
   { key: 'lease:read', label: 'View property leases and rent history' },
@@ -64,6 +77,13 @@ const PERMISSIONS = [
   { key: 'payment:read', label: 'View payments, escrow activity, and receipts' },
   { key: 'payment:write', label: 'Deposit funds into a project escrow account' },
   { key: 'payment:approve', label: 'Release escrow funds for an approved milestone' },
+  // The RBAC/ABAC audit's own finding: GET :projectId/escrow rode on
+  // payment:read even though escrow balance is a distinct-enough thing
+  // to check on its own. Narrow carve-out, same reasoning lease:pay/
+  // maintenance:approve already use — granted to every role that
+  // currently has payment:read, since nothing about "can see the escrow
+  // balance" should be broader OR narrower than "can see payments" today.
+  { key: 'escrow:read', label: "View a project's current escrow balance" },
   { key: 'payout:read', label: 'View vendor payouts' },
   { key: 'dispute:read', label: 'View disputes' },
   { key: 'dispute:write', label: 'Raise or resolve disputes' },
@@ -121,6 +141,15 @@ const PERMISSIONS = [
   // every other account-owned resource in this file already uses.
   { key: 'branch:read', label: 'View branches and which properties are assigned to each' },
   { key: 'branch:write', label: 'Create, edit, or remove a branch, and assign properties to one' },
+  // The RBAC/ABAC audit's own finding: ReportsController's every route
+  // rode on property:read/write, even though "can see a portfolio" and
+  // "can run/save/schedule a report on it" are reasonable to grant
+  // separately (the same distinction inspection:*/lease:*/branch:* etc.
+  // already draw from property:*). Granted to exactly the same roles that
+  // already have property:read/property:write respectively, so this is a
+  // permission-modeling fix, not a behavior change for anyone today.
+  { key: 'report:read', label: 'View reports, run report definitions, and export them' },
+  { key: 'report:write', label: 'Create, delete, or schedule saved report definitions' },
 ];
 
 // No new permission keys needed for the inspector role below — it's built
@@ -174,6 +203,10 @@ const ROLES: Record<string, string[]> = {
     'package:write',
     'branch:read',
     'branch:write',
+    'report:read',
+    'report:write',
+    'ownership:write',
+    'escrow:read',
   ],
   family_admin: [
     'property:read',
@@ -220,6 +253,10 @@ const ROLES: Record<string, string[]> = {
     'package:write',
     'branch:read',
     'branch:write',
+    'report:read',
+    'report:write',
+    'ownership:write',
+    'escrow:read',
   ],
   company_admin: [
     'property:read',
@@ -266,6 +303,10 @@ const ROLES: Record<string, string[]> = {
     'package:write',
     'branch:read',
     'branch:write',
+    'report:read',
+    'report:write',
+    'ownership:write',
+    'escrow:read',
   ],
   // A vendor account browses/edits its own marketplace profile, sees the
   // projects it's been invited to or hired for, quotes on them, and can
@@ -408,13 +449,18 @@ const ROLES: Record<string, string[]> = {
     'rental:read',
     'package:read',
     'branch:read',
+    'report:read',
+    'escrow:read',
   ],
   // Section 7's three named operational roles this scaffold didn't have
   // yet — each a narrower, job-scoped slice of the owner-tier roles above
   // rather than full account control. None gets account:manage_members,
-  // payment:write/approve, or branch:write — those stay the owner/admin's
-  // own actions. Invitable the same way viewer/family_admin/company_admin
-  // are (see apps/web/pages/accounts/members.tsx's INVITABLE_ROLES).
+  // payment:write/approve, branch:write, or ownership:write — those stay
+  // the owner/admin's own actions (rewriting who owns a property is a
+  // higher-trust action than running its day-to-day, even for
+  // property_manager). Invitable the same way viewer/family_admin/
+  // company_admin are (see apps/web/pages/accounts/members.tsx's
+  // INVITABLE_ROLES).
   //
   // Day-to-day operation of the property record itself: inspections,
   // leases, maintenance, documents — everything a property_owner/
@@ -436,6 +482,8 @@ const ROLES: Record<string, string[]> = {
     'project:read',
     'ai:act',
     'branch:read',
+    'report:read',
+    'report:write',
   ],
   // Narrower still than property_manager — the upkeep/vendor-coordination
   // slice of the job (maintenance, inspections, which vendor is doing the
@@ -451,6 +499,7 @@ const ROLES: Record<string, string[]> = {
     'document:read',
     'branch:read',
     'ai:act',
+    'report:read',
   ],
   // Runs renovation/construction projects day-to-day — quoting, hiring,
   // tracking progress, disputing a vendor's work — but never
@@ -470,6 +519,8 @@ const ROLES: Record<string, string[]> = {
     'dispute:read',
     'dispute:write',
     'ai:act',
+    'report:read',
+    'escrow:read',
   ],
   // Section 7's fourth named role — the money-release gate itself, split
   // out from project_manager above the same way PaymentsService.
@@ -491,6 +542,8 @@ const ROLES: Record<string, string[]> = {
     'payout:read',
     'dispute:read',
     'ai:act',
+    'report:read',
+    'escrow:read',
   ],
   // Module 6's actual "neutral reviewer" — a role deliberately never
   // granted to the vendor or supplier roles above, so a vendor/supplier

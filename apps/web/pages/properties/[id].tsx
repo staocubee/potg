@@ -1122,7 +1122,7 @@ function OwnershipCard({ property, onUpdated }: { property: Property; onUpdated:
                   {o.endDate && ` to ${new Date(o.endDate).toLocaleDateString()}`}
                 </div>
               </div>
-              {auth.hasPermission("property:write") && (!o.endDate || new Date(o.endDate) > new Date()) && (
+              {auth.hasPermission("ownership:write") && (!o.endDate || new Date(o.endDate) > new Date()) && (
                 <div style={{ display: "flex", gap: 6 }}>
                   <button className="potg-btn potg-btn-secondary" style={{ padding: "3px 8px", fontSize: 11 }} disabled={busy !== null} onClick={() => onEndStake(o.id)}>
                     {busy === o.id ? "…" : "End stake"}
@@ -1137,7 +1137,7 @@ function OwnershipCard({ property, onUpdated }: { property: Property; onUpdated:
         </div>
       )}
 
-      {auth.hasPermission("property:write") && (
+      {auth.hasPermission("ownership:write") && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={{ display: "flex", gap: 8 }}>
             <button

@@ -62,7 +62,11 @@ export class PaymentsController {
     return this.payments.findPayments(projectId);
   }
 
-  @RequirePermissions('payment:read')
+  // The RBAC/ABAC audit's own finding: escrow balance rode on payment:read
+  // even though it's a distinct-enough thing to check on its own — narrow
+  // carve-out, granted to exactly the same roles that already have
+  // payment:read, so no behavior change for anyone today.
+  @RequirePermissions('escrow:read')
   @Get('escrow')
   getEscrow(@Param('projectId') projectId: string) {
     return this.payments.getEscrow(projectId);

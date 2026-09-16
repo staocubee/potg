@@ -156,16 +156,21 @@ export class PropertiesController {
 
   // Module 3 (Ownership and Governance) — the audit's own finding:
   // PropertyOwner has existed since Module 1 with no create/edit route
-  // anywhere. property:write, same as the property record itself and
-  // access-grant config above — recording who else owns a share is
-  // standing property configuration, not everyday data.
-  @RequirePermissions('property:write')
+  // anywhere. The RBAC/ABAC audit's later finding: once that route
+  // existed, it rode on property:write even though rewriting who legally
+  // owns a share of a property is a meaningfully higher-trust action than
+  // editing the property record itself — ownership:write is granted only
+  // to the account-admin tier (property_owner/family_admin/company_admin),
+  // not property_manager, unlike property:write. No matching :read route
+  // exists — ownership is returned inline on the property record itself
+  // (property:read), same pattern valuations/roi-summary already use.
+  @RequirePermissions('ownership:write')
   @Post(':propertyId/owners')
   addPropertyOwner(@Param('propertyId') propertyId: string, @Body() dto: AddPropertyOwnerDto) {
     return this.properties.addPropertyOwner(propertyId, dto);
   }
 
-  @RequirePermissions('property:write')
+  @RequirePermissions('ownership:write')
   @Patch(':propertyId/owners/:ownerId')
   updatePropertyOwner(
     @Param('propertyId') propertyId: string,
@@ -175,7 +180,7 @@ export class PropertiesController {
     return this.properties.updatePropertyOwner(propertyId, ownerId, dto);
   }
 
-  @RequirePermissions('property:write')
+  @RequirePermissions('ownership:write')
   @Delete(':propertyId/owners/:ownerId')
   removePropertyOwner(@Param('propertyId') propertyId: string, @Param('ownerId') ownerId: string) {
     return this.properties.removePropertyOwner(propertyId, ownerId);
