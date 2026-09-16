@@ -137,6 +137,18 @@ model User {
   // for an address it has itself confirmed the account holder controls.
   googleId     String?  @unique
   status       String   @default("active")
+  // Security fix: the only brute-force defense on POST /auth/login used to
+  // be a per-IP @Throttle (5/min) — real, but trivially sidestepped by a
+  // distributed or slow-and-low attacker, since it never tracked the
+  // *account* being guessed at all. failedLoginAttempts resets to 0 on any
+  // successful login; once it reaches AuthService's own MAX_FAILED_LOGIN_ATTEMPTS,
+  // lockedUntil is set and further attempts are rejected — without
+  // revealing whether the password itself was ever correct — until it
+  // passes, at which point the next attempt is allowed to try again (not
+  // auto-unlocked by a cron; checked live, same "compute on read, don't
+  // need a job to flip a flag" restraint this codebase uses elsewhere).
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

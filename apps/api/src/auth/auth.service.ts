@@ -29,6 +29,18 @@ const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 // tradeoff here.
 const EMAIL_VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+// Security fix: POST /auth/login's own @Throttle (5/min) is a real
+// per-IP defense, but it never tracked the *account* being guessed —
+// a distributed or slow-and-low attacker could brute-force one victim's
+// password indefinitely. This is the per-account complement: locked out
+// for LOCKOUT_DURATION_MS once MAX_FAILED_LOGIN_ATTEMPTS wrong passwords
+// land in a row, reset on any successful login. Checked live against
+// User.lockedUntil rather than a cron unlocking it — same "compute on
+// read" restraint this codebase already applies to expiring state
+// elsewhere (PropertyDevelopmentAgreement.expiresAt, Project.quotesDeadline).
+const MAX_FAILED_LOGIN_ATTEMPTS = 5;
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -84,7 +96,9 @@ export class AuthService {
       invite = await this.validateInvite(input.inviteToken, input.email);
     }
 
-    const passwordHash = await bcrypt.hash(input.password, 10);
+    // Security hardening: bumped from bcryptjs's own common "10" example
+    // value to 12, OWASP's current minimum recommended work factor.
+    const passwordHash = await bcrypt.hash(input.password, 12);
     const user = await this.prisma.user.create({
       data: {
         name: input.name,
@@ -119,6 +133,13 @@ export class AuthService {
   async login(email: string, password: string) {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) throw new UnauthorizedException('Invalid email or password');
+    // Checked before the password itself — a locked account rejects every
+    // attempt (even the correct password) until the lockout window passes,
+    // same as any standard account-lockout implementation.
+    if (user.lockedUntil && user.lockedUntil > new Date()) {
+      const minutesLeft = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60_000);
+      throw new UnauthorizedException(`Too many failed attempts — try again in ${minutesLeft} minute${minutesLeft === 1 ? '' : 's'}`);
+    }
     // A Google-only account (see User.passwordHash's own schema comment)
     // has nothing to compare against — bcrypt.compare would throw on a
     // null second argument rather than fail cleanly, so this is checked
@@ -129,8 +150,25 @@ export class AuthService {
       );
     }
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) throw new UnauthorizedException('Invalid email or password');
+    if (!valid) {
+      await this.registerFailedLogin(user.id, user.failedLoginAttempts);
+      throw new UnauthorizedException('Invalid email or password');
+    }
+    if (user.failedLoginAttempts > 0 || user.lockedUntil) {
+      await this.prisma.user.update({ where: { id: user.id }, data: { failedLoginAttempts: 0, lockedUntil: null } });
+    }
     return this.issueTokenPair(user.id, user.email);
+  }
+
+  private async registerFailedLogin(userId: string, currentAttempts: number) {
+    const attempts = currentAttempts + 1;
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        failedLoginAttempts: attempts,
+        lockedUntil: attempts >= MAX_FAILED_LOGIN_ATTEMPTS ? new Date(Date.now() + LOCKOUT_DURATION_MS) : undefined,
+      },
+    });
   }
 
   // Real Google Sign-In (this pass) — one endpoint for both "register" and
@@ -416,7 +454,7 @@ export class AuthService {
     }
 
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: record.userId } });
-    const passwordHash = await bcrypt.hash(newPassword, 10);
+    const passwordHash = await bcrypt.hash(newPassword, 12);
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: record.userId },
