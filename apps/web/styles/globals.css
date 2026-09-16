@@ -467,4 +467,146 @@ h4 {
    desktop  > 1024px
    (kept as a comment, not a var, since CSS custom properties can't be
    used inside @media conditions without extra build tooling this app
-   doesn't have.) */
+   doesn't have.) The AppShell sidebar collapses a bit earlier, at
+   900px, since its fixed 216px width is disproportionately expensive on
+   a tablet-sized viewport. */
+
+/* AppShell.tsx — the app had zero responsive/mobile handling anywhere
+   before this redesign (confirmed: no @media queries, no viewport meta,
+   fixed 216px sidebar + fixed 380px AI drawer with no breakpoint logic
+   at all). These classes replace that fixed layout with one that adapts;
+   AppShell.tsx applies them and toggles .potg-shell-sidebar-open via a
+   hamburger button that only renders below the same breakpoint. */
+.potg-shell {
+  display: flex;
+  min-height: 100vh;
+}
+.potg-shell-hamburger {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--potg-text);
+  padding: 6px;
+  margin: -6px;
+}
+.potg-shell-sidebar {
+  width: 216px;
+  flex-shrink: 0;
+  background: var(--potg-navy);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  padding: 18px 12px;
+}
+.potg-shell-backdrop {
+  display: none;
+}
+@media (max-width: 900px) {
+  .potg-shell-hamburger {
+    display: inline-flex;
+  }
+  .potg-shell-sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 220;
+    transform: translateX(-100%);
+    transition: transform 0.18s ease;
+    box-shadow: var(--potg-shadow-lg);
+  }
+  .potg-shell-sidebar-open {
+    transform: translateX(0);
+  }
+  .potg-shell-backdrop-open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 41, 66, 0.44);
+    z-index: 210;
+  }
+}
+.potg-shell-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--potg-radius-sm);
+  font-size: var(--potg-text-sm);
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.72);
+  border-left: 2px solid transparent;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.potg-shell-nav-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+.potg-shell-nav-item-active {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  border-left-color: var(--potg-teal-light);
+}
+.potg-shell-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--potg-space-3);
+  padding: 14px var(--potg-space-6);
+  border-bottom: 1px solid var(--potg-border);
+  background: var(--potg-surface);
+}
+.potg-shell-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--potg-space-2);
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .potg-shell-header {
+    padding: 12px var(--potg-space-4);
+    flex-wrap: wrap;
+  }
+  .potg-shell-header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    width: 100%;
+  }
+  .potg-shell-main {
+    padding: var(--potg-space-4) !important;
+  }
+}
+.potg-shell-ai-panel {
+  width: 380px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--potg-ai-border);
+  background: var(--potg-ai-bg);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+@media (max-width: 900px) {
+  .potg-shell-ai-panel {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    z-index: 230;
+  }
+}
+
+/* AccountSwitcher.tsx's trigger button — full name+role on desktop, just
+   the account name on narrow viewports so it doesn't dominate the header
+   next to everything else there. */
+.potg-account-switcher-btn {
+  min-width: 180px;
+}
+.potg-account-switcher-subtitle {
+  display: block;
+}
+@media (max-width: 640px) {
+  .potg-account-switcher-btn {
+    min-width: 0;
+    max-width: 140px;
+  }
+  .potg-account-switcher-subtitle {
+    display: none;
+  }
+}

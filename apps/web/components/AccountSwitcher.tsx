@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
+import { ChevronDown, Check, Users, Plus } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { AccountInviteMine, ApiError } from "../lib/api";
 
@@ -52,13 +53,13 @@ export default function AccountSwitcher() {
   return (
     <div style={{ position: "relative" }}>
       <button
-        className="potg-btn potg-btn-secondary"
+        className="potg-btn potg-btn-secondary potg-account-switcher-btn"
         onClick={() => setOpen((v) => !v)}
-        style={{ minWidth: 180, justifyContent: "space-between", position: "relative" }}
+        style={{ justifyContent: "space-between", position: "relative" }}
       >
-        <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.25 }}>
-          <span style={{ fontWeight: 700 }}>{auth.currentAccount.accountName}</span>
-          <span className="potg-muted" style={{ fontSize: 11, textTransform: "capitalize" }}>
+        <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", lineHeight: 1.25, minWidth: 0, overflow: "hidden" }}>
+          <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{auth.currentAccount.accountName}</span>
+          <span className="potg-muted potg-account-switcher-subtitle" style={{ fontSize: 11, textTransform: "capitalize" }}>
             {auth.currentAccount.accountType.toLowerCase()} · {auth.currentAccount.role.replace(/_/g, " ")}
           </span>
         </span>
@@ -85,7 +86,7 @@ export default function AccountSwitcher() {
             {invites.length}
           </span>
         )}
-        <span aria-hidden style={{ color: "var(--potg-text-muted)" }}>▾</span>
+        <ChevronDown size={14} aria-hidden style={{ color: "var(--potg-text-muted)", flexShrink: 0 }} />
       </button>
       {open && (
         <>
@@ -93,7 +94,7 @@ export default function AccountSwitcher() {
           <div style={{ position: "fixed", inset: 0, zIndex: 10 }} onClick={() => setOpen(false)} />
           <div
             className="potg-card"
-            style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", width: 280, zIndex: 11, padding: 6 }}
+            style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", width: 280, maxWidth: "calc(100vw - 32px)", zIndex: 11, padding: 6, boxShadow: "var(--potg-shadow-lg)" }}
           >
             {invites.length > 0 && (
               <>
@@ -129,36 +130,41 @@ export default function AccountSwitcher() {
                 }}
                 style={{
                   display: "flex",
-                  flexDirection: "column",
-                  alignItems: "flex-start",
+                  alignItems: "center",
+                  justifyContent: "space-between",
                   width: "100%",
                   textAlign: "left",
                   padding: "8px 10px",
                   borderRadius: "var(--potg-radius-sm)",
-                  background: a.accountId === auth.currentAccountId ? "rgba(13,115,119,0.08)" : "transparent",
+                  background: a.accountId === auth.currentAccountId ? "var(--potg-teal-bg)" : "transparent",
                   border: "none",
                 }}
               >
-                <span style={{ fontWeight: 600, fontSize: 13 }}>{a.accountName}</span>
-                <span className="potg-muted" style={{ fontSize: 11, textTransform: "capitalize" }}>
-                  {a.accountType.toLowerCase()} · {a.role.replace(/_/g, " ")}
+                <span style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{a.accountName}</span>
+                  <span className="potg-muted" style={{ fontSize: 11, textTransform: "capitalize" }}>
+                    {a.accountType.toLowerCase()} · {a.role.replace(/_/g, " ")}
+                  </span>
                 </span>
+                {a.accountId === auth.currentAccountId && <Check size={15} color="var(--potg-teal)" style={{ flexShrink: 0 }} />}
               </button>
             ))}
             <div style={{ borderTop: "1px solid var(--potg-border)", margin: "6px 0" }} />
             <Link
               href="/accounts/members"
               onClick={() => setOpen(false)}
-              style={{ display: "block", padding: "8px 10px", fontSize: 13, fontWeight: 600, color: "var(--potg-teal)" }}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", fontSize: 13, fontWeight: 600, color: "var(--potg-teal)" }}
             >
+              <Users size={14} />
               Manage members
             </Link>
             <Link
               href="/accounts/new"
               onClick={() => setOpen(false)}
-              style={{ display: "block", padding: "8px 10px", fontSize: 13, fontWeight: 600, color: "var(--potg-teal)" }}
+              style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", fontSize: 13, fontWeight: 600, color: "var(--potg-teal)" }}
             >
-              + New account
+              <Plus size={14} />
+              New account
             </Link>
           </div>
         </>

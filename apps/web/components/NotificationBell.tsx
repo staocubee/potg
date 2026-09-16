@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
+import { Bell, BellOff } from "lucide-react";
 import { useAuth } from "../lib/auth";
 import { Notification } from "../lib/api";
 
@@ -69,7 +70,7 @@ export default function NotificationBell() {
         aria-label="Notifications"
         style={{ position: "relative" }}
       >
-        🔔
+        <Bell size={15} />
         {unreadCount > 0 && (
           <span
             style={{
@@ -101,9 +102,11 @@ export default function NotificationBell() {
             top: "calc(100% + 6px)",
             right: 0,
             width: 340,
+            maxWidth: "calc(100vw - 32px)",
             maxHeight: 420,
             overflowY: "auto",
             padding: 0,
+            boxShadow: "var(--potg-shadow-lg)",
             zIndex: 50,
           }}
         >
@@ -116,9 +119,10 @@ export default function NotificationBell() {
             )}
           </div>
           {notifications.length === 0 && (
-            <p className="potg-muted" style={{ fontSize: 12, padding: 14, margin: 0 }}>
-              Nothing yet.
-            </p>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, padding: "28px 14px", color: "var(--potg-text-faint)" }}>
+              <BellOff size={20} />
+              <span style={{ fontSize: 12 }}>Nothing yet</span>
+            </div>
           )}
           <div style={{ display: "flex", flexDirection: "column" }}>
             {notifications.map((n) => (
@@ -132,7 +136,7 @@ export default function NotificationBell() {
                   padding: "10px 14px",
                   border: "none",
                   borderBottom: "1px solid var(--potg-border)",
-                  background: n.readAt ? "transparent" : "var(--potg-ai-bg, rgba(0,0,0,0.03))",
+                  background: n.readAt ? "transparent" : "var(--potg-teal-bg)",
                   cursor: "pointer",
                 }}
               >
