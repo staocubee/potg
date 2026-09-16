@@ -7,6 +7,7 @@ import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import AiDraftCard, { DraftDecision } from "../../components/AiDraftCard";
 import ProjectStageBar from "../../components/ProjectStageBar";
+import Tabs from "../../components/Tabs";
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -150,247 +151,277 @@ export default function PropertyDetailPage() {
             </div>
           </div>
 
-          <PropertyLiveViewCard property={property} />
-
-          <PropertyDetailsCard property={property} onUpdated={setProperty} />
-
-          <AccessGrantsCard propertyId={property.id} />
-
-          <OwnershipCard property={property} onUpdated={setProperty} />
-
-          <DevelopmentAgreementsCard propertyId={property.id} />
-
-          <DeviceRegistryCard propertyId={property.id} />
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            <div className="potg-card" style={{ padding: 18 }}>
-              <h3 style={{ fontSize: 14, marginBottom: 10 }}>Timeline</h3>
-              {(!property.timelineEvents || property.timelineEvents.length === 0) && (
-                <p className="potg-muted" style={{ fontSize: 12 }}>No events yet.</p>
-              )}
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                {property.timelineEvents?.map((ev) => (
-                  <div key={ev.id} style={{ display: "flex", gap: 8, fontSize: 13 }}>
-                    <span aria-hidden>{TIMELINE_ICON[ev.eventType] ?? "•"}</span>
-                    <div>
-                      <div>{ev.label}</div>
-                      <div className="potg-muted" style={{ fontSize: 11 }}>
-                        {new Date(ev.occurredAt).toLocaleDateString()}
+          {/* Below this point used to be one continuous scroll of 17 cards
+              (3,610 lines total on this page) — grouped into tabs instead.
+              Every card component, its props, and its fetch/update
+              handlers are exactly what they were; only which tab renders
+              which card changed. */}
+          <Tabs
+            tabs={[
+              {
+                id: "overview",
+                label: "Overview",
+                content: (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    <PropertyLiveViewCard property={property} />
+                    <PropertyDetailsCard property={property} onUpdated={setProperty} />
+                    <div className="potg-card" style={{ padding: 18 }}>
+                      <h3 style={{ fontSize: 14, marginBottom: 10 }}>Timeline</h3>
+                      {(!property.timelineEvents || property.timelineEvents.length === 0) && (
+                        <p className="potg-muted" style={{ fontSize: 12 }}>No events yet.</p>
+                      )}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {property.timelineEvents?.map((ev) => (
+                          <div key={ev.id} style={{ display: "flex", gap: 8, fontSize: 13 }}>
+                            <span aria-hidden>{TIMELINE_ICON[ev.eventType] ?? "•"}</span>
+                            <div>
+                              <div>{ev.label}</div>
+                              <div className="potg-muted" style={{ fontSize: 11 }}>
+                                {new Date(ev.occurredAt).toLocaleDateString()}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="potg-card" style={{ padding: 18 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <h3 style={{ fontSize: 14, margin: 0 }}>Documents</h3>
-                {id && (
-                  <Link href={`/documents?propertyId=${id}`} className="potg-btn potg-btn-secondary">
-                    Manage documents
-                  </Link>
-                )}
-              </div>
-              {(!property.documents || property.documents.length === 0) && (
-                <p className="potg-muted" style={{ fontSize: 12 }}>
-                  No documents uploaded yet. Ask the AI panel to verify documents once you add some.
-                </p>
-              )}
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {property.documents?.map((doc) => (
-                  <div key={doc.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                    <span>{doc.documentType.replace(/_/g, " ")}</span>
-                    <span className="potg-badge">{doc.verificationStatus.replace(/_/g, " ")}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="potg-card" style={{ padding: 18 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <h3 style={{ fontSize: 14 }}>Projects</h3>
-              <Link href="/projects" className="potg-btn potg-btn-secondary">
-                + New project
-              </Link>
-            </div>
-            {projects.length === 0 && (
-              <p className="potg-muted" style={{ fontSize: 12 }}>No projects for this property yet.</p>
-            )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {projects.map((p) => (
-                <Link key={p.id} href={`/projects/${p.id}`} style={{ display: "block", padding: 10, border: "1px solid var(--potg-border)", borderRadius: "var(--potg-radius-sm)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                    <span style={{ fontWeight: 600, color: "var(--potg-text)" }}>{p.title}</span>
-                    <span className="potg-badge">{p.status.replace(/_/g, " ")}</span>
-                  </div>
-                  {p.stages && (
-                    <div style={{ marginTop: 8 }}>
-                      <ProjectStageBar stages={p.stages} compact />
-                    </div>
-                  )}
-                </Link>
-              ))}
-            </div>
-          </div>
-
-          {id && <RoiSummaryCard propertyId={id} refreshToken={valuations.length} />}
-
-          {id && (
-            <ComparableValuationCard
-              propertyId={id}
-              onSaved={(v) => setValuations((prev) => [v, ...prev])}
-            />
-          )}
-
-          <div className="potg-card" style={{ padding: 18 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <h3 style={{ fontSize: 14 }}>Valuations</h3>
-              {auth.hasPermission("property:write") && (
-                <button className="potg-btn potg-btn-secondary" onClick={() => setShowValuationForm((v) => !v)}>
-                  {showValuationForm ? "Cancel" : "+ Add valuation"}
-                </button>
-              )}
-            </div>
-
-            {showValuationForm && id && (
-              <AddValuationForm
-                propertyId={id}
-                onCreated={(v) => {
-                  setValuations((prev) => [v, ...prev]);
-                  setShowValuationForm(false);
-                }}
-              />
-            )}
-
-            {valuations.length === 0 && !showValuationForm && (
-              <p className="potg-muted" style={{ fontSize: 12 }}>No valuation history yet.</p>
-            )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: showValuationForm ? 12 : 0 }}>
-              {valuations.map((v) => (
-                <div key={v.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                  <div>
-                    <div style={{ fontWeight: 600 }}>{formatMoney(v.estimatedValue, v.currency)}</div>
-                    {v.notes && (
-                      <div className="potg-muted" style={{ fontSize: 11 }}>
-                        {v.notes}
+                    <div className="potg-card" style={{ padding: 18 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                        <h3 style={{ fontSize: 14 }}>Projects</h3>
+                        <Link href="/projects" className="potg-btn potg-btn-secondary">
+                          + New project
+                        </Link>
                       </div>
+                      {projects.length === 0 && (
+                        <p className="potg-muted" style={{ fontSize: 12 }}>No projects for this property yet.</p>
+                      )}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                        {projects.map((p) => (
+                          <Link key={p.id} href={`/projects/${p.id}`} style={{ display: "block", padding: 10, border: "1px solid var(--potg-border)", borderRadius: "var(--potg-radius-sm)" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                              <span style={{ fontWeight: 600, color: "var(--potg-text)" }}>{p.title}</span>
+                              <span className="potg-badge">{p.status.replace(/_/g, " ")}</span>
+                            </div>
+                            {p.stages && (
+                              <div style={{ marginTop: 8 }}>
+                                <ProjectStageBar stages={p.stages} compact />
+                              </div>
+                            )}
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                    <DeviceRegistryCard propertyId={property.id} />
+                    {id && <TourAssetsCard propertyId={id} />}
+                    {id && (
+                      <RenovationVisualizerCard
+                        propertyId={id}
+                        projects={projects}
+                        visualizations={visualizations}
+                        onCreated={(viz) => setVisualizations((prev) => [viz, ...prev])}
+                      />
                     )}
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <span className="potg-badge">{v.source.replace(/_/g, " ")}</span>
-                    <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
-                      {new Date(v.valuedAt).toLocaleDateString()}
+                ),
+              },
+              {
+                id: "access",
+                label: "Documents & Access",
+                content: (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    <div className="potg-card" style={{ padding: 18 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                        <h3 style={{ fontSize: 14, margin: 0 }}>Documents</h3>
+                        {id && (
+                          <Link href={`/documents?propertyId=${id}`} className="potg-btn potg-btn-secondary">
+                            Manage documents
+                          </Link>
+                        )}
+                      </div>
+                      {(!property.documents || property.documents.length === 0) && (
+                        <p className="potg-muted" style={{ fontSize: 12 }}>
+                          No documents uploaded yet. Ask the AI panel to verify documents once you add some.
+                        </p>
+                      )}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {property.documents?.map((doc) => (
+                          <div key={doc.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                            <span>{doc.documentType.replace(/_/g, " ")}</span>
+                            <span className="potg-badge">{doc.verificationStatus.replace(/_/g, " ")}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <AccessGrantsCard propertyId={property.id} />
+                    <OwnershipCard property={property} onUpdated={setProperty} />
+                    <DevelopmentAgreementsCard propertyId={property.id} />
+                  </div>
+                ),
+              },
+              {
+                id: "leases",
+                label: "Leases & Tenants",
+                content: (
+                  <div className="potg-card" style={{ padding: 18 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                      <h3 style={{ fontSize: 14 }}>Leases</h3>
+                      {auth.hasPermission("lease:write") && (
+                        <button className="potg-btn potg-btn-secondary" onClick={() => setShowLeaseForm((v) => !v)}>
+                          {showLeaseForm ? "Cancel" : "+ Add lease"}
+                        </button>
+                      )}
+                    </div>
+
+                    {showLeaseForm && id && (
+                      <CreateLeaseForm
+                        propertyId={id}
+                        onCreated={(l) => {
+                          setLeases((prev) => [l, ...prev]);
+                          setShowLeaseForm(false);
+                        }}
+                      />
+                    )}
+
+                    {leases.length === 0 && !showLeaseForm && <p className="potg-muted" style={{ fontSize: 12 }}>No leases yet.</p>}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: showLeaseForm ? 12 : 0 }}>
+                      {id && leases.map((l) => <LeaseRow key={l.id} propertyId={id} lease={l} onChanged={load} />)}
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
+                ),
+              },
+              {
+                id: "maintenance",
+                label: "Maintenance & Inspections",
+                content: (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    <div className="potg-card" style={{ padding: 18 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                        <h3 style={{ fontSize: 14 }}>Inspections</h3>
+                        {auth.hasPermission("inspection:write") && (
+                          <button className="potg-btn potg-btn-secondary" onClick={() => setShowInspectionForm((v) => !v)}>
+                            {showInspectionForm ? "Cancel" : "+ Schedule inspection"}
+                          </button>
+                        )}
+                      </div>
 
-          {id && <TourAssetsCard propertyId={id} />}
+                      {showInspectionForm && id && (
+                        <ScheduleInspectionForm
+                          propertyId={id}
+                          projects={projects}
+                          vendors={vendors}
+                          onCreated={(i) => {
+                            setInspections((prev) => [i, ...prev]);
+                            setShowInspectionForm(false);
+                          }}
+                        />
+                      )}
 
-          {id && (
-            <RenovationVisualizerCard
-              propertyId={id}
-              projects={projects}
-              visualizations={visualizations}
-              onCreated={(viz) => setVisualizations((prev) => [viz, ...prev])}
-            />
-          )}
+                      {inspections.length === 0 && !showInspectionForm && (
+                        <p className="potg-muted" style={{ fontSize: 12 }}>No inspections yet.</p>
+                      )}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: showInspectionForm ? 12 : 0 }}>
+                        {id &&
+                          inspections.map((i) => (
+                            <InspectionRow key={i.id} propertyId={id} inspection={i} projects={projects} vendors={vendors} onChanged={load} />
+                          ))}
+                      </div>
+                    </div>
 
-          <div className="potg-card" style={{ padding: 18 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <h3 style={{ fontSize: 14 }}>Inspections</h3>
-              {auth.hasPermission("inspection:write") && (
-                <button className="potg-btn potg-btn-secondary" onClick={() => setShowInspectionForm((v) => !v)}>
-                  {showInspectionForm ? "Cancel" : "+ Schedule inspection"}
-                </button>
-              )}
-            </div>
+                    <div className="potg-card" style={{ padding: 18 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                        <h3 style={{ fontSize: 14 }}>Maintenance</h3>
+                        {auth.hasPermission("maintenance:write") && (
+                          <button className="potg-btn potg-btn-secondary" onClick={() => setShowMaintenanceForm((v) => !v)}>
+                            {showMaintenanceForm ? "Cancel" : "+ Report issue"}
+                          </button>
+                        )}
+                      </div>
 
-            {showInspectionForm && id && (
-              <ScheduleInspectionForm
-                propertyId={id}
-                projects={projects}
-                vendors={vendors}
-                onCreated={(i) => {
-                  setInspections((prev) => [i, ...prev]);
-                  setShowInspectionForm(false);
-                }}
-              />
-            )}
+                      {showMaintenanceForm && id && (
+                        <ReportMaintenanceRequestForm
+                          propertyId={id}
+                          leases={leases}
+                          vendors={vendors}
+                          onCreated={(m) => {
+                            setMaintenanceRequests((prev) => [m, ...prev]);
+                            setShowMaintenanceForm(false);
+                          }}
+                        />
+                      )}
 
-            {inspections.length === 0 && !showInspectionForm && (
-              <p className="potg-muted" style={{ fontSize: 12 }}>No inspections yet.</p>
-            )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: showInspectionForm ? 12 : 0 }}>
-              {id &&
-                inspections.map((i) => (
-                  <InspectionRow key={i.id} propertyId={id} inspection={i} projects={projects} vendors={vendors} onChanged={load} />
-                ))}
-            </div>
-          </div>
+                      {maintenanceRequests.length === 0 && !showMaintenanceForm && (
+                        <p className="potg-muted" style={{ fontSize: 12 }}>No maintenance requests yet.</p>
+                      )}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: showMaintenanceForm ? 12 : 0 }}>
+                        {id &&
+                          maintenanceRequests.map((m) => (
+                            <MaintenanceRequestRow key={m.id} propertyId={id} request={m} vendors={vendors} onChanged={load} />
+                          ))}
+                      </div>
+                    </div>
+                  </div>
+                ),
+              },
+              {
+                id: "financials",
+                label: "Financials",
+                content: (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    {id && <RoiSummaryCard propertyId={id} refreshToken={valuations.length} />}
+                    {id && (
+                      <ComparableValuationCard
+                        propertyId={id}
+                        onSaved={(v) => setValuations((prev) => [v, ...prev])}
+                      />
+                    )}
+                    <div className="potg-card" style={{ padding: 18 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                        <h3 style={{ fontSize: 14 }}>Valuations</h3>
+                        {auth.hasPermission("property:write") && (
+                          <button className="potg-btn potg-btn-secondary" onClick={() => setShowValuationForm((v) => !v)}>
+                            {showValuationForm ? "Cancel" : "+ Add valuation"}
+                          </button>
+                        )}
+                      </div>
 
-          <div className="potg-card" style={{ padding: 18 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <h3 style={{ fontSize: 14 }}>Leases</h3>
-              {auth.hasPermission("lease:write") && (
-                <button className="potg-btn potg-btn-secondary" onClick={() => setShowLeaseForm((v) => !v)}>
-                  {showLeaseForm ? "Cancel" : "+ Add lease"}
-                </button>
-              )}
-            </div>
+                      {showValuationForm && id && (
+                        <AddValuationForm
+                          propertyId={id}
+                          onCreated={(v) => {
+                            setValuations((prev) => [v, ...prev]);
+                            setShowValuationForm(false);
+                          }}
+                        />
+                      )}
 
-            {showLeaseForm && id && (
-              <CreateLeaseForm
-                propertyId={id}
-                onCreated={(l) => {
-                  setLeases((prev) => [l, ...prev]);
-                  setShowLeaseForm(false);
-                }}
-              />
-            )}
-
-            {leases.length === 0 && !showLeaseForm && <p className="potg-muted" style={{ fontSize: 12 }}>No leases yet.</p>}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: showLeaseForm ? 12 : 0 }}>
-              {id && leases.map((l) => <LeaseRow key={l.id} propertyId={id} lease={l} onChanged={load} />)}
-            </div>
-          </div>
-
-          <div className="potg-card" style={{ padding: 18 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <h3 style={{ fontSize: 14 }}>Maintenance</h3>
-              {auth.hasPermission("maintenance:write") && (
-                <button className="potg-btn potg-btn-secondary" onClick={() => setShowMaintenanceForm((v) => !v)}>
-                  {showMaintenanceForm ? "Cancel" : "+ Report issue"}
-                </button>
-              )}
-            </div>
-
-            {showMaintenanceForm && id && (
-              <ReportMaintenanceRequestForm
-                propertyId={id}
-                leases={leases}
-                vendors={vendors}
-                onCreated={(m) => {
-                  setMaintenanceRequests((prev) => [m, ...prev]);
-                  setShowMaintenanceForm(false);
-                }}
-              />
-            )}
-
-            {maintenanceRequests.length === 0 && !showMaintenanceForm && (
-              <p className="potg-muted" style={{ fontSize: 12 }}>No maintenance requests yet.</p>
-            )}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: showMaintenanceForm ? 12 : 0 }}>
-              {id &&
-                maintenanceRequests.map((m) => (
-                  <MaintenanceRequestRow key={m.id} propertyId={id} request={m} vendors={vendors} onChanged={load} />
-                ))}
-            </div>
-          </div>
+                      {valuations.length === 0 && !showValuationForm && (
+                        <p className="potg-muted" style={{ fontSize: 12 }}>No valuation history yet.</p>
+                      )}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: showValuationForm ? 12 : 0 }}>
+                        {valuations.map((v) => (
+                          <div key={v.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                            <div>
+                              <div style={{ fontWeight: 600 }}>{formatMoney(v.estimatedValue, v.currency)}</div>
+                              {v.notes && (
+                                <div className="potg-muted" style={{ fontSize: 11 }}>
+                                  {v.notes}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ textAlign: "right" }}>
+                              <span className="potg-badge">{v.source.replace(/_/g, " ")}</span>
+                              <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
+                                {new Date(v.valuedAt).toLocaleDateString()}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ),
+              },
+            ]}
+          />
         </div>
       )}
     </AppShell>
