@@ -38,7 +38,19 @@ async function bootstrap() {
   // the standard NestJS-recommended baseline — safe for a pure JSON API,
   // no impact on normal request/response handling.
   app.use(helmet());
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  // Security hardening: forbidNonWhitelisted turns "silently strip any
+  // field not declared on the DTO" into a real 400 naming the offending
+  // field. whitelist alone (already set) already made stripped fields
+  // harmless — nothing unexpected could reach a Prisma call — so this is
+  // about surfacing a real client/DTO mismatch instead of hiding it, not
+  // closing a live exploit. Regression-tested live (authenticated fetch
+  // calls using apps/web/lib/api.ts's exact payload shapes) against
+  // create/update on properties, leases, projects, milestones, BOQ items,
+  // and documents, plus raising a dispute — all succeeded. Vendor-quote,
+  // maintenance-quote and vendor-dispute DTOs were checked statically
+  // against their frontend call sites instead of live (this account has no
+  // vendor:write role) and match field-for-field.
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
   app.use(cookieParser());
   // Auth now lives in httpOnly cookies (see src/auth/cookie.util.ts), so
   // this can no longer be the permissive `enableCors()` default: a
