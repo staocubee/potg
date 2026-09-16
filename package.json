@@ -17,9 +17,20 @@
     "seed": "npm run seed --workspace=apps/api"
   },
   "allowScripts": {
-    "@nestjs/core@10.4.22": true,
+    "@nestjs/core@11.2.5": true,
     "@prisma/client@5.22.0": true,
     "@prisma/engines@5.22.0": true,
     "prisma@5.22.0": true
+  },
+  "overrides": {
+    "multer": "2.4.0",
+    "@nestjs/schedule": {
+      "@nestjs/common": "^11.2.5",
+      "@nestjs/core": "^11.2.5"
+    },
+    "@nestjs/throttler": {
+      "@nestjs/common": "^11.2.5",
+      "@nestjs/core": "^11.2.5"
+    }
   }
 }
