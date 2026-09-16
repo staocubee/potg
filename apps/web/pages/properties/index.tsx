@@ -1,9 +1,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
+import { Home } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Announcement, AppDocument, Branch, DevelopmentAgreementMine, Lease, MaintenanceRequest, MaterialOrder, PaymentsOverview, Property } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
+import FilterBar from "../../components/FilterBar";
+import EmptyState from "../../components/EmptyState";
+import Skeleton from "../../components/Skeleton";
 
 const PROPERTY_TYPES = [
   "land",
@@ -123,17 +127,23 @@ export default function PortfolioPage() {
     >
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
 
-      <MyDevelopmentInvitesCard />
+      <div className="potg-dashboard-section-label">Needs your attention</div>
+      <div className="potg-dashboard-row">
+        <PendingApprovalsCard />
+        <MyDevelopmentInvitesCard />
+      </div>
 
-      <PendingApprovalsCard />
+      <div className="potg-dashboard-section-label">At a glance</div>
+      <div className="potg-dashboard-row">
+        <MaintenanceRequestsCard />
+        <EscrowBalanceCard />
+      </div>
 
-      <UpcomingRentCard />
-
-      <MaintenanceRequestsCard />
-
-      <DocumentAlertsCard properties={properties ?? []} />
-
-      <EscrowBalanceCard />
+      <div className="potg-dashboard-section-label">Upcoming</div>
+      <div className="potg-dashboard-row">
+        <UpcomingRentCard />
+        <DocumentAlertsCard properties={properties ?? []} />
+      </div>
 
       <AnnouncementsCard properties={properties ?? []} />
 
@@ -146,30 +156,32 @@ export default function PortfolioPage() {
         />
       )}
 
-      <form onSubmit={runSemanticSearch} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
-        <input
-          className="potg-input"
-          style={{ width: 320 }}
-          placeholder="Semantic search, e.g. “flat under renovation in Lekki”…"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-        <button className="potg-btn potg-btn-secondary" type="submit" disabled={searching || !searchQuery.trim()}>
-          {searching ? "Searching…" : "Search"}
-        </button>
-        {searchResults && (
-          <button
-            type="button"
-            className="potg-btn potg-btn-secondary"
-            onClick={() => {
-              setSearchResults(null);
-              setSearchQuery("");
-              setSearchError(null);
-            }}
-          >
-            Clear search
+      <FilterBar>
+        <form onSubmit={runSemanticSearch} style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input
+            className="potg-input"
+            style={{ width: 320 }}
+            placeholder="Semantic search, e.g. “flat under renovation in Lekki”…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          <button className="potg-btn potg-btn-secondary" type="submit" disabled={searching || !searchQuery.trim()}>
+            {searching ? "Searching…" : "Search"}
           </button>
-        )}
+          {searchResults && (
+            <button
+              type="button"
+              className="potg-btn potg-btn-secondary"
+              onClick={() => {
+                setSearchResults(null);
+                setSearchQuery("");
+                setSearchError(null);
+              }}
+            >
+              Clear search
+            </button>
+          )}
+        </form>
         {auth.hasPermission("property:write") && (
           <button type="button" className="potg-btn potg-btn-secondary" onClick={runReindex}>
             Reindex for search
@@ -180,7 +192,7 @@ export default function PortfolioPage() {
             Locate for Live View
           </button>
         )}
-      </form>
+      </FilterBar>
       {searchError && <div className="potg-error" style={{ marginBottom: 16 }}>{searchError}</div>}
       {geocodeStatus && (
         <p className="potg-muted" style={{ fontSize: 12, marginBottom: 16 }}>
@@ -193,20 +205,26 @@ export default function PortfolioPage() {
         </p>
       )}
 
-      {!properties && !error && <p className="potg-muted">Loading your portfolio…</p>}
-
-      {shownProperties && shownProperties.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>
-            {searchResults ? "No properties matched that search." : "No properties yet. Add your first one, or ask the AI panel to help you get started."}
-          </p>
+      {!properties && !error && (
+        <div className="potg-landing-grid" style={{ marginBottom: 16 }}>
+          <Skeleton height={160} />
+          <Skeleton height={160} />
+          <Skeleton height={160} />
         </div>
       )}
 
+      {shownProperties && shownProperties.length === 0 && (
+        <EmptyState
+          icon={Home}
+          title={searchResults ? "No properties matched that search" : "No properties yet"}
+          description={searchResults ? undefined : "Add your first one above, or ask the AI panel to help you get started."}
+        />
+      )}
+
       {shownProperties && shownProperties.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+        <div className="potg-landing-grid">
           {shownProperties.map((p) => (
-            <Link key={p.id} href={`/properties/${p.id}`} className="potg-card" style={{ display: "block", padding: 16 }}>
+            <Link key={p.id} href={`/properties/${p.id}`} className="potg-card potg-card-hover" style={{ display: "block", padding: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                 <h3 style={{ fontSize: 15 }}>{p.name}</h3>
                 <span className="potg-badge">{p.status}</span>

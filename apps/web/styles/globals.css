@@ -269,6 +269,26 @@ h4 {
   box-shadow: var(--potg-shadow);
 }
 
+/* Added to a .potg-card that's also a click target (a link to a detail
+   page, e.g. the property/vendor/listing grids) — a subtle lift instead
+   of the card just sitting there indistinguishable from a static one. */
+.potg-card-hover {
+  transition: box-shadow 0.14s ease, border-color 0.14s ease, transform 0.14s ease;
+}
+.potg-card-hover:hover {
+  box-shadow: var(--potg-shadow-lg);
+  border-color: var(--potg-border-strong);
+  transform: translateY(-1px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .potg-card-hover {
+    transition: none;
+  }
+  .potg-card-hover:hover {
+    transform: none;
+  }
+}
+
 .potg-input {
   width: 100%;
   border: 1px solid var(--potg-border);
@@ -613,6 +633,35 @@ h4 {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: var(--potg-space-4);
+}
+
+/* pages/properties/index.tsx (the post-login dashboard every user lands
+   on) — groups several already-independent self-fetching cards into a
+   2-column row instead of one long stack, purely a layout change (each
+   card keeps its own component, fetch call, and internal markup exactly
+   as it was). */
+.potg-dashboard-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--potg-space-4);
+  margin-bottom: var(--potg-space-4);
+  align-items: start;
+}
+@media (max-width: 760px) {
+  .potg-dashboard-row {
+    grid-template-columns: 1fr;
+  }
+}
+.potg-dashboard-section-label {
+  font-size: var(--potg-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--potg-text-faint);
+  margin: var(--potg-space-2) 0 var(--potg-space-2);
+}
+.potg-dashboard-section-label:first-child {
+  margin-top: 0;
 }
 
 /* AccountSwitcher.tsx's trigger button — full name+role on desktop, just
