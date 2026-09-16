@@ -3,22 +3,62 @@
    chat bubbles, draft cards) so a user always knows at a glance which part
    of the screen is AI-generated vs. their own data — this is deliberate,
    not decorative, per the blueprint's "AI output is always a visibly
-   distinct draft" rule (Section 5.4). */
+   distinct draft" rule (Section 5.4).
+
+   Every variable name below that existed before this redesign keeps its
+   exact name and (unless noted) its exact value — inline style={{}} objects
+   across ~45 pages reference these directly via var(--potg-*), so renaming
+   or repurposing one would silently break pages this pass hasn't reached
+   yet. New tokens (spacing, extended neutrals, semantic triplets, elevation
+   tiers, focus ring, type scale) are additive. */
 :root {
+  /* Brand */
   --potg-navy: #0f2942;
   --potg-navy-light: #1b3f5e;
+  --potg-navy-dark: #0a1c2e;
   --potg-teal: #0d7377;
   --potg-teal-light: #14a3a8;
+  --potg-teal-dark: #095457;
+  --potg-teal-bg: #eaf6f6;
+
+  /* Surfaces & text */
   --potg-bg: #f5f7f8;
   --potg-surface: #ffffff;
+  --potg-surface-raised: #ffffff;
   --potg-border: #e2e8ec;
+  --potg-border-strong: #cbd5dc;
   --potg-text: #16232f;
   --potg-text-muted: #5b6b78;
+  --potg-text-faint: #94a3ae;
+
+  /* Extended neutral scale — internal use (skeletons, table stripes,
+     hover backgrounds, chart fills) where the semantic tokens above don't
+     fit. */
+  --potg-gray-50: #f8f9fa;
+  --potg-gray-100: #f1f3f5;
+  --potg-gray-200: #e9ecef;
+  --potg-gray-300: #dee2e6;
+  --potg-gray-400: #ced4da;
+  --potg-gray-500: #adb5bd;
+  --potg-gray-600: #868e96;
+  --potg-gray-700: #495057;
+  --potg-gray-800: #343a40;
+  --potg-gray-900: #212529;
+
+  /* Semantic state — each gets a bg/border/text triplet so status banners,
+     badges, and callouts are consistent everywhere instead of ad hoc. */
   --potg-danger: #c0392b;
   --potg-danger-bg: #fdecea;
+  --potg-danger-border: #f3c6c1;
   --potg-success: #1f9254;
-  --potg-warn-border: #f0b429;
+  --potg-success-bg: #e9f8ef;
+  --potg-success-border: #b7e4c7;
+  --potg-warn: #a15c00;
   --potg-warn-bg: #fff8ea;
+  --potg-warn-border: #f0b429;
+  --potg-info: #1c6fb0;
+  --potg-info-bg: #eaf3fb;
+  --potg-info-border: #bcdcf5;
 
   /* Ask AI panel accent — used nowhere else in the UI */
   --potg-ai: #6753d6;
@@ -26,10 +66,57 @@
   --potg-ai-bg: #f3f1fc;
   --potg-ai-border: #ded7f7;
 
-  --potg-radius: 10px;
+  /* Radius — sm for controls (buttons/inputs/chips), default for cards,
+     lg for prominent surfaces (modals, hero panels, popovers). */
   --potg-radius-sm: 6px;
+  --potg-radius: 10px;
+  --potg-radius-lg: 16px;
+
+  /* Elevation — sm for a subtle hover lift, default for resting cards, lg
+     for anything that floats above the page (modals, dropdowns, toasts). */
+  --potg-shadow-sm: 0 1px 2px rgba(15, 41, 66, 0.05);
   --potg-shadow: 0 1px 2px rgba(15, 41, 66, 0.06), 0 4px 12px rgba(15, 41, 66, 0.06);
-  --potg-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --potg-shadow-lg: 0 8px 24px rgba(15, 41, 66, 0.12), 0 2px 8px rgba(15, 41, 66, 0.08);
+
+  /* Keyboard focus ring — consistent across buttons, links, and custom
+     controls (not just native inputs, which keep their own tighter ring
+     below). */
+  --potg-focus-ring: 0 0 0 3px rgba(13, 115, 119, 0.28);
+
+  /* 4px-based spacing scale — used by all new/redesigned layout. Existing
+     inline pixel values elsewhere are left as-is until that page's own
+     pass reaches it, so this coexisting with ad hoc values is expected
+     mid-rollout. */
+  --potg-space-1: 4px;
+  --potg-space-2: 8px;
+  --potg-space-3: 12px;
+  --potg-space-4: 16px;
+  --potg-space-5: 20px;
+  --potg-space-6: 24px;
+  --potg-space-8: 32px;
+  --potg-space-10: 40px;
+  --potg-space-12: 48px;
+  --potg-space-16: 64px;
+
+  /* Type scale */
+  --potg-text-xs: 11px;
+  --potg-text-sm: 12px;
+  --potg-text-base: 14px;
+  --potg-text-md: 15px;
+  --potg-text-lg: 17px;
+  --potg-text-xl: 20px;
+  --potg-text-2xl: 24px;
+  --potg-text-3xl: 30px;
+  --potg-text-4xl: 38px;
+
+  /* Fonts — var(--font-inter)/var(--font-fraunces) are supplied by
+     next/font in pages/_app.tsx (see the wrapping div there); the system
+     stack is the fallback while a font loads or if that ever changes.
+     --potg-font keeps its original name/role (every page's body text
+     already inherits it) so this is a drop-in upgrade from the old
+     system-only stack, not a rename. */
+  --potg-font: var(--font-inter), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --potg-font-display: var(--font-fraunces), Georgia, serif;
 }
 
 * {
@@ -48,6 +135,13 @@ body {
 body {
   font-size: 14px;
   line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
+}
+
+img,
+svg {
+  max-width: 100%;
 }
 
 a {
@@ -76,6 +170,16 @@ h4 {
   color: var(--potg-navy);
 }
 
+/* One consistent keyboard-focus treatment app-wide, replacing the
+   browser's mismatched default outlines. Native form controls keep their
+   own tighter, teal-tinted ring (below) since a 3px ring around a small
+   checkbox/radio reads as broken, not accessible. */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--potg-focus-ring);
+  border-radius: var(--potg-radius-sm);
+}
+
 .potg-btn {
   display: inline-flex;
   align-items: center;
@@ -86,7 +190,7 @@ h4 {
   padding: 9px 14px;
   font-size: 13px;
   font-weight: 600;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
 .potg-btn-primary {
@@ -95,6 +199,9 @@ h4 {
 }
 .potg-btn-primary:hover {
   background: var(--potg-teal-light);
+}
+.potg-btn-primary:active {
+  background: var(--potg-teal-dark);
 }
 .potg-btn-primary:disabled {
   background: #a9c3c4;
@@ -110,6 +217,14 @@ h4 {
   border-color: var(--potg-teal);
   color: var(--potg-teal);
 }
+.potg-btn-secondary:active {
+  background: var(--potg-teal-bg);
+}
+.potg-btn-secondary:disabled {
+  color: var(--potg-text-faint);
+  border-color: var(--potg-border);
+  cursor: not-allowed;
+}
 
 .potg-btn-ai {
   background: var(--potg-ai-bg);
@@ -119,6 +234,9 @@ h4 {
 .potg-btn-ai:hover {
   background: var(--potg-ai-bg);
   border-color: var(--potg-ai);
+}
+.potg-btn-ai:active {
+  background: var(--potg-ai-border);
 }
 .potg-btn-ai:disabled {
   opacity: 0.55;
@@ -133,6 +251,15 @@ h4 {
 .potg-btn-danger:hover {
   border-color: var(--potg-danger);
   background: var(--potg-danger-bg);
+}
+.potg-btn-danger:active {
+  background: #f9d9d5;
+}
+.potg-btn-danger:disabled {
+  color: var(--potg-text-faint);
+  border-color: var(--potg-border);
+  background: var(--potg-surface);
+  cursor: not-allowed;
 }
 
 .potg-card {
@@ -149,11 +276,23 @@ h4 {
   padding: 9px 11px;
   color: var(--potg-text);
   background: var(--potg-surface);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.potg-input:hover:not(:disabled):not(:focus) {
+  border-color: var(--potg-border-strong);
 }
 .potg-input:focus {
   outline: none;
   border-color: var(--potg-teal);
   box-shadow: 0 0 0 3px rgba(13, 115, 119, 0.12);
+}
+.potg-input:disabled {
+  background: var(--potg-gray-50);
+  color: var(--potg-text-faint);
+  cursor: not-allowed;
+}
+.potg-input::placeholder {
+  color: var(--potg-text-faint);
 }
 
 .potg-label {
@@ -164,9 +303,23 @@ h4 {
   margin-bottom: 4px;
 }
 
+/* Appended to a .potg-label when the field is required, instead of a bare
+   "*" with no accessible meaning. */
+.potg-label-required::after {
+  content: "*";
+  color: var(--potg-danger);
+  margin-left: 3px;
+}
+
+.potg-help {
+  font-size: 11.5px;
+  color: var(--potg-text-faint);
+  margin-top: 4px;
+}
+
 .potg-error {
   background: var(--potg-danger-bg);
-  border: 1px solid #f3c6c1;
+  border: 1px solid var(--potg-danger-border);
   color: var(--potg-danger);
   border-radius: var(--potg-radius-sm);
   padding: 8px 11px;
@@ -188,3 +341,11 @@ h4 {
 .potg-muted {
   color: var(--potg-text-muted);
 }
+
+/* Breakpoints used consistently across the app's responsive rules:
+   mobile   < 640px
+   tablet   640px – 1024px
+   desktop  > 1024px
+   (kept as a comment, not a var, since CSS custom properties can't be
+   used inside @media conditions without extra build tooling this app
+   doesn't have.) */
