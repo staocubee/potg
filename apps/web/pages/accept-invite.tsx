@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useAuth } from "../lib/auth";
 import { ApiError, InvitePreview } from "../lib/api";
 import AuthLayout from "../components/AuthLayout";
+import Skeleton from "../components/Skeleton";
 
 // Landing page for an invite link (see AccountsService.addMember /
 // getInvite). Deliberately outside AppShell — same reasoning as
@@ -52,7 +53,7 @@ export default function AcceptInvitePage() {
     <AuthLayout title="You're invited" subtitle="Join an account on PropertyOnTheGo.">
       {!token && <div className="potg-error">This link is missing an invite token.</div>}
 
-      {token && invite === undefined && <p className="potg-muted">Loading invite…</p>}
+      {token && invite === undefined && <Skeleton lines={2} />}
 
       {token && invite === null && (
         <div className="potg-error">This invite is invalid or has expired — ask whoever invited you to send a new one.</div>
@@ -60,9 +61,9 @@ export default function AcceptInvitePage() {
 
       {invite && accepted && (
         <div>
-          <p style={{ marginBottom: 14 }}>
+          <div style={{ background: "var(--potg-success-bg)", border: "1px solid var(--potg-success-border)", color: "var(--potg-success)", borderRadius: "var(--potg-radius-sm)", padding: "8px 11px", fontSize: 13, marginBottom: 14 }}>
             You've joined <strong>{invite.accountName}</strong> as a <strong>{invite.roleName}</strong>.
-          </p>
+          </div>
           <Link href="/properties" className="potg-btn potg-btn-primary" style={{ display: "inline-block" }}>
             Go to your portfolio
           </Link>

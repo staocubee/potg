@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useAuth } from "../lib/auth";
 import { ApiError } from "../lib/api";
 import AuthLayout from "../components/AuthLayout";
+import Skeleton from "../components/Skeleton";
 
 export default function VerifyEmailPage() {
   const auth = useAuth();
@@ -42,11 +43,13 @@ export default function VerifyEmailPage() {
       {!token && (
         <p className="potg-error">This link is missing its verification token — use the link from your email.</p>
       )}
-      {token && (status === "idle" || status === "checking") && <p className="potg-muted">Verifying…</p>}
+      {token && (status === "idle" || status === "checking") && <Skeleton lines={2} />}
       {token && status === "done" && (
         <div>
-          <p style={{ fontSize: 13 }}>Your email is verified.</p>
-          <Link href="/" className="potg-btn potg-btn-primary" style={{ display: "inline-block", marginTop: 10 }}>
+          <div style={{ background: "var(--potg-success-bg)", border: "1px solid var(--potg-success-border)", color: "var(--potg-success)", borderRadius: "var(--potg-radius-sm)", padding: "8px 11px", fontSize: 13 }}>
+            Your email is verified.
+          </div>
+          <Link href="/" className="potg-btn potg-btn-primary" style={{ display: "inline-block", marginTop: 14 }}>
             Continue
           </Link>
         </div>

@@ -48,8 +48,10 @@ export default function ResetPasswordPage() {
       )}
       {token && done && (
         <div>
-          <p style={{ fontSize: 13 }}>Your password has been updated.</p>
-          <Link href="/login" className="potg-btn potg-btn-primary" style={{ display: "inline-block", marginTop: 10 }}>
+          <div style={{ background: "var(--potg-success-bg)", border: "1px solid var(--potg-success-border)", color: "var(--potg-success)", borderRadius: "var(--potg-radius-sm)", padding: "8px 11px", fontSize: 13 }}>
+            Your password has been updated.
+          </div>
+          <Link href="/login" className="potg-btn potg-btn-primary" style={{ display: "inline-block", marginTop: 14 }}>
             Sign in
           </Link>
         </div>
@@ -58,7 +60,7 @@ export default function ResetPasswordPage() {
         <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {error && <div className="potg-error">{error}</div>}
           <div>
-            <label className="potg-label" htmlFor="newPassword">
+            <label className="potg-label potg-label-required" htmlFor="newPassword">
               New password
             </label>
             <input
@@ -68,15 +70,16 @@ export default function ResetPasswordPage() {
               required
               autoFocus
               minLength={8}
+              maxLength={72}
+              pattern="(?=.*[A-Za-z])(?=.*\d).+"
+              title="At least 8 characters, including one letter and one number"
               value={newPassword}
               onChange={(e) => setNewPassword(e.target.value)}
             />
-            <p className="potg-muted" style={{ fontSize: 11, margin: "4px 0 0" }}>
-              At least 8 characters.
-            </p>
+            <p className="potg-help">At least 8 characters, including one letter and one number.</p>
           </div>
           <div>
-            <label className="potg-label" htmlFor="confirmNewPassword">
+            <label className="potg-label potg-label-required" htmlFor="confirmNewPassword">
               Confirm new password
             </label>
             <input
@@ -88,9 +91,7 @@ export default function ResetPasswordPage() {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
             />
-            {passwordMismatch && (
-              <p style={{ fontSize: 11, margin: "4px 0 0", color: "var(--potg-danger)" }}>Passwords don't match.</p>
-            )}
+            {passwordMismatch && <p className="potg-help" style={{ color: "var(--potg-danger)" }}>Passwords don't match.</p>}
           </div>
           <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || passwordMismatch} style={{ marginTop: 6 }}>
             {busy ? "Saving…" : "Reset password"}

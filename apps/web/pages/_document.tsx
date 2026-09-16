@@ -1,23 +1,27 @@
 import { Html, Head, Main, NextScript } from "next/document";
 
-// Didn't exist before this redesign — the app had no viewport meta tag at
-// all, so every mobile browser was rendering the desktop layout zoomed out
-// instead of at device width. Everything else here is Next.js boilerplate.
+// Everything else here is Next.js boilerplate.
 //
-// Deliberately does NOT load next/font here: next/font's CSS module only
-// gets bundled when used from _app.tsx, page files, or regular components
-// — using it in _document.tsx silently produces an empty custom property
-// (confirmed live: getComputedStyle(...).getPropertyValue('--font-inter')
-// came back "" here, which in turn made `body`'s var(--potg-font) resolve
-// to nothing and fall all the way back to the browser's serif default).
-// The font is applied in pages/_app.tsx instead.
+// Deliberately does NOT set the viewport meta tag here, and does NOT load
+// next/font here — both are unsupported in _document.tsx even though
+// nothing stops you from writing them:
+// - The viewport meta tag belongs in pages/_app.tsx's own <Head> instead.
+//   Next.js warns at runtime if it's placed here ("viewport meta tags
+//   should not be used in _document.js's <Head>") because _document only
+//   controls the static document shell, not the per-request <head> Next
+//   itself manages — putting it here produced a real, live bug: a second,
+//   conflicting viewport tag plus (observed after a dev-server restart)
+//   client-side hydration/navigation silently getting stuck on every page,
+//   not just a console warning.
+// - next/font's CSS module doesn't get bundled when used in _document.tsx
+//   (confirmed live: getComputedStyle(...).getPropertyValue('--font-inter')
+//   came back "" here, which made `body`'s var(--potg-font) resolve to
+//   nothing and fall back to the browser's serif default).
+// Both are applied in pages/_app.tsx instead.
 export default function Document() {
   return (
     <Html lang="en">
-      <Head>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#0f2942" />
-      </Head>
+      <Head />
       <body>
         <Main />
         <NextScript />

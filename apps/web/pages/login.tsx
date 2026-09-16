@@ -62,7 +62,7 @@ export default function LoginPage() {
       <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         {error && <div className="potg-error">{error}</div>}
         <div>
-          <label className="potg-label" htmlFor="email">
+          <label className="potg-label potg-label-required" htmlFor="email">
             Email
           </label>
           <input
@@ -77,7 +77,7 @@ export default function LoginPage() {
         </div>
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <label className="potg-label" htmlFor="password">
+            <label className="potg-label potg-label-required" htmlFor="password">
               Password
             </label>
             <Link href="/forgot-password" style={{ fontSize: 12, color: "var(--potg-teal)", fontWeight: 600 }}>

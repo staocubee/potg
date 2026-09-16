@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useAuth } from "../lib/auth";
 import { ApiError, DevelopmentAgreementPreview } from "../lib/api";
 import AuthLayout from "../components/AuthLayout";
+import Skeleton from "../components/Skeleton";
 
 // Landing page for a development-agreement invite link — mirrors
 // accept-invite.tsx's own shape (see AccountsService.getInvite/
@@ -75,7 +76,7 @@ export default function AcceptDevelopmentAgreementPage() {
     <AuthLayout title="Development invite" subtitle="You've been invited to build on a property.">
       {!token && <div className="potg-error">This link is missing an invite token.</div>}
 
-      {token && preview === undefined && <p className="potg-muted">Loading invite…</p>}
+      {token && preview === undefined && <Skeleton lines={2} />}
 
       {token && preview === null && (
         <div className="potg-error">This invite is invalid or has expired — ask the property owner to send a new one.</div>
@@ -83,7 +84,17 @@ export default function AcceptDevelopmentAgreementPage() {
 
       {preview && outcome && (
         <div>
-          <p style={{ marginBottom: 14 }}>
+          <div
+            style={{
+              background: outcome === "accepted" ? "var(--potg-success-bg)" : "var(--potg-gray-50)",
+              border: `1px solid ${outcome === "accepted" ? "var(--potg-success-border)" : "var(--potg-border)"}`,
+              color: outcome === "accepted" ? "var(--potg-success)" : "var(--potg-text-muted)",
+              borderRadius: "var(--potg-radius-sm)",
+              padding: "8px 11px",
+              fontSize: 13,
+              marginBottom: 14,
+            }}
+          >
             {outcome === "accepted" ? (
               <>
                 You've accepted the invite for <strong>{preview.propertyName}</strong> ({dealSummary}).
@@ -91,7 +102,7 @@ export default function AcceptDevelopmentAgreementPage() {
             ) : (
               <>You've declined the invite for {preview.propertyName}.</>
             )}
-          </p>
+          </div>
           <Link href="/properties" className="potg-btn potg-btn-primary" style={{ display: "inline-block" }}>
             Go to your portfolio
           </Link>

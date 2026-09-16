@@ -37,10 +37,10 @@ export default function ForgotPasswordPage() {
     <AuthLayout title="Reset your password" subtitle="Enter the email on your account and we'll generate a reset link.">
       {sent ? (
         <div>
-          <p style={{ fontSize: 13 }}>
+          <div style={{ background: "var(--potg-success-bg)", border: "1px solid var(--potg-success-border)", color: "var(--potg-success)", borderRadius: "var(--potg-radius-sm)", padding: "8px 11px", fontSize: 13 }}>
             If that email has an account, a password reset link has been generated
             {devResetLink ? "" : " and emailed to it"}.
-          </p>
+          </div>
           {devResetLink && (
             <p className="potg-card" style={{ padding: 12, fontSize: 12, marginTop: 12 }}>
               Dev shortcut — no email provider is configured, so here's the link directly:{" "}
@@ -54,7 +54,7 @@ export default function ForgotPasswordPage() {
         <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           {error && <div className="potg-error">{error}</div>}
           <div>
-            <label className="potg-label" htmlFor="email">
+            <label className="potg-label potg-label-required" htmlFor="email">
               Email
             </label>
             <input id="email" className="potg-input" type="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} />

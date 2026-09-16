@@ -110,13 +110,13 @@ export default function RegisterPage() {
       <form onSubmit={onSubmit} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         {error && <div className="potg-error">{error}</div>}
         <div>
-          <label className="potg-label" htmlFor="name">
+          <label className="potg-label potg-label-required" htmlFor="name">
             Full name
           </label>
           <input id="name" className="potg-input" required autoFocus value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div>
-          <label className="potg-label" htmlFor="email">
+          <label className="potg-label potg-label-required" htmlFor="email">
             Email
           </label>
           <input
@@ -136,7 +136,7 @@ export default function RegisterPage() {
           <input id="phone" className="potg-input" value={phone} onChange={(e) => setPhone(e.target.value)} />
         </div>
         <div>
-          <label className="potg-label" htmlFor="password">
+          <label className="potg-label potg-label-required" htmlFor="password">
             Password
           </label>
           <input
@@ -145,15 +145,16 @@ export default function RegisterPage() {
             type="password"
             required
             minLength={8}
+            maxLength={72}
+            pattern="(?=.*[A-Za-z])(?=.*\d).+"
+            title="At least 8 characters, including one letter and one number"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
-          <p className="potg-muted" style={{ fontSize: 11, margin: "4px 0 0" }}>
-            At least 8 characters.
-          </p>
+          <p className="potg-help">At least 8 characters, including one letter and one number.</p>
         </div>
         <div>
-          <label className="potg-label" htmlFor="confirmPassword">
+          <label className="potg-label potg-label-required" htmlFor="confirmPassword">
             Confirm password
           </label>
           <input
@@ -166,7 +167,7 @@ export default function RegisterPage() {
             onChange={(e) => setConfirmPassword(e.target.value)}
           />
           {passwordMismatch && (
-            <p style={{ fontSize: 11, margin: "4px 0 0", color: "var(--potg-danger)" }}>Passwords don't match.</p>
+            <p className="potg-help" style={{ color: "var(--potg-danger)" }}>Passwords don't match.</p>
           )}
         </div>
         <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || passwordMismatch} style={{ marginTop: 6 }}>
