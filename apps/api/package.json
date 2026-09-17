@@ -6,13 +6,12 @@
   "scripts": {
   
     "build": "nest build",
-    "start": "nest start",
     "start:dev": "nest start --watch",
+    "start": "node dist/main.js",
     "lint": "eslint \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:migrate:deploy": "prisma migrate deploy",
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
