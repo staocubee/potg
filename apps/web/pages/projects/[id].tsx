@@ -497,6 +497,20 @@ export default function ProjectDetailPage() {
               <CompleteConstructionCard busy={completingConstruction} onComplete={onCompleteConstruction} />
             )}
 
+          {/* Below this point used to be one continuous scroll of 11 cards
+              (2,203 lines total on this page) — grouped into tabs instead.
+              Every card, its props, its state, and its handlers are
+              exactly what they were; only which tab renders which card
+              changed. The header/stage-bar block above and the
+              CompleteConstructionCard banner stay outside the tabs since
+              they're the page's own "overview," always visible regardless
+              of which tab is open. */}
+          <Tabs
+            tabs={[
+              {
+                id: "quotes",
+                label: "Quotes & Vendors",
+                content: (
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <h3 style={{ fontSize: 14 }}>Vendor quotes</h3>
@@ -597,7 +611,13 @@ export default function ProjectDetailPage() {
               ))}
             </div>
           </div>
-
+                ),
+              },
+              {
+                id: "financials",
+                label: "Financials",
+                content: (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div className="potg-card" style={{ padding: 18 }}>
             <h3 style={{ fontSize: 14, marginBottom: 4 }}>Payments</h3>
             <p className="potg-muted" style={{ fontSize: 11, margin: "0 0 10px" }}>
@@ -708,7 +728,14 @@ export default function ProjectDetailPage() {
               ))}
             </div>
           </div>
-
+                  </div>
+                ),
+              },
+              {
+                id: "scope",
+                label: "Scope & Milestones",
+                content: (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <h3 style={{ fontSize: 14, margin: 0 }}>Bill of Quantities</h3>
@@ -921,7 +948,13 @@ export default function ProjectDetailPage() {
               </div>
             )}
           </div>
-
+                  </div>
+                ),
+              },
+              {
+                id: "payouts",
+                label: "Payouts & Receipts",
+                content: (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             <div className="potg-card" style={{ padding: 18 }}>
               <h3 style={{ fontSize: 14, marginBottom: 10 }}>Payouts</h3>
@@ -951,7 +984,13 @@ export default function ProjectDetailPage() {
               </div>
             </div>
           </div>
-
+                ),
+              },
+              {
+                id: "disputes",
+                label: "Disputes & Reviews",
+                content: (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {id && (
             <DisputesCard
               projectId={id}
@@ -977,6 +1016,11 @@ export default function ProjectDetailPage() {
               onReviewed={load}
             />
           )}
+                  </div>
+                ),
+              },
+            ]}
+          />
         </div>
         );
       })()}
