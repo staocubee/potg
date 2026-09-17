@@ -12,6 +12,7 @@
     "build:api": "npm run build --workspace=apps/api",
     "dev:web": "npm run dev --workspace=apps/web",
     "build:web": "npm run build --workspace=apps/web",
+    "start:web": "npm run start --workspace=apps/web",
     "db:up": "docker compose up -d postgres redis",
     "prisma:generate": "npm run prisma:generate --workspace=apps/api",
     "prisma:migrate": "npm run prisma:migrate --workspace=apps/api",
