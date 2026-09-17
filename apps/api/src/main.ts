@@ -58,9 +58,9 @@ async function bootstrap() {
   // credentialed requests by spec, and the browser would silently refuse
   // to send/receive cookies cross-origin. An explicit origin plus
   // `credentials: true` is what actually lets the cookie round-trip.
-  app.enableCors({ origin: process.env.WEB_APP_URL ?? 'http://localhost:3000', credentials: true });
-  const port = process.env.PORT ?? 3001;
-  await app.listen(port);
+  app.enableCors({ origin: process.env.WEB_APP_URL || 'http://localhost:3000', credentials: true });
+  const port = process.env.PORT || 3001;
+  await app.listen(port, '0.0.0.0');
   // eslint-disable-next-line no-console
   console.log(`PropertyOnTheGo API listening on :${port}`);
 }

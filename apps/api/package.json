@@ -4,6 +4,7 @@
   "private": true,
   "description": "PropertyOnTheGo API — NestJS backend scaffold (Priority 1 & 2 from the blueprint's Engineering Implementation Priorities).",
   "scripts": {
+  
     "build": "nest build",
     "start": "nest start",
     "start:dev": "nest start --watch",
@@ -11,6 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:deploy": "prisma migrate deploy",
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
