@@ -7,6 +7,7 @@ import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
 import AiDraftCard, { DraftDecision } from "../../components/AiDraftCard";
+import Tabs  from "../../components/Tabs";
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
