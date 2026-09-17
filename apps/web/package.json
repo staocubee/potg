@@ -4,9 +4,9 @@
   "private": true,
   "description": "PropertyOnTheGo web app — app shell (auth, account switcher, nav), the property portfolio screens, and the reusable Ask AI panel wired to POST /ai/actions + POST /ai/chat. Built from the published Ask AI panel wireframe's Main.dc.html artboard. See README's 'Web app (Foundation + Ask AI panel)' section.",
   "scripts": {
-    "start:api": "npm run start --workspace=apps/api",
-    "dev:api": "npm run start:dev --workspace=apps/api",
-    "build:api": "npm run build --workspace=apps/api",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

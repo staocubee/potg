@@ -7,6 +7,7 @@
     "packages/*"
   ],
   "scripts": {
+    "start:api": "npm run start --workspace=apps/api",
     "dev:api": "npm run start:dev --workspace=apps/api",
     "build:api": "npm run build --workspace=apps/api",
     "dev:web": "npm run dev --workspace=apps/web",
