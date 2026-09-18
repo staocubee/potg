@@ -32,42 +32,62 @@ async function bootstrap() {
   // process.env.JWT_SECRET even when .env has a real one set.
   const app = await NestFactory.create(AppModule);
   assertRealJwtSecret();
-  // Security fix: no security headers were set anywhere (no CSP,
-  // X-Content-Type-Options, X-Frame-Options, HSTS, and Express's default
-  // X-Powered-By was still leaking the framework). helmet()'s defaults are
-  // the standard NestJS-recommended baseline — safe for a pure JSON API,
-  // no impact on normal request/response handling.
+
+  // Security fix: set baseline security headers
   app.use(helmet());
-  // Security hardening: forbidNonWhitelisted turns "silently strip any
-  // field not declared on the DTO" into a real 400 naming the offending
-  // field. whitelist alone (already set) already made stripped fields
-  // harmless — nothing unexpected could reach a Prisma call — so this is
-  // about surfacing a real client/DTO mismatch instead of hiding it, not
-  // closing a live exploit. Regression-tested live (authenticated fetch
-  // calls using apps/web/lib/api.ts's exact payload shapes) against
-  // create/update on properties, leases, projects, milestones, BOQ items,
-  // and documents, plus raising a dispute — all succeeded. Vendor-quote,
-  // maintenance-quote and vendor-dispute DTOs were checked statically
-  // against their frontend call sites instead of live (this account has no
-  // vendor:write role) and match field-for-field.
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+
+  // Input validation & DTO transformation
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
+
   app.use(cookieParser());
-  // Auth now lives in httpOnly cookies (see src/auth/cookie.util.ts), so
-  // this can no longer be the permissive `enableCors()` default: a
-  // wildcard `Access-Control-Allow-Origin` is incompatible with
-  // credentialed requests by spec, and the browser would silently refuse
-  // to send/receive cookies cross-origin. An explicit origin plus
-  // `credentials: true` is what actually lets the cookie round-trip.
-  app.enableCors({
-  origin: [
+
+  // Allowed CORS origins list
+  const allowedOrigins = [
     'http://localhost:3000',
-    'https://potg-frontend.onrender.com',
-    ...(process.env.WEB_APP_URL ? [process.env.WEB_APP_URL] : []),
-  ],
-  credentials: true,
+    'https://www.propertyonthego.com.ng',
+    'https://propertyonthego.com.ng',
+    'https://api.propertyonthego.com.ng',
+    'https://potg.com.ng',
+    'https://www.potg.com.ng',
+    ...(process.env.WEB_APP_URL
+      ? process.env.WEB_APP_URL.split(',').map((url) => url.trim().replace(/\/$/, ''))
+      : []),
+  ];
+
+  // Dynamic CORS configuration to handle credentialed cookies & preflight OPTIONS
+  app.enableCors({
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      // Allow server-to-server, mobile app, health checks, or curl requests with no Origin header
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      // Strip trailing slash if present in request origin header
+      const normalizedOrigin = origin.replace(/\/$/, '');
+
+      if (allowedOrigins.includes(normalizedOrigin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`CORS policy error: Origin ${origin} is not allowed`));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Cookie'],
   });
+
   const port = process.env.PORT || 3001;
   await app.listen(port, '0.0.0.0');
+
   // eslint-disable-next-line no-console
   console.log(`PropertyOnTheGo API listening on :${port}`);
 }
