@@ -74,7 +74,13 @@ async function bootstrap() {
       // Strip trailing slash if present in request origin header
       const normalizedOrigin = origin.replace(/\/$/, '');
 
-      if (allowedOrigins.includes(normalizedOrigin)) {
+      // Regex allows root domain and any subdomains ending with .propertyonthego.com.ng or .potg.com.ng
+      const isAllowedDomain = 
+        /^https:\/\/(.*\.)?propertyonthego\.com\.ng$/.test(normalizedOrigin) ||
+        /^https:\/\/(.*\.)?potg\.com\.ng$/.test(normalizedOrigin) ||
+        normalizedOrigin === 'http://localhost:3000';
+
+      if (isAllowedDomain) {
         return callback(null, true);
       }
 
@@ -82,7 +88,8 @@ async function bootstrap() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Cookie'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Cookie','x-csrf-token', // Add your CSRF header key here
+  'X-CSRF-Token'],
   });
 
   const port = process.env.PORT || 3001;
