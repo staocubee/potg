@@ -3,6 +3,7 @@ import { useAuth } from "../../lib/auth";
 import { ApiError, AiUsageSummary, AtRiskOverview, PortfolioOverview, ReportDefinition } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AiDraftCard, { DraftDecision } from "../../components/AiDraftCard";
+import Skeleton from "../../components/Skeleton";
 
 const DIGEST_FREQUENCIES = ["off", "weekly", "monthly"] as const;
 
@@ -137,7 +138,7 @@ export default function ReportsPage() {
           {error}
         </div>
       )}
-      {!overview && !error && <p className="potg-muted">Loading your portfolio report…</p>}
+      {!overview && !error && <Skeleton lines={4} />}
 
       {overview && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -275,9 +276,7 @@ function AtRiskOverviewCard() {
   if (!data) {
     return (
       <div className="potg-card" style={{ padding: 18 }}>
-        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
-          Loading your at-risk overview…
-        </p>
+        <Skeleton lines={2} />
       </div>
     );
   }
@@ -348,9 +347,7 @@ function AiUsageCard() {
   if (!usage) {
     return (
       <div className="potg-card" style={{ padding: 18 }}>
-        <p className="potg-muted" style={{ fontSize: 12, margin: 0 }}>
-          Loading AI usage…
-        </p>
+        <Skeleton lines={2} />
       </div>
     );
   }
@@ -621,7 +618,7 @@ function ReportBuilderCard() {
       </p>
       {error && <div className="potg-error" style={{ marginBottom: 10 }}>{error}</div>}
 
-      {!availableMetrics && <p className="potg-muted" style={{ fontSize: 12 }}>Loading…</p>}
+      {!availableMetrics && <Skeleton lines={2} />}
 
       {availableMetrics && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>

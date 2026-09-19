@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
 import { ApiError, PlatformAccountSummary, PlatformAdminActionEntry, PlatformEscrowAccountSummary, PlatformListingSummary, PlatformPropertySummary, PlatformReports, PlatformTransaction } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import Skeleton from "../../components/Skeleton";
+import StatusBadge from "../../components/StatusBadge";
 
-function statusColor(status: string) {
-  return status === "suspended" ? "var(--potg-danger)" : "var(--potg-success, #1a7f37)";
+function accountStatusVariant(status: string): "success" | "error" {
+  return status === "suspended" ? "error" : "success";
 }
 
 function formatMoney(value: number, currency: string) {
@@ -40,7 +42,7 @@ function PlatformReportsSection() {
   }, [auth.currentAccountId]);
 
   if (error) return <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>;
-  if (!reports) return <p className="potg-muted">Loading platform reports…</p>;
+  if (!reports) return <Skeleton lines={3} />;
 
   return (
     <div style={{ marginBottom: 28 }}>
@@ -222,7 +224,7 @@ function PlatformPropertiesAndListingsSection() {
   }, [auth.currentAccountId]);
 
   if (error) return <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>;
-  if (!properties || !listings) return <p className="potg-muted">Loading properties and listings…</p>;
+  if (!properties || !listings) return <Skeleton lines={3} />;
 
   return (
     <div style={{ marginBottom: 28 }}>
@@ -285,7 +287,7 @@ function PlatformTransactionsSection() {
   }, [auth.currentAccountId]);
 
   if (error) return <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>;
-  if (!transactions) return <p className="potg-muted">Loading transactions…</p>;
+  if (!transactions) return <Skeleton lines={3} />;
 
   return (
     <div style={{ marginBottom: 28 }}>
@@ -300,7 +302,9 @@ function PlatformTransactionsSection() {
           {transactions.map((t) => (
             <div key={`${t.type}-${t.id}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, borderBottom: "1px solid var(--potg-border)", paddingBottom: 6 }}>
               <div>
-                <span className="potg-badge" style={{ marginRight: 6, textTransform: "capitalize" }}>{t.type}</span>
+                <span style={{ marginRight: 6 }}>
+                  <StatusBadge>{t.type}</StatusBadge>
+                </span>
                 {t.account?.name ?? "Unknown account"} → {t.counterparty}
                 <div className="potg-muted" style={{ fontSize: 10.5 }}>{new Date(t.occurredAt).toLocaleString()}</div>
               </div>
@@ -332,7 +336,7 @@ function PlatformEscrowSection() {
   }, [auth.currentAccountId]);
 
   if (error) return <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>;
-  if (!accounts) return <p className="potg-muted">Loading escrow accounts…</p>;
+  if (!accounts) return <Skeleton lines={3} />;
 
   return (
     <div style={{ marginBottom: 28 }}>
@@ -421,7 +425,7 @@ export default function AdminPage() {
       <PlatformEscrowSection />
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!accounts && !error && <p className="potg-muted">Loading…</p>}
+      {!accounts && !error && <Skeleton lines={3} />}
 
       {accounts && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -494,9 +498,7 @@ function AccountRow({ account, onChanged }: { account: PlatformAccountSummary; o
             {new Date(account.createdAt).toLocaleDateString()}
           </p>
         </div>
-        <span className="potg-badge" style={{ color: statusColor(account.status), fontWeight: 600 }}>
-          {account.status}
-        </span>
+        <StatusBadge variant={accountStatusVariant(account.status)}>{account.status}</StatusBadge>
       </div>
       {error && <div className="potg-error" style={{ marginTop: 8 }}>{error}</div>}
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>

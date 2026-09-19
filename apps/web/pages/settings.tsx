@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../lib/auth";
 import { AccountDetails, ApiError } from "../lib/api";
 import AppShell from "../components/AppShell";
+import Skeleton from "../components/Skeleton";
 
 // Every nav audit's own repeated finding, once per role: "Settings —
 // missing (no settings page anywhere)." Real, already-persisted
@@ -62,7 +63,7 @@ export default function SettingsPage() {
   return (
     <AppShell title="Settings">
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!account && !error && <p className="potg-muted">Loading your account settings…</p>}
+      {!account && !error && <Skeleton lines={3} />}
 
       {account && (
         <form onSubmit={onSubmit} className="potg-card" style={{ padding: 20, maxWidth: 480, display: "flex", flexDirection: "column", gap: 14 }}>

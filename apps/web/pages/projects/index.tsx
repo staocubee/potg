@@ -2,9 +2,20 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
 import { AiActionResult, ApiError, Project, Property } from "../../lib/api";
+import { Hammer } from "lucide-react";
 import AppShell from "../../components/AppShell";
 import ProjectStageBar from "../../components/ProjectStageBar";
 import AiDraftCard, { DraftDecision } from "../../components/AiDraftCard";
+import Skeleton from "../../components/Skeleton";
+import EmptyState from "../../components/EmptyState";
+import StatusBadge from "../../components/StatusBadge";
+
+function projectStatusVariant(status: string): "success" | "warning" | "info" | "neutral" {
+  if (status === "completed") return "success";
+  if (status === "in_progress") return "info";
+  if (status === "cancelled") return "neutral";
+  return "warning";
+}
 
 const PROJECT_TYPES = ["renovation", "new_build", "maintenance", "landscaping", "interior_design"];
 
@@ -77,18 +88,16 @@ export default function ProjectsPage() {
         />
       )}
 
-      {!projects && !error && <p className="potg-muted">Loading your projects…</p>}
+      {!projects && !error && <Skeleton lines={3} />}
 
       {projects && projects.length === 0 && properties.length > 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>No projects yet. Start one for a property in your portfolio.</p>
-        </div>
+        <EmptyState icon={Hammer} title="No projects yet" description="Start one for a property in your portfolio." />
       )}
 
       {projects && projects.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {projects.map((p) => (
-            <Link key={p.id} href={`/projects/${p.id}`} className="potg-card" style={{ display: "block", padding: 16 }}>
+            <Link key={p.id} href={`/projects/${p.id}`} className="potg-card potg-card-hover" style={{ display: "block", padding: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
                 <div>
                   <h3 style={{ fontSize: 15 }}>{p.title}</h3>
@@ -97,7 +106,7 @@ export default function ProjectsPage() {
                   </p>
                 </div>
                 <div style={{ textAlign: "right", flexShrink: 0 }}>
-                  <span className="potg-badge">{p.status.replace(/_/g, " ")}</span>
+                  <StatusBadge variant={projectStatusVariant(p.status)}>{p.status.replace(/_/g, " ")}</StatusBadge>
                   {p.budget && (
                     <div style={{ fontWeight: 700, fontSize: 13, marginTop: 4 }}>{formatMoney(p.budget, p.currency)}</div>
                   )}
