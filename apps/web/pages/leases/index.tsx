@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
+import { Key } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Lease, Property } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import Skeleton from "../../components/Skeleton";
+import EmptyState from "../../components/EmptyState";
+import StatusBadge from "../../components/StatusBadge";
 
 function formatMoney(value?: string | null, currency?: string) {
   if (value == null) return null;
@@ -50,6 +54,10 @@ export default function LeasesPage() {
     [leases, filterPropertyId],
   );
 
+  function statusVariant(status: string): "success" | "neutral" {
+    return status === "active" ? "success" : "neutral";
+  }
+
   if (!canRead) {
     return (
       <AppShell title="Tenants & Leases">
@@ -71,14 +79,20 @@ export default function LeasesPage() {
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {!leases && !error && <p className="potg-muted">Loading leases…</p>}
+      {!leases && !error && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Skeleton height={64} />
+          <Skeleton height={64} />
+          <Skeleton height={64} />
+        </div>
+      )}
 
       {visible && visible.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>
-            No leases {filterPropertyId ? "for this property" : "yet"}. Add one from a property's own page.
-          </p>
-        </div>
+        <EmptyState
+          icon={Key}
+          title={`No leases ${filterPropertyId ? "for this property" : "yet"}`}
+          description="Add one from a property's own page."
+        />
       )}
 
       {visible && visible.length > 0 && (
@@ -87,7 +101,7 @@ export default function LeasesPage() {
             <Link
               key={l.id}
               href={`/properties/${l.propertyId}`}
-              className="potg-card"
+              className="potg-card potg-card-hover"
               style={{ padding: 14, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, textDecoration: "none", color: "inherit" }}
             >
               <div>
@@ -102,7 +116,7 @@ export default function LeasesPage() {
                   </div>
                 )}
               </div>
-              <span className="potg-badge" style={{ flexShrink: 0 }}>{l.status}</span>
+              <StatusBadge variant={statusVariant(l.status)}>{l.status}</StatusBadge>
             </Link>
           ))}
         </div>

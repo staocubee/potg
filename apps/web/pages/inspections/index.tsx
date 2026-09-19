@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
+import { ClipboardCheck } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Property, PropertyInspection } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import Skeleton from "../../components/Skeleton";
+import EmptyState from "../../components/EmptyState";
+import StatusBadge from "../../components/StatusBadge";
 
 // The nav audit's own finding on the Owner/Admin Sidebar: "Inspections —
 // missing, only inside each property's own page." Every inspection action
@@ -44,6 +48,14 @@ export default function InspectionsPage() {
     [inspections, filterPropertyId],
   );
 
+  function statusVariant(i: PropertyInspection): "success" | "warning" | "error" | "info" | "neutral" {
+    if (i.status !== "completed") return "info";
+    if (i.overallResult === "fail") return "error";
+    if (i.overallResult === "needs_attention") return "warning";
+    if (i.overallResult === "pass") return "success";
+    return "neutral";
+  }
+
   if (!canRead) {
     return (
       <AppShell title="Inspections">
@@ -65,15 +77,20 @@ export default function InspectionsPage() {
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {!inspections && !error && <p className="potg-muted">Loading inspections…</p>}
+      {!inspections && !error && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Skeleton height={64} />
+          <Skeleton height={64} />
+          <Skeleton height={64} />
+        </div>
+      )}
 
       {visible && visible.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>
-            No inspections {filterPropertyId ? "for this property" : "yet"}. Schedule one from a property's own
-            page.
-          </p>
-        </div>
+        <EmptyState
+          icon={ClipboardCheck}
+          title={`No inspections ${filterPropertyId ? "for this property" : "yet"}`}
+          description="Schedule one from a property's own page."
+        />
       )}
 
       {visible && visible.length > 0 && (
@@ -82,7 +99,7 @@ export default function InspectionsPage() {
             <Link
               key={i.id}
               href={`/properties/${i.propertyId}`}
-              className="potg-card"
+              className="potg-card potg-card-hover"
               style={{ padding: 14, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, textDecoration: "none", color: "inherit" }}
             >
               <div>
@@ -92,9 +109,9 @@ export default function InspectionsPage() {
                   {(i.inspectorVendor?.businessName || i.inspectorName) && ` · ${i.inspectorVendor?.businessName ?? i.inspectorName}`}
                 </div>
               </div>
-              <span className="potg-badge" style={{ color: i.overallResult === "fail" ? "var(--potg-danger)" : undefined, flexShrink: 0 }}>
+              <StatusBadge variant={statusVariant(i)}>
                 {i.status === "completed" ? (i.overallResult?.replace(/_/g, " ") ?? i.status) : i.status}
-              </span>
+              </StatusBadge>
             </Link>
           ))}
         </div>

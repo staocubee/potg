@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
+import { Wrench } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { ApiError, MaintenanceRequest, Property } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import Skeleton from "../../components/Skeleton";
+import EmptyState from "../../components/EmptyState";
+import StatusBadge from "../../components/StatusBadge";
 
 // The nav audit's own finding on the Owner/Admin Sidebar: "Maintenance —
 // missing, lives only inside each property's own detail page, no
@@ -49,6 +53,16 @@ export default function MaintenancePage() {
     [requests, filterPropertyId],
   );
 
+  function statusVariant(r: MaintenanceRequest): "success" | "warning" | "error" | "neutral" {
+    // Preserves the exact same rule the plain-badge version used: an
+    // urgent request reads as red regardless of its actual status, since
+    // urgency is the thing that needs to jump out here.
+    if (r.priority === "urgent") return "error";
+    if (r.status === "resolved") return "success";
+    if (r.status === "open" || r.status === "in_progress") return "warning";
+    return "neutral";
+  }
+
   if (!canRead) {
     return (
       <AppShell title="Maintenance">
@@ -70,15 +84,20 @@ export default function MaintenancePage() {
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {!requests && !error && <p className="potg-muted">Loading maintenance requests…</p>}
+      {!requests && !error && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Skeleton height={64} />
+          <Skeleton height={64} />
+          <Skeleton height={64} />
+        </div>
+      )}
 
       {visible && visible.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>
-            No maintenance requests {filterPropertyId ? "for this property" : "yet"}. Report one from a property's
-            own page.
-          </p>
-        </div>
+        <EmptyState
+          icon={Wrench}
+          title={`No maintenance requests ${filterPropertyId ? "for this property" : "yet"}`}
+          description="Report one from a property's own page."
+        />
       )}
 
       {visible && visible.length > 0 && (
@@ -87,7 +106,7 @@ export default function MaintenancePage() {
             <Link
               key={r.id}
               href={`/properties/${r.propertyId}`}
-              className="potg-card"
+              className="potg-card potg-card-hover"
               style={{ padding: 14, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, textDecoration: "none", color: "inherit" }}
             >
               <div>
@@ -98,9 +117,7 @@ export default function MaintenancePage() {
                   {r.assignedVendor && ` · ${r.assignedVendor.businessName}`}
                 </div>
               </div>
-              <span className="potg-badge" style={{ color: r.priority === "urgent" ? "var(--potg-danger)" : undefined, flexShrink: 0 }}>
-                {r.status.replace(/_/g, " ")}
-              </span>
+              <StatusBadge variant={statusVariant(r)}>{r.status.replace(/_/g, " ")}</StatusBadge>
             </Link>
           ))}
         </div>
