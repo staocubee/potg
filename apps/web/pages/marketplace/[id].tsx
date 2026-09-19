@@ -5,6 +5,22 @@ import { useAuth } from "../../lib/auth";
 import { ApiError, Listing, ListingInquiry, ListingOffer, ListingSale } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
+import Skeleton from "../../components/Skeleton";
+import StatusBadge from "../../components/StatusBadge";
+
+function listingStatusVariant(status: string): "success" | "warning" | "info" | "neutral" {
+  if (status === "active") return "success";
+  if (status === "sold") return "info";
+  if (status === "under_offer") return "warning";
+  return "neutral";
+}
+
+function offerStatusVariant(status: string): "success" | "warning" | "error" | "info" | "neutral" {
+  if (status === "accepted") return "success";
+  if (status === "rejected") return "error";
+  if (status === "countered") return "info";
+  return "warning";
+}
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -184,7 +200,7 @@ export default function ListingDetailPage() {
       </Link>
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!listing && !error && <p className="potg-muted">Loading…</p>}
+      {!listing && !error && <Skeleton lines={4} />}
 
       {listing && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -198,18 +214,18 @@ export default function ListingDetailPage() {
                 {listing.description && <p style={{ fontSize: 13, marginTop: 10 }}>{listing.description}</p>}
               </div>
               <div style={{ textAlign: "right", flexShrink: 0 }}>
-                <span className="potg-badge">{listing.listingType.replace(/_/g, " ")}</span>
+                <StatusBadge>{listing.listingType.replace(/_/g, " ")}</StatusBadge>
                 {listing.verificationStatus === "verified" && (
-                  <span
-                    className="potg-badge"
-                    style={{ background: "#e7f3ea", borderColor: "#b7ddc3", color: "#2f7a4f", marginLeft: 6 }}
-                  >
-                    ✓ verified
+                  <span style={{ marginLeft: 6 }}>
+                    <StatusBadge variant="success">✓ verified</StatusBadge>
                   </span>
                 )}
                 <div style={{ fontWeight: 700, fontSize: 18, marginTop: 8 }}>{formatMoney(listing.askingPrice, listing.currency)}</div>
+                <div style={{ marginTop: 6 }}>
+                  <StatusBadge variant={listingStatusVariant(listing.status)}>{listing.status.replace(/_/g, " ")}</StatusBadge>
+                </div>
                 <div className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
-                  {listing.status.replace(/_/g, " ")} · {listing.viewCount} view{listing.viewCount === 1 ? "" : "s"}
+                  {listing.viewCount} view{listing.viewCount === 1 ? "" : "s"}
                 </div>
               </div>
             </div>
@@ -270,9 +286,11 @@ export default function ListingDetailPage() {
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                   {sale.checklist.map((item) => (
-                    <div key={item.documentType} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                    <div key={item.documentType} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
                       <span>{item.label}</span>
-                      <span className="potg-badge">{item.status.replace(/_/g, " ")}</span>
+                      <StatusBadge variant={item.status === "verified" || item.status === "complete" ? "success" : "neutral"}>
+                        {item.status.replace(/_/g, " ")}
+                      </StatusBadge>
                     </div>
                   ))}
                 </div>
@@ -280,7 +298,9 @@ export default function ListingDetailPage() {
 
               {!sale.completedAt && (
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 14 }}>
-                  <span className="potg-badge">{sale.depositRecordedAt ? "Deposit recorded" : "Deposit not recorded"}</span>
+                  <StatusBadge variant={sale.depositRecordedAt ? "success" : "neutral"}>
+                    {sale.depositRecordedAt ? "Deposit recorded" : "Deposit not recorded"}
+                  </StatusBadge>
                   {!sale.depositRecordedAt && auth.hasPermission("offer:write") && (
                     <button className="potg-btn potg-btn-secondary" onClick={onRecordDeposit} disabled={saleBusy}>
                       {saleBusy ? "…" : "Record deposit"}
@@ -339,7 +359,7 @@ export default function ListingDetailPage() {
                             </button>
                           </div>
                         ) : (
-                          <span className="potg-badge">{o.status.replace(/_/g, " ")}</span>
+                          <StatusBadge variant={offerStatusVariant(o.status)}>{o.status.replace(/_/g, " ")}</StatusBadge>
                         )}
                       </div>
                       {counteringId === o.id && (

@@ -3,6 +3,28 @@ import Link from "next/link";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Listing, ListingOffer, PropertyInspection } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import Skeleton from "../../components/Skeleton";
+import StatusBadge from "../../components/StatusBadge";
+
+function listingStatusVariant(status: string): "success" | "warning" | "info" | "neutral" {
+  if (status === "active") return "success";
+  if (status === "sold") return "info";
+  if (status === "under_offer") return "warning";
+  return "neutral";
+}
+
+function offerStatusVariant(status: string): "success" | "warning" | "error" | "info" | "neutral" {
+  if (status === "accepted") return "success";
+  if (status === "rejected") return "error";
+  if (status === "countered") return "info";
+  return "warning";
+}
+
+function inspectionStatusVariant(status: string): "success" | "warning" | "info" | "neutral" {
+  if (status === "confirmed" || status === "completed") return "success";
+  if (status === "declined" || status === "cancelled") return "neutral";
+  return "warning";
+}
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -76,12 +98,12 @@ export default function MyListingsPage() {
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
 
       <h3 style={{ fontSize: 14, margin: "0 0 10px" }}>Your listings</h3>
-      {!listings && !error && <p className="potg-muted">Loading…</p>}
+      {!listings && !error && <Skeleton lines={3} />}
       {listings && listings.length === 0 && <p className="potg-muted" style={{ fontSize: 13 }}>You haven't listed any properties yet.</p>}
       {listings && listings.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
           {listings.map((l) => (
-            <div key={l.id} className="potg-card" style={{ padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+            <div key={l.id} className="potg-card potg-card-hover" style={{ padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
               <div>
                 <Link href={`/marketplace/${l.id}`} style={{ fontWeight: 700, fontSize: 14 }}>
                   {l.title}
@@ -91,7 +113,7 @@ export default function MyListingsPage() {
                 </div>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                <span className="potg-badge">{l.status.replace(/_/g, " ")}</span>
+                <StatusBadge variant={listingStatusVariant(l.status)}>{l.status.replace(/_/g, " ")}</StatusBadge>
                 {l.status === "draft" && auth.hasPermission("listing:write") && (
                   <button className="potg-btn potg-btn-secondary" onClick={() => onPublish(l.id)} disabled={publishingId === l.id}>
                     {publishingId === l.id ? "…" : "Publish"}
@@ -108,7 +130,7 @@ export default function MyListingsPage() {
       {offers && offers.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {offers.map((o) => (
-            <div key={o.id} className="potg-card" style={{ padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+            <div key={o.id} className="potg-card potg-card-hover" style={{ padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
               <div>
                 {o.listing ? (
                   <Link href={`/marketplace/${o.listing.id}`} style={{ fontWeight: 700, fontSize: 14 }}>
@@ -137,7 +159,7 @@ export default function MyListingsPage() {
                   </button>
                 </div>
               ) : (
-                <span className="potg-badge">{o.status.replace(/_/g, " ")}</span>
+                <StatusBadge variant={offerStatusVariant(o.status)}>{o.status.replace(/_/g, " ")}</StatusBadge>
               )}
             </div>
           ))}
@@ -151,7 +173,7 @@ export default function MyListingsPage() {
       {inspectionRequests && inspectionRequests.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {inspectionRequests.map((ir) => (
-            <div key={ir.id} className="potg-card" style={{ padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+            <div key={ir.id} className="potg-card potg-card-hover" style={{ padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
               <div>
                 <span style={{ fontWeight: 700, fontSize: 14 }}>{ir.property?.name ?? "Property"}</span>
                 <div className="potg-muted" style={{ fontSize: 12, marginTop: 2 }}>
@@ -159,7 +181,9 @@ export default function MyListingsPage() {
                   {ir.property?.city && `, ${ir.property.city}`} · preferred {new Date(ir.scheduledFor).toLocaleDateString()}
                 </div>
               </div>
-              <span className="potg-badge">{ir.status === "requested" ? "awaiting confirmation" : ir.status}</span>
+              <StatusBadge variant={inspectionStatusVariant(ir.status)}>
+                {ir.status === "requested" ? "awaiting confirmation" : ir.status}
+              </StatusBadge>
             </div>
           ))}
         </div>
