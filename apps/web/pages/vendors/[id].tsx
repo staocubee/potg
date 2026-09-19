@@ -5,6 +5,19 @@ import { useAuth } from "../../lib/auth";
 import { ApiError, Project, Vendor, VendorTrustAudit, VendorVerificationEvidence } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
+import Skeleton from "../../components/Skeleton";
+import StatusBadge from "../../components/StatusBadge";
+
+function verificationVariant(status: string): "success" | "warning" | "neutral" {
+  if (status === "verified") return "success";
+  if (status === "pending") return "warning";
+  return "neutral";
+}
+function auditVariant(rating: string): "success" | "warning" | "error" {
+  if (rating === "clean") return "success";
+  if (rating === "major_concerns") return "error";
+  return "warning";
+}
 
 const TRUST_BAND_COLOR: Record<string, string | undefined> = {
   excellent: "var(--potg-success)",
@@ -52,7 +65,7 @@ export default function VendorDetailPage() {
       </Link>
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!vendor && !error && <p className="potg-muted">Loading…</p>}
+      {!vendor && !error && <Skeleton lines={4} />}
 
       {vendor && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -80,7 +93,7 @@ export default function VendorDetailPage() {
                 )}
               </div>
               <div style={{ textAlign: "right" }}>
-                <span className="potg-badge">{vendor.verificationStatus.replace(/_/g, " ")}</span>
+                <StatusBadge variant={verificationVariant(vendor.verificationStatus)}>{vendor.verificationStatus.replace(/_/g, " ")}</StatusBadge>
                 {vendor.ratingAverage && (
                   <div style={{ fontWeight: 700, fontSize: 14, marginTop: 6 }}>★ {Number(vendor.ratingAverage).toFixed(1)}</div>
                 )}
@@ -419,12 +432,7 @@ function TrustAuditHistory({ vendorId, refreshToken }: { vendorId: string; refre
         {audits?.map((a) => (
           <div key={a.id} style={{ fontSize: 13 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <span
-                className="potg-badge"
-                style={{ textTransform: "capitalize", color: a.rating === "major_concerns" ? "var(--potg-danger)" : undefined }}
-              >
-                {a.rating.replace(/_/g, " ")}
-              </span>
+              <StatusBadge variant={auditVariant(a.rating)}>{a.rating.replace(/_/g, " ")}</StatusBadge>
               <span className="potg-muted" style={{ fontSize: 11 }}>
                 {new Date(a.createdAt).toLocaleDateString()}
               </span>
