@@ -2,7 +2,17 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../../lib/auth";
 import { ApiError, RentalBooking } from "../../../lib/api";
+import { Wrench } from "lucide-react";
 import AppShell from "../../../components/AppShell";
+import Skeleton from "../../../components/Skeleton";
+import EmptyState from "../../../components/EmptyState";
+import StatusBadge from "../../../components/StatusBadge";
+
+function bookingStatusVariant(status: string): "success" | "warning" | "error" | "neutral" {
+  if (status === "returned" || status === "confirmed") return "success";
+  if (status === "cancelled") return "error";
+  return "warning";
+}
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -38,17 +48,18 @@ export default function MyRentalBookingsPage() {
       </Link>
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!bookings && !error && <p className="potg-muted">Loading…</p>}
+      {!bookings && !error && <Skeleton lines={3} />}
 
       {bookings && bookings.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>
-            No rental bookings yet.{" "}
-            <Link href="/marketplace/materials" style={{ color: "var(--potg-teal)", fontWeight: 600 }}>
-              Browse rentable tools & equipment →
+        <EmptyState
+          icon={Wrench}
+          title="No rental bookings yet"
+          action={
+            <Link href="/marketplace/materials" className="potg-btn potg-btn-secondary">
+              Browse rentable tools & equipment
             </Link>
-          </p>
-        </div>
+          }
+        />
       )}
 
       {bookings && bookings.length > 0 && (
@@ -82,7 +93,7 @@ function RentalBookingRow({ booking, onChanged }: { booking: RentalBooking; onCh
   const canCancel = booking.status === "requested" || booking.status === "confirmed";
 
   return (
-    <div className="potg-card" style={{ padding: 16 }}>
+    <div className="potg-card potg-card-hover" style={{ padding: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 14 }}>{booking.product?.name ?? "Product"}</div>
@@ -91,7 +102,7 @@ function RentalBookingRow({ booking, onChanged }: { booking: RentalBooking; onCh
             {new Date(booking.endDate).toLocaleDateString()} · {formatMoney(booking.totalPrice, booking.currency)}
           </div>
         </div>
-        <span className="potg-badge">{booking.status}</span>
+        <StatusBadge variant={bookingStatusVariant(booking.status)}>{booking.status}</StatusBadge>
       </div>
       {error && <div className="potg-error" style={{ marginTop: 8 }}>{error}</div>}
       {canCancel && auth.hasPermission("rental:write") && (

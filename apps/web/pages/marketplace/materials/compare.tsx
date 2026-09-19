@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useAuth } from "../../../lib/auth";
 import { ApiError, Product } from "../../../lib/api";
 import AppShell from "../../../components/AppShell";
+import Skeleton from "../../../components/Skeleton";
+import StatusBadge from "../../../components/StatusBadge";
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -13,12 +15,15 @@ function formatMoney(value?: string | null, currency?: string) {
   return currency ? `${currency} ${formatted}` : formatted;
 }
 
-const BAND_COLOR: Record<string, { background: string; borderColor: string; color: string } | undefined> = {
-  excellent: { background: "#e7f3ea", borderColor: "#b7ddc3", color: "#2f7a4f" },
-  good: { background: "#e7f3ea", borderColor: "#b7ddc3", color: "#2f7a4f" },
-  fair: { background: "#fff4d6", borderColor: "#e8c46a", color: "#8a6a00" },
-  caution: { background: "#fbeaea", borderColor: "#e3b3b3", color: "#b23838" },
-};
+function trustBandVariant(band: string): "success" | "warning" | "error" {
+  if (band === "excellent" || band === "good") return "success";
+  if (band === "caution") return "error";
+  return "warning";
+}
+
+function verificationVariant(status: string): "success" | "neutral" {
+  return status === "verified" ? "success" : "neutral";
+}
 
 // The audit's own finding on Workflow 6: "No compare-suppliers UI or
 // endpoint — the product grid shows one supplier per card, no
@@ -53,7 +58,7 @@ export default function CompareProductsPage() {
 
       {ids.length === 0 && <p className="potg-muted">No products selected — pick some to compare from the catalog.</p>}
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {ids.length > 0 && !products && !error && <p className="potg-muted">Loading…</p>}
+      {ids.length > 0 && !products && !error && <Skeleton lines={4} />}
 
       {products && products.length > 0 && (
         <div style={{ overflowX: "auto" }}>
@@ -91,13 +96,9 @@ export default function CompareProductsPage() {
                 label="Verification"
                 cells={products.map((p) =>
                   p.supplier && "verificationStatus" in p.supplier ? (
-                    <span
-                      key={p.id}
-                      className="potg-badge"
-                      style={p.supplier.verificationStatus === "verified" ? { background: "#e7f3ea", borderColor: "#b7ddc3", color: "#2f7a4f" } : undefined}
-                    >
+                    <StatusBadge key={p.id} variant={verificationVariant(p.supplier.verificationStatus)}>
                       {p.supplier.verificationStatus.replace(/_/g, " ")}
-                    </span>
+                    </StatusBadge>
                   ) : (
                     "—"
                   ),
@@ -114,11 +115,10 @@ export default function CompareProductsPage() {
                 cells={products.map((p) => {
                   const trustScore = p.supplier && "trustScore" in p.supplier ? p.supplier.trustScore : undefined;
                   if (!trustScore) return "—";
-                  const style = BAND_COLOR[trustScore.band];
                   return (
-                    <span key={p.id} className="potg-badge" style={style}>
+                    <StatusBadge key={p.id} variant={trustBandVariant(trustScore.band)}>
                       {trustScore.score}/100 · {trustScore.band}
-                    </span>
+                    </StatusBadge>
                   );
                 })}
               />

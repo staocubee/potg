@@ -3,6 +3,33 @@ import Link from "next/link";
 import { useAuth } from "../../../lib/auth";
 import { ApiError, BulkQuoteRequest, MaterialOrder, Product, RentalBooking, Supplier, SupplierReview, SupplierVerificationEvidence } from "../../../lib/api";
 import AppShell from "../../../components/AppShell";
+import Skeleton from "../../../components/Skeleton";
+import StatusBadge from "../../../components/StatusBadge";
+
+function verificationVariant(status: string): "success" | "warning" | "neutral" {
+  if (status === "verified") return "success";
+  if (status === "pending") return "warning";
+  return "neutral";
+}
+
+function orderStatusVariant(status: string): "success" | "warning" | "error" | "info" | "neutral" {
+  if (status === "delivered" || status === "completed") return "success";
+  if (status === "cancelled") return "error";
+  if (status === "shipped" || status === "processing") return "info";
+  return "warning";
+}
+
+function bookingStatusVariant(status: string): "success" | "warning" | "error" | "neutral" {
+  if (status === "returned" || status === "confirmed") return "success";
+  if (status === "cancelled") return "error";
+  return "warning";
+}
+
+function quoteStatusVariant(status: string): "success" | "warning" | "neutral" {
+  if (status === "accepted") return "success";
+  if (status === "quoted") return "warning";
+  return "neutral";
+}
 
 const SUPPLIER_CATEGORIES = ["materials", "tools", "equipment"];
 
@@ -52,7 +79,7 @@ export default function SupplierDashboardPage() {
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {supplier === undefined && !error && <p className="potg-muted">Loading…</p>}
+      {supplier === undefined && !error && <Skeleton lines={4} />}
 
       {supplier === null && (
         <CreateSupplierProfileForm onCreated={(s) => setSupplier(s)} />
@@ -70,7 +97,9 @@ export default function SupplierDashboardPage() {
                 </p>
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-                <span className="potg-badge">{supplier.verificationStatus.replace(/_/g, " ")}</span>
+                <StatusBadge variant={verificationVariant(supplier.verificationStatus)}>
+                  {supplier.verificationStatus.replace(/_/g, " ")}
+                </StatusBadge>
                 <Link href={`/go/${supplier.accountId}`} target="_blank" className="potg-muted" style={{ fontSize: 11 }}>
                   View my public page ↗
                 </Link>
@@ -134,13 +163,13 @@ export default function SupplierDashboardPage() {
           <div className="potg-card" style={{ padding: 18 }}>
             <h3 style={{ fontSize: 14, marginBottom: 10 }}>Incoming orders</h3>
             {orders && orders.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No orders yet.</p>}
-            {!orders && <p className="potg-muted" style={{ fontSize: 12 }}>Loading orders…</p>}
+            {!orders && <Skeleton lines={2} />}
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {orders?.map((o) => (
                 <Link
                   key={o.id}
                   href={`/marketplace/materials/orders/${o.id}`}
-                  className="potg-card"
+                  className="potg-card potg-card-hover"
                   style={{ padding: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}
                 >
                   <div style={{ fontSize: 13 }}>
@@ -149,7 +178,7 @@ export default function SupplierDashboardPage() {
                       {o.items.length} item{o.items.length === 1 ? "" : "s"} · {new Date(o.createdAt).toLocaleDateString()}
                     </div>
                   </div>
-                  <span className="potg-badge">{o.status.replace(/_/g, " ")}</span>
+                  <StatusBadge variant={orderStatusVariant(o.status)}>{o.status.replace(/_/g, " ")}</StatusBadge>
                 </Link>
               ))}
             </div>
@@ -160,7 +189,7 @@ export default function SupplierDashboardPage() {
             {bulkQuoteRequests && bulkQuoteRequests.length === 0 && (
               <p className="potg-muted" style={{ fontSize: 12 }}>No bulk quote requests yet.</p>
             )}
-            {!bulkQuoteRequests && <p className="potg-muted" style={{ fontSize: 12 }}>Loading…</p>}
+            {!bulkQuoteRequests && <Skeleton lines={2} />}
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {bulkQuoteRequests?.map((r) => (
                 <SupplierBulkQuoteRow key={r.id} request={r} onResponded={load} />
@@ -173,7 +202,7 @@ export default function SupplierDashboardPage() {
             {rentalBookings && rentalBookings.length === 0 && (
               <p className="potg-muted" style={{ fontSize: 12 }}>No rental bookings yet.</p>
             )}
-            {!rentalBookings && <p className="potg-muted" style={{ fontSize: 12 }}>Loading bookings…</p>}
+            {!rentalBookings && <Skeleton lines={2} />}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {rentalBookings?.map((b) => (
                 <SupplierRentalBookingRow key={b.id} booking={b} onChanged={load} />
@@ -440,8 +469,13 @@ function ProductRow({ product, onUpdated }: { product: Product; onUpdated: (p: P
         <div>
           <div style={{ fontWeight: 700 }}>{product.name}</div>
           <div className="potg-muted" style={{ fontSize: 12 }}>
-            {product.category} · {product.unit} · <span className="potg-badge">{product.status.replace(/_/g, " ")}</span>
-            {product.isRentable && <span className="potg-badge" style={{ marginLeft: 4 }}>rentable</span>}
+            {product.category} · {product.unit} ·{" "}
+            <StatusBadge variant={product.status === "active" ? "success" : "neutral"}>{product.status.replace(/_/g, " ")}</StatusBadge>
+            {product.isRentable && (
+              <span style={{ marginLeft: 4 }}>
+                <StatusBadge variant="info">rentable</StatusBadge>
+              </span>
+            )}
           </div>
         </div>
         {!editing && (
@@ -523,7 +557,7 @@ function SupplierRentalBookingRow({ booking, onChanged }: { booking: RentalBooki
             {new Date(booking.endDate).toLocaleDateString()} · {formatMoney(booking.totalPrice, booking.currency)}
           </div>
         </div>
-        <span className="potg-badge">{booking.status}</span>
+        <StatusBadge variant={bookingStatusVariant(booking.status)}>{booking.status}</StatusBadge>
       </div>
       {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
       {isActionable && auth.hasPermission("rental:write") && (
@@ -602,7 +636,7 @@ function SupplierBulkQuoteRow({ request, onResponded }: { request: BulkQuoteRequ
             </div>
           )}
         </div>
-        <span className="potg-badge">{request.status}</span>
+        <StatusBadge variant={quoteStatusVariant(request.status)}>{request.status}</StatusBadge>
       </div>
       {error && <div className="potg-error" style={{ marginTop: 6 }}>{error}</div>}
       {request.status === "requested" && auth.hasPermission("order:write") && (
@@ -676,8 +710,8 @@ function SupplierReviewReplyRow({ review, onReplied }: { review: SupplierReview;
           {"★".repeat(review.rating)}
           {"☆".repeat(5 - review.rating)}
         </div>
-        {review.moderationStatus === "flagged" && <span className="potg-badge">Flagged — awaiting review</span>}
-        {review.moderationStatus === "hidden" && <span className="potg-badge">Hidden by moderator</span>}
+        {review.moderationStatus === "flagged" && <StatusBadge variant="warning">Flagged — awaiting review</StatusBadge>}
+        {review.moderationStatus === "hidden" && <StatusBadge variant="neutral">Hidden by moderator</StatusBadge>}
       </div>
       {review.comment && <div style={{ marginTop: 2 }}>{review.comment}</div>}
       <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>

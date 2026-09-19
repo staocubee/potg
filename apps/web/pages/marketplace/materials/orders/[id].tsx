@@ -5,6 +5,35 @@ import { useAuth } from "../../../../lib/auth";
 import { ApiError, Dispute, DisputeEvidence, DISPUTE_TYPES, MaterialOrder, RESOLUTION_TYPES, SupplierReview } from "../../../../lib/api";
 import AppShell from "../../../../components/AppShell";
 import AiDraftCard, { DraftDecision } from "../../../../components/AiDraftCard";
+import Skeleton from "../../../../components/Skeleton";
+import StatusBadge from "../../../../components/StatusBadge";
+
+function orderStatusVariant(status: string): "success" | "warning" | "error" | "info" | "neutral" {
+  if (status === "delivered" || status === "completed") return "success";
+  if (status === "cancelled") return "error";
+  if (status === "shipped" || status === "processing") return "info";
+  return "warning";
+}
+
+function approvalVariant(status: string): "success" | "error" | "neutral" {
+  if (status === "approved") return "success";
+  if (status === "rejected") return "error";
+  return "neutral";
+}
+
+function deliveryVariant(status: string): "success" | "warning" | "error" | "neutral" {
+  if (status === "delivered") return "success";
+  if (status === "failed") return "error";
+  if (status === "in_transit") return "warning";
+  return "neutral";
+}
+
+function disputeStatusVariant(status: string): "success" | "warning" | "error" | "info" | "neutral" {
+  if (status === "resolved") return "success";
+  if (status === "rejected") return "neutral";
+  if (status === "under_review") return "info";
+  return "warning";
+}
 
 const ORDER_STATUSES = ["confirmed", "shipped", "delivered", "cancelled"];
 const DELIVERY_STATUSES = ["pending", "in_transit", "delivered", "failed"];
@@ -98,7 +127,7 @@ export default function OrderDetailPage() {
       </Link>
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!order && !error && <p className="potg-muted">Loading…</p>}
+      {!order && !error && <Skeleton lines={4} />}
 
       {order && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -114,20 +143,11 @@ export default function OrderDetailPage() {
                 )}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end" }}>
-                <span className="potg-badge">{order.status.replace(/_/g, " ")}</span>
+                <StatusBadge variant={orderStatusVariant(order.status)}>{order.status.replace(/_/g, " ")}</StatusBadge>
                 {order.status === "pending" && (
-                  <span
-                    className="potg-badge"
-                    style={
-                      order.approvalStatus === "approved"
-                        ? { background: "#e7f3ea", borderColor: "#b7ddc3", color: "#2f7a4f" }
-                        : order.approvalStatus === "rejected"
-                          ? { background: "#fbeaea", borderColor: "#e3b3b3", color: "#b23838" }
-                          : undefined
-                    }
-                  >
+                  <StatusBadge variant={approvalVariant(order.approvalStatus)}>
                     {order.approvalStatus === "not_requested" ? "needs approval" : order.approvalStatus}
-                  </span>
+                  </StatusBadge>
                 )}
               </div>
             </div>
@@ -222,7 +242,7 @@ export default function OrderDetailPage() {
               <div className="potg-card" style={{ padding: 18 }}>
                 <h3 style={{ fontSize: 14, marginBottom: 10 }}>Delivery</h3>
                 <div style={{ fontSize: 13 }}>
-                  <span className="potg-badge">{order.delivery.status.replace(/_/g, " ")}</span>
+                  <StatusBadge variant={deliveryVariant(order.delivery.status)}>{order.delivery.status.replace(/_/g, " ")}</StatusBadge>
                   {order.delivery.trackingReference && (
                     <div className="potg-muted" style={{ marginTop: 6 }}>Tracking: {order.delivery.trackingReference}</div>
                   )}
@@ -237,9 +257,9 @@ export default function OrderDetailPage() {
                   {order.delivery.status === "delivered" && (
                     <div style={{ marginTop: 10 }}>
                       {order.delivery.confirmedAt ? (
-                        <span className="potg-badge">
+                        <StatusBadge variant="success">
                           Receipt confirmed {new Date(order.delivery.confirmedAt).toLocaleDateString()}
-                        </span>
+                        </StatusBadge>
                       ) : (
                         auth.hasPermission("order:write") && (
                           <button className="potg-btn potg-btn-primary" onClick={onConfirmReceipt} disabled={confirmBusy}>
@@ -325,9 +345,9 @@ function OrderPaymentCard({ order, onChanged }: { order: MaterialOrder; onChange
       {error && <div className="potg-error" style={{ marginBottom: 8 }}>{error}</div>}
 
       {payment?.status === "completed" && (
-        <p style={{ fontSize: 13, margin: 0 }}>
-          <span className="potg-badge" style={{ background: "#e7f3ea", borderColor: "#b7ddc3", color: "#2f7a4f" }}>paid</span>
-          {" "}{formatMoney(payment.amount, payment.currency)} via {payment.provider} · {new Date(payment.createdAt).toLocaleDateString()}
+        <p style={{ fontSize: 13, margin: 0, display: "flex", alignItems: "center", gap: 6 }}>
+          <StatusBadge variant="success">paid</StatusBadge>
+          {formatMoney(payment.amount, payment.currency)} via {payment.provider} · {new Date(payment.createdAt).toLocaleDateString()}
         </p>
       )}
 
@@ -716,7 +736,7 @@ function OrderDisputeRow({ orderId, dispute, onChanged }: { orderId: string; dis
     <div style={{ fontSize: 13, borderBottom: "1px solid var(--potg-border)", paddingBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between" }}>
         <span>{dispute.reason}</span>
-        <span className="potg-badge">{dispute.status.replace(/_/g, " ")}</span>
+        <StatusBadge variant={disputeStatusVariant(dispute.status)}>{dispute.status.replace(/_/g, " ")}</StatusBadge>
       </div>
       <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
         {dispute.disputeType.replace(/_/g, " ")} · raised {new Date(dispute.createdAt).toLocaleDateString()}

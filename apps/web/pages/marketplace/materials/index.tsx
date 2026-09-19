@@ -1,8 +1,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Package } from "lucide-react";
 import { useAuth } from "../../../lib/auth";
 import { ApiError, Product } from "../../../lib/api";
 import AppShell from "../../../components/AppShell";
+import FilterBar from "../../../components/FilterBar";
+import Skeleton from "../../../components/Skeleton";
+import EmptyState from "../../../components/EmptyState";
+import StatusBadge from "../../../components/StatusBadge";
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -64,7 +69,7 @@ export default function MaterialsMarketplacePage() {
         </div>
       }
     >
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
+      <FilterBar>
         <label className="potg-label" style={{ margin: 0 }}>
           Category
         </label>
@@ -73,26 +78,28 @@ export default function MaterialsMarketplacePage() {
           Search
         </label>
         <input className="potg-input" style={{ width: 220 }} placeholder="Search products…" value={q} onChange={(e) => setQ(e.target.value)} />
-      </div>
+      </FilterBar>
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!products && !error && <p className="potg-muted">Loading catalog…</p>}
-
-      {products && products.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>
-            No products {category || q ? `matching those filters` : "listed yet"}.
-          </p>
+      {!products && !error && (
+        <div className="potg-landing-grid" style={{ marginBottom: 16 }}>
+          <Skeleton height={140} />
+          <Skeleton height={140} />
+          <Skeleton height={140} />
         </div>
       )}
 
+      {products && products.length === 0 && (
+        <EmptyState icon={Package} title={`No products ${category || q ? "matching those filters" : "listed yet"}`} />
+      )}
+
       {products && products.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
+        <div className="potg-landing-grid">
           {products.map((p) => (
-            <div key={p.id} className="potg-card" style={{ padding: 16 }}>
+            <div key={p.id} className="potg-card potg-card-hover" style={{ padding: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                 <h3 style={{ fontSize: 15 }}>{p.name}</h3>
-                <span className="potg-badge">{p.category}</span>
+                <StatusBadge>{p.category}</StatusBadge>
               </div>
               {p.supplier && "businessName" in p.supplier && (
                 <Link href={`/marketplace/materials/${p.supplier.id}`} className="potg-muted" style={{ fontSize: 12, display: "block", margin: "4px 0 10px" }}>

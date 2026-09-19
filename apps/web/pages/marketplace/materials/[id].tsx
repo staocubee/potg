@@ -5,6 +5,26 @@ import { useAuth } from "../../../lib/auth";
 import { ApiError, Product, Project, Supplier, SupplierTrustAudit, SupplierVerificationEvidence } from "../../../lib/api";
 import AppShell from "../../../components/AppShell";
 import AskAiPanel from "../../../components/AskAiPanel";
+import Skeleton from "../../../components/Skeleton";
+import StatusBadge from "../../../components/StatusBadge";
+
+function verificationVariant(status: string): "success" | "warning" | "neutral" {
+  if (status === "verified") return "success";
+  if (status === "pending") return "warning";
+  return "neutral";
+}
+
+function trustBandVariant(band: string): "success" | "warning" | "error" {
+  if (band === "excellent" || band === "good") return "success";
+  if (band === "caution") return "error";
+  return "warning";
+}
+
+function auditRatingVariant(rating: string): "success" | "warning" | "error" {
+  if (rating === "clean") return "success";
+  if (rating === "major_concerns") return "error";
+  return "warning";
+}
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -92,7 +112,7 @@ export default function SupplierDetailPage() {
       </Link>
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!supplier && !error && <p className="potg-muted">Loading…</p>}
+      {!supplier && !error && <Skeleton lines={4} />}
 
       {supplier && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -106,7 +126,9 @@ export default function SupplierDetailPage() {
                 </p>
               </div>
               <div style={{ textAlign: "right" }}>
-                <span className="potg-badge">{supplier.verificationStatus.replace(/_/g, " ")}</span>
+                <StatusBadge variant={verificationVariant(supplier.verificationStatus)}>
+                  {supplier.verificationStatus.replace(/_/g, " ")}
+                </StatusBadge>
                 {supplier.ratingAverage && (
                   <div style={{ fontWeight: 700, fontSize: 14, marginTop: 6 }}>★ {Number(supplier.ratingAverage).toFixed(1)}</div>
                 )}
@@ -119,9 +141,7 @@ export default function SupplierDetailPage() {
                   <span style={{ fontWeight: 700, fontSize: 16, color: TRUST_BAND_COLOR[supplier.trustScore.band] }}>
                     {supplier.trustScore.score}/100
                   </span>
-                  <span className="potg-badge" style={{ textTransform: "capitalize" }}>
-                    {supplier.trustScore.band}
-                  </span>
+                  <StatusBadge variant={trustBandVariant(supplier.trustScore.band)}>{supplier.trustScore.band}</StatusBadge>
                 </div>
                 <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
                   {supplier.trustScore.factors.deliveredOrders} delivered order(s) ·{" "}
@@ -635,17 +655,12 @@ function SupplierTrustAuditHistory({ supplierId, refreshToken }: { supplierId: s
   return (
     <div className="potg-card" style={{ padding: 18 }}>
       <h3 style={{ fontSize: 14, marginBottom: 10 }}>Platform audit history</h3>
-      {!audits && <p className="potg-muted" style={{ fontSize: 12 }}>Loading…</p>}
+      {!audits && <Skeleton lines={2} />}
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {audits?.map((a) => (
           <div key={a.id} style={{ fontSize: 13 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <span
-                className="potg-badge"
-                style={{ textTransform: "capitalize", color: a.rating === "major_concerns" ? "var(--potg-danger)" : undefined }}
-              >
-                {a.rating.replace(/_/g, " ")}
-              </span>
+              <StatusBadge variant={auditRatingVariant(a.rating)}>{a.rating.replace(/_/g, " ")}</StatusBadge>
               <span className="potg-muted" style={{ fontSize: 11 }}>
                 {new Date(a.createdAt).toLocaleDateString()}
               </span>

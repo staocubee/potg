@@ -3,7 +3,18 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useAuth } from "../../../lib/auth";
 import { ApiError, BulkQuoteRequest } from "../../../lib/api";
+import { FileText } from "lucide-react";
 import AppShell from "../../../components/AppShell";
+import Skeleton from "../../../components/Skeleton";
+import EmptyState from "../../../components/EmptyState";
+import StatusBadge from "../../../components/StatusBadge";
+
+function quoteStatusVariant(status: string): "success" | "warning" | "error" | "neutral" {
+  if (status === "accepted") return "success";
+  if (status === "declined") return "error";
+  if (status === "quoted") return "warning";
+  return "neutral";
+}
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -39,17 +50,18 @@ export default function MyBulkQuoteRequestsPage() {
       </Link>
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!requests && !error && <p className="potg-muted">Loading…</p>}
+      {!requests && !error && <Skeleton lines={3} />}
 
       {requests && requests.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>
-            No bulk quote requests yet.{" "}
-            <Link href="/marketplace/materials" style={{ color: "var(--potg-teal)", fontWeight: 600 }}>
-              Browse materials & tools →
+        <EmptyState
+          icon={FileText}
+          title="No bulk quote requests yet"
+          action={
+            <Link href="/marketplace/materials" className="potg-btn potg-btn-secondary">
+              Browse materials & tools
             </Link>
-          </p>
-        </div>
+          }
+        />
       )}
 
       {requests && requests.length > 0 && (
@@ -94,7 +106,7 @@ function BulkQuoteRequestRow({ request, onChanged }: { request: BulkQuoteRequest
   }
 
   return (
-    <div className="potg-card" style={{ padding: 16 }}>
+    <div className="potg-card potg-card-hover" style={{ padding: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div>
           <div style={{ fontWeight: 700, fontSize: 14 }}>{request.product?.name ?? "Product"}</div>
@@ -115,7 +127,7 @@ function BulkQuoteRequestRow({ request, onChanged }: { request: BulkQuoteRequest
             </div>
           )}
         </div>
-        <span className="potg-badge">{request.status}</span>
+        <StatusBadge variant={quoteStatusVariant(request.status)}>{request.status}</StatusBadge>
       </div>
       {error && <div className="potg-error" style={{ marginTop: 8 }}>{error}</div>}
       {request.status === "quoted" && auth.hasPermission("order:write") && (

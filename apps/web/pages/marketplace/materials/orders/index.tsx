@@ -2,7 +2,18 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../../../lib/auth";
 import { ApiError, MaterialOrder } from "../../../../lib/api";
+import { PackageSearch } from "lucide-react";
 import AppShell from "../../../../components/AppShell";
+import Skeleton from "../../../../components/Skeleton";
+import EmptyState from "../../../../components/EmptyState";
+import StatusBadge from "../../../../components/StatusBadge";
+
+function orderStatusVariant(status: string): "success" | "warning" | "error" | "info" | "neutral" {
+  if (status === "delivered" || status === "completed") return "success";
+  if (status === "cancelled") return "error";
+  if (status === "shipped" || status === "processing") return "info";
+  return "warning";
+}
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -33,17 +44,18 @@ export default function MyOrdersPage() {
       </Link>
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!orders && !error && <p className="potg-muted">Loading…</p>}
+      {!orders && !error && <Skeleton lines={3} />}
 
       {orders && orders.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>
-            No orders yet.{" "}
-            <Link href="/marketplace/materials" style={{ color: "var(--potg-teal)", fontWeight: 600 }}>
-              Browse the catalog →
+        <EmptyState
+          icon={PackageSearch}
+          title="No orders yet"
+          action={
+            <Link href="/marketplace/materials" className="potg-btn potg-btn-secondary">
+              Browse the catalog
             </Link>
-          </p>
-        </div>
+          }
+        />
       )}
 
       {orders && orders.length > 0 && (
@@ -52,7 +64,7 @@ export default function MyOrdersPage() {
             <Link
               key={o.id}
               href={`/marketplace/materials/orders/${o.id}`}
-              className="potg-card"
+              className="potg-card potg-card-hover"
               style={{ padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}
             >
               <div>
@@ -62,8 +74,8 @@ export default function MyOrdersPage() {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {o.delivery && <span className="potg-badge">Delivery: {o.delivery.status.replace(/_/g, " ")}</span>}
-                <span className="potg-badge">{o.status.replace(/_/g, " ")}</span>
+                {o.delivery && <StatusBadge>Delivery: {o.delivery.status.replace(/_/g, " ")}</StatusBadge>}
+                <StatusBadge variant={orderStatusVariant(o.status)}>{o.status.replace(/_/g, " ")}</StatusBadge>
               </div>
             </Link>
           ))}
