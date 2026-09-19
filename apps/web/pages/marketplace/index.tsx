@@ -1,8 +1,13 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Store, Check } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Listing } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import FilterBar from "../../components/FilterBar";
+import Skeleton from "../../components/Skeleton";
+import EmptyState from "../../components/EmptyState";
+import StatusBadge from "../../components/StatusBadge";
 
 const LISTING_TYPES = ["sale", "rent", "short_let"];
 // Mirrors CreatePropertyDto's PROPERTY_TYPES (apps/api/src/properties/dto) —
@@ -92,7 +97,7 @@ export default function PropertyMarketplacePage() {
         </div>
       }
     >
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
+      <FilterBar>
         <label className="potg-label" style={{ margin: 0 }}>
           Type
         </label>
@@ -158,7 +163,7 @@ export default function PropertyMarketplacePage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-      </div>
+      </FilterBar>
 
       {(minPrice || maxPrice) && !currency && (
         <p className="potg-muted" style={{ fontSize: 12, marginTop: -10, marginBottom: 16 }}>
@@ -168,24 +173,30 @@ export default function PropertyMarketplacePage() {
       )}
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!listings && !error && <p className="potg-muted">Loading listings…</p>}
-
-      {listings && listings.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>
-            No active listings {hasActiveFilters ? "match those filters" : "yet"}.{" "}
-            <Link href="/marketplace/new" style={{ color: "var(--potg-teal)", fontWeight: 600 }}>
-              List a property from your portfolio
-            </Link>
-            .
-          </p>
+      {!listings && !error && (
+        <div className="potg-landing-grid" style={{ marginBottom: 16 }}>
+          <Skeleton height={140} />
+          <Skeleton height={140} />
+          <Skeleton height={140} />
         </div>
       )}
 
+      {listings && listings.length === 0 && (
+        <EmptyState
+          icon={Store}
+          title={`No active listings ${hasActiveFilters ? "match those filters" : "yet"}`}
+          action={
+            <Link href="/marketplace/new" className="potg-btn potg-btn-primary">
+              List a property from your portfolio
+            </Link>
+          }
+        />
+      )}
+
       {listings && listings.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
+        <div className="potg-landing-grid">
           {listings.map((l) => (
-            <Link key={l.id} href={`/marketplace/${l.id}`} className="potg-card" style={{ display: "block", padding: 16 }}>
+            <Link key={l.id} href={`/marketplace/${l.id}`} className="potg-card potg-card-hover" style={{ display: "block", padding: 16 }}>
               {l.packageBadge && (
                 <span
                   className="potg-badge"
@@ -197,11 +208,11 @@ export default function PropertyMarketplacePage() {
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                 <h3 style={{ fontSize: 15 }}>{l.title}</h3>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end", flexShrink: 0 }}>
-                  <span className="potg-badge">{l.listingType.replace(/_/g, " ")}</span>
+                  <StatusBadge>{l.listingType.replace(/_/g, " ")}</StatusBadge>
                   {l.verificationStatus === "verified" && (
-                    <span className="potg-badge" style={{ background: "#e7f3ea", borderColor: "#b7ddc3", color: "#2f7a4f" }}>
-                      ✓ verified
-                    </span>
+                    <StatusBadge variant="success">
+                      <Check size={10} style={{ marginRight: 2 }} /> verified
+                    </StatusBadge>
                   )}
                 </div>
               </div>
