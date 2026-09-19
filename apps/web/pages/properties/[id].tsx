@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, PointerEvent as ReactPointerEvent, useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
+import { Flag, FileText, Wrench, Search, Key, LogOut, Hammer, Circle, LucideIcon } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { AccessGrant, AccountMemberSummary, AiActionResult, ApiError, Branch, ComparableValuation, DevelopmentAgreement, Lease, LeaseRentScheduleEntry, MaintenanceRequest, Project, Property, PropertyDevice, PropertyInspection, PropertyTourAsset, PropertyValuation, RenovationVisualization, RoiSummary, Vendor } from "../../lib/api";
 import AppShell from "../../components/AppShell";
@@ -8,6 +9,7 @@ import AskAiPanel from "../../components/AskAiPanel";
 import AiDraftCard, { DraftDecision } from "../../components/AiDraftCard";
 import ProjectStageBar from "../../components/ProjectStageBar";
 import Tabs from "../../components/Tabs";
+import Skeleton from "../../components/Skeleton";
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -49,14 +51,14 @@ function isRentOverdue(lease: Lease) {
   return daysSinceAnchor > periodDays;
 }
 
-const TIMELINE_ICON: Record<string, string> = {
-  created: "🏁",
-  document_uploaded: "📄",
-  renovation_started: "🛠️",
-  inspection_completed: "🔍",
-  lease_started: "🔑",
-  lease_ended: "📤",
-  maintenance_resolved: "🧰",
+const TIMELINE_ICON: Record<string, LucideIcon> = {
+  created: Flag,
+  document_uploaded: FileText,
+  renovation_started: Wrench,
+  inspection_completed: Search,
+  lease_started: Key,
+  lease_ended: LogOut,
+  maintenance_resolved: Hammer,
 };
 
 export default function PropertyDetailPage() {
@@ -126,7 +128,7 @@ export default function PropertyDetailPage() {
       </Link>
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!property && !error && <p className="potg-muted">Loading…</p>}
+      {!property && !error && <Skeleton lines={5} />}
 
       {property && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -171,9 +173,11 @@ export default function PropertyDetailPage() {
                         <p className="potg-muted" style={{ fontSize: 12 }}>No events yet.</p>
                       )}
                       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                        {property.timelineEvents?.map((ev) => (
-                          <div key={ev.id} style={{ display: "flex", gap: 8, fontSize: 13 }}>
-                            <span aria-hidden>{TIMELINE_ICON[ev.eventType] ?? "•"}</span>
+                        {property.timelineEvents?.map((ev) => {
+                          const Icon = TIMELINE_ICON[ev.eventType] ?? Circle;
+                          return (
+                          <div key={ev.id} style={{ display: "flex", gap: 8, fontSize: 13, alignItems: "flex-start" }}>
+                            <Icon size={14} aria-hidden style={{ marginTop: 2, flexShrink: 0, color: "var(--potg-text-faint)" }} />
                             <div>
                               <div>{ev.label}</div>
                               <div className="potg-muted" style={{ fontSize: 11 }}>
@@ -181,7 +185,8 @@ export default function PropertyDetailPage() {
                               </div>
                             </div>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                     <div className="potg-card" style={{ padding: 18 }}>

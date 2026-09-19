@@ -81,7 +81,7 @@ export default function BranchDetailPage() {
     <AppShell
       title={branch.name}
       actions={
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           <Link href="/branches" className="potg-btn potg-btn-secondary">
             ← Branches
           </Link>

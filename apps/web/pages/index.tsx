@@ -4,6 +4,7 @@ import Head from "next/head";
 import Link from "next/link";
 import { useAuth } from "../lib/auth";
 import { MarketplaceHighlights } from "../lib/api";
+import Skeleton from "../components/Skeleton";
 
 function formatMoney(value: string, currency: string) {
   const n = Number(value);
@@ -153,7 +154,13 @@ export default function LandingPage() {
         {/* --- Marketplace listings --- */}
         <section style={{ maxWidth: 1180, margin: "0 auto", padding: "8px var(--potg-space-6) var(--potg-space-12)" }}>
           <SectionHead eyebrow="On the marketplace now" title="Real listings, live on the platform" />
-          {highlights === null && <p className="potg-muted">Loading listings…</p>}
+          {highlights === null && (
+            <div className="potg-landing-grid">
+              <Skeleton height={140} />
+              <Skeleton height={140} />
+              <Skeleton height={140} />
+            </div>
+          )}
           {highlights && highlights.listings.length === 0 && (
             <p className="potg-muted">No active listings right now — check back soon.</p>
           )}

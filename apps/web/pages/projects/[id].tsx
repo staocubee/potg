@@ -8,6 +8,7 @@ import AskAiPanel from "../../components/AskAiPanel";
 import ProjectStageBar from "../../components/ProjectStageBar";
 import AiDraftCard, { DraftDecision } from "../../components/AiDraftCard";
 import Tabs  from "../../components/Tabs";
+import Skeleton from "../../components/Skeleton";
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -377,7 +378,7 @@ export default function ProjectDetailPage() {
           {callbackNotice}
         </div>
       )}
-      {!project && !error && <p className="potg-muted">Loading…</p>}
+      {!project && !error && <Skeleton lines={5} />}
 
       {project && (() => {
         // Several project routes (complete, quotes, deposit, add/approve/

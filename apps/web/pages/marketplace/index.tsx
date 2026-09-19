@@ -82,7 +82,7 @@ export default function PropertyMarketplacePage() {
     <AppShell
       title="Property marketplace"
       actions={
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           <Link href="/marketplace/materials" className="potg-btn potg-btn-secondary">
             Materials & tools →
           </Link>
