@@ -580,6 +580,29 @@ const ROLES: Record<string, string[]> = {
   // "a handful of mechanical actions on other accounts' data" reasoning
   // platform_reviewer's own comment gives, not even ai:act.
   platform_admin: ['account:read_all', 'account:suspend'],
+  // A user-requested role with no RBAC ceiling at all — every permission
+  // key that exists, not a hand-picked list, so it never falls behind as
+  // new permissions get added to PERMISSIONS above (a future module adds
+  // a permission, re-running this seed grants it here automatically, no
+  // edit needed). Deliberately its own role rather than adding this to
+  // platform_admin/platform_reviewer: those stay the narrow, separately-
+  // staffable jobs their own comments describe, for whoever wants that
+  // separation of duties; this is the explicit opt-in for one account/
+  // login that needs everything at once. Granted to its own dedicated
+  // demo account (see DEMO_PLATFORM_SUPER_ADMIN_ACCOUNT_ID below), not
+  // layered onto an existing platform_admin/platform_reviewer account —
+  // AccountMember's own @@unique([accountId, userId]) only allows one
+  // role per user per account anyway.
+  //
+  // Every RBAC permission check (PermissionsGuard) passes for this role
+  // as a result. What this does NOT bypass is ABAC tenant isolation —
+  // PermissionsGuard's own :propertyId/:projectId/:communityId/:branchId/
+  // :accountId checks further down still compare against this account's
+  // own id, same as they do for every other account, so this role still
+  // can't open another account's individual property/project/community/
+  // branch by id. That's a deliberately separate, much larger change
+  // (a real cross-tenant bypass) this role does not make.
+  platform_super_admin: PERMISSIONS.map((p) => p.key),
 };
 
 const DEMO_ACCOUNT_ID = '00000000-0000-0000-0000-000000000001';
@@ -602,6 +625,7 @@ const DEMO_PLATFORM_ACCOUNT_ID = '00000000-0000-0000-0000-00000000000f';
 const DEMO_TENANT_ACCOUNT_ID = '00000000-0000-0000-0000-000000000010';
 const DEMO_LEASE_ID = '00000000-0000-0000-0000-000000000011';
 const DEMO_PLATFORM_ADMIN_ACCOUNT_ID = '00000000-0000-0000-0000-000000000012';
+const DEMO_PLATFORM_SUPER_ADMIN_ACCOUNT_ID = '00000000-0000-0000-0000-000000000013';
 // Matches ProjectsService.create's default stage sequence — kept in sync by
 // hand since the seed script doesn't call the service directly.
 const DEFAULT_STAGES = ['Scope', 'Quote', 'Materials', 'Work', 'Handover'];
@@ -1151,6 +1175,30 @@ async function main() {
     create: { accountId: platformAdminAccount.id, userId: user.id, roleId: platformAdminRole.id },
   });
 
+  console.log('Seeding demo platform-super-admin account (combined admin + reviewer)...');
+  // A third, separate platform-side account on the same demo user — see
+  // ROLES.platform_super_admin's own comment for why this is its own
+  // account/role rather than added onto platformAccount or
+  // platformAdminAccount above.
+  const platformSuperAdminRole = await prisma.role.findUniqueOrThrow({ where: { key: 'platform_super_admin' } });
+  const platformSuperAdminAccount = await prisma.account.upsert({
+    where: { id: DEMO_PLATFORM_SUPER_ADMIN_ACCOUNT_ID },
+    update: {},
+    create: {
+      id: DEMO_PLATFORM_SUPER_ADMIN_ACCOUNT_ID,
+      accountType: 'COMPANY',
+      name: 'PropertyOnTheGo Super Admin',
+      country: 'NG',
+      currency: 'NGN',
+      timezone: 'Africa/Lagos',
+    },
+  });
+  await prisma.accountMember.upsert({
+    where: { accountId_userId: { accountId: platformSuperAdminAccount.id, userId: user.id } },
+    update: {},
+    create: { accountId: platformSuperAdminAccount.id, userId: user.id, roleId: platformSuperAdminRole.id },
+  });
+
   console.log('Seeding demo tenant account and lease (Module 13)...');
   // A fifth membership on the same demo user — same "one user, several
   // accounts" pattern the vendor/supplier/platform-reviewer accounts
@@ -1241,6 +1289,9 @@ async function main() {
   );
   console.log(
     `  platform-admin account: ${platformAdminAccount.id} (switch X-Account-Id to this to act as platform_admin — GET /platform-admin/accounts)`,
+  );
+  console.log(
+    `  platform-super-admin account: ${platformSuperAdminAccount.id} (switch X-Account-Id to this to act as platform_super_admin — everything platform_admin and platform_reviewer can do)`,
   );
   console.log(
     `  tenant account:   ${tenantAccount.id} (switch X-Account-Id to this to act as the tenant — GET /tenant/lease once it's linked)`,

@@ -41,7 +41,23 @@ export class PermissionsGuard implements CanActivate {
     );
     const missing = required.filter((p) => !granted.has(p));
     if (missing.length > 0) {
-      throw new ForbiddenException(`Missing permission(s): ${missing.join(', ')}`);
+      // Every page across the app renders this message verbatim in its
+      // own error banner (err.message from ApiError) — used to be the
+      // raw permission key ("Missing permission(s): property:read"),
+      // developer-facing jargon nobody outside this codebase would
+      // recognize. Permission.label is the same human-readable text the
+      // seed data already carries for exactly this reason; every real
+      // @RequirePermissions() call in this codebase names exactly one
+      // permission (confirmed — none pass more than one), so the common
+      // case reads as one plain sentence. The join fallback only matters
+      // if that ever changes.
+      const permissions = await this.prisma.permission.findMany({ where: { key: { in: missing } } });
+      const labels = missing.map((key) => permissions.find((p) => p.key === key)?.label ?? key);
+      const message =
+        labels.length === 1
+          ? `You don't have permission to ${labels[0].charAt(0).toLowerCase()}${labels[0].slice(1)}.`
+          : `This action needs permissions your account doesn't have: ${labels.join(', ')}.`;
+      throw new ForbiddenException(message);
     }
 
     // Tenant isolation: a route touching a specific property must only see
