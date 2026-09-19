@@ -1,8 +1,19 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { CreditCard, Scale } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Dispute, PaymentsOverview, RESOLUTION_TYPES } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import Skeleton from "../../components/Skeleton";
+import EmptyState from "../../components/EmptyState";
+import StatusBadge from "../../components/StatusBadge";
+
+function disputeVariant(status: string): "success" | "warning" | "error" | "info" | "neutral" {
+  if (status === "resolved") return "success";
+  if (status === "rejected") return "neutral";
+  if (status === "under_review") return "info";
+  return "warning";
+}
 
 function formatMoney(value: number, currency: string) {
   return `${currency} ${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -85,17 +96,26 @@ export default function PaymentsOverviewPage() {
     <AppShell title="Payments">
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
 
-      {!overview && !error && <p className="potg-muted">Loading your payments overview…</p>}
+      {!overview && !error && (
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+          <Skeleton height={90} width={200} />
+          <Skeleton height={90} width={200} />
+          <Skeleton height={90} width={200} />
+          <Skeleton height={90} width={200} />
+        </div>
+      )}
 
       {overview && overview.projectCount === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>
-            No projects yet — payments and escrow live inside a project.{" "}
-            <Link href="/projects" style={{ color: "var(--potg-teal)", fontWeight: 600 }}>
-              Go to Projects →
+        <EmptyState
+          icon={CreditCard}
+          title="No projects yet"
+          description="Payments and escrow live inside a project."
+          action={
+            <Link href="/projects" className="potg-btn potg-btn-primary">
+              Go to Projects
             </Link>
-          </p>
-        </div>
+          }
+        />
       )}
 
       {overview && overview.projectCount > 0 && (
@@ -123,7 +143,7 @@ export default function PaymentsOverviewPage() {
                   <div>
                     <h3 style={{ fontSize: 14 }}>{p.title}</h3>
                     <p className="potg-muted" style={{ fontSize: 12, margin: "2px 0 0" }}>
-                      {p.propertyName ?? "Unknown property"} · <span className="potg-badge">{p.status.replace(/_/g, " ")}</span>
+                      {p.propertyName ?? "Unknown property"} · <StatusBadge>{p.status.replace(/_/g, " ")}</StatusBadge>
                     </p>
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -174,11 +194,14 @@ function DisputeArbitrationQueue() {
         Every open or under-review dispute platform-wide, regardless of which account raised it.
       </p>
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!disputes && !error && <p className="potg-muted">Loading…</p>}
-      {disputes && disputes.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>No open disputes right now.</p>
+      {!disputes && !error && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Skeleton height={100} />
+          <Skeleton height={100} />
         </div>
+      )}
+      {disputes && disputes.length === 0 && (
+        <EmptyState icon={Scale} title="No open disputes right now" />
       )}
       {disputes && disputes.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -267,7 +290,7 @@ function ArbitrationRow({ dispute, onChanged }: { dispute: Dispute; onChanged: (
             </div>
           )}
         </div>
-        <span className="potg-badge">{dispute.status.replace(/_/g, " ")}</span>
+        <StatusBadge variant={disputeVariant(dispute.status)}>{dispute.status.replace(/_/g, " ")}</StatusBadge>
       </div>
       {error && <div className="potg-error" style={{ marginTop: 8 }}>{error}</div>}
       <textarea

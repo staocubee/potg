@@ -1,9 +1,20 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
+import { FileText } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { ApiError, AppDocument, DocumentEvidence, Lease, Property } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import Skeleton from "../../components/Skeleton";
+import EmptyState from "../../components/EmptyState";
+import StatusBadge from "../../components/StatusBadge";
+
+function verificationVariant(status: string): "success" | "warning" | "error" | "neutral" {
+  if (status === "verified") return "success";
+  if (status === "rejected") return "error";
+  if (status === "submitted") return "warning";
+  return "neutral";
+}
 
 // Mirrors DEFAULT_DOCUMENT_CHECKLIST in apps/api/src/ai/skills/document-checklists.ts
 // (the set verify_property_documents checks against) plus a freeform
@@ -118,16 +129,20 @@ export default function DocumentsPage() {
         />
       )}
 
-      {!documents && !error && <p className="potg-muted">Loading documents…</p>}
+      {!documents && !error && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Skeleton height={70} />
+          <Skeleton height={70} />
+          <Skeleton height={70} />
+        </div>
+      )}
 
       {visible && visible.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>
-            No documents {filterPropertyId ? "for this property" : ""} yet. Upload a title document, survey plan, or
-            other paperwork to keep it in one place — and let the Ask AI panel on each property check it against a
-            checklist.
-          </p>
-        </div>
+        <EmptyState
+          icon={FileText}
+          title={`No documents ${filterPropertyId ? "for this property" : ""} yet`}
+          description="Upload a title document, survey plan, or other paperwork to keep it in one place — and let the Ask AI panel on each property check it against a checklist."
+        />
       )}
 
       {visible && visible.length > 0 && (
@@ -159,8 +174,8 @@ export default function DocumentsPage() {
                 {d.verificationStatus === "submitted" && <SubmitDocumentEvidenceForm documentId={d.id} />}
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
-                {isExpiring(d.expiryDate) && <span className="potg-badge" style={{ color: "var(--potg-danger)" }}>expiring soon</span>}
-                <span className="potg-badge">{d.verificationStatus.replace(/_/g, " ")}</span>
+                {isExpiring(d.expiryDate) && <StatusBadge variant="error">expiring soon</StatusBadge>}
+                <StatusBadge variant={verificationVariant(d.verificationStatus)}>{d.verificationStatus.replace(/_/g, " ")}</StatusBadge>
                 <VerifyDocumentControls
                   document={d}
                   onUpdated={(updated) =>
@@ -482,11 +497,14 @@ function DocumentArbitrationQueue() {
         Every document platform-wide not yet verified or rejected, regardless of which account uploaded it.
       </p>
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!documents && !error && <p className="potg-muted">Loading…</p>}
-      {documents && documents.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>Nothing pending review right now.</p>
+      {!documents && !error && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <Skeleton height={80} />
+          <Skeleton height={80} />
         </div>
+      )}
+      {documents && documents.length === 0 && (
+        <EmptyState icon={FileText} title="Nothing pending review right now" />
       )}
       {documents && documents.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -564,7 +582,7 @@ function DocumentArbitrationRow({ document, onChanged }: { document: AppDocument
             </div>
           )}
         </div>
-        <span className="potg-badge">{document.verificationStatus.replace(/_/g, " ")}</span>
+        <StatusBadge variant={verificationVariant(document.verificationStatus)}>{document.verificationStatus.replace(/_/g, " ")}</StatusBadge>
       </div>
       {error && <div className="potg-error" style={{ marginTop: 8 }}>{error}</div>}
       {auth.hasPermission("document:arbitrate") && pendingAction && (
