@@ -18,6 +18,55 @@ import {
   VendorVerificationEvidence,
 } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import Skeleton from "../../components/Skeleton";
+import StatusBadge from "../../components/StatusBadge";
+
+function verificationVariant(status: string): "success" | "warning" | "neutral" {
+  if (status === "verified") return "success";
+  if (status === "pending") return "warning";
+  return "neutral";
+}
+
+function projectStatusVariant(status: string): "success" | "warning" | "info" | "neutral" {
+  if (status === "completed") return "success";
+  if (status === "in_progress") return "info";
+  if (status === "cancelled") return "neutral";
+  return "warning";
+}
+
+function quoteStatusVariant(status: string): "success" | "warning" | "error" | "info" | "neutral" {
+  if (status === "accepted") return "success";
+  if (status === "rejected" || status === "declined") return "error";
+  if (status === "submitted") return "info";
+  return "warning";
+}
+
+function maintenanceStatusVariant(status: string): "success" | "warning" | "info" | "neutral" {
+  if (status === "completed" || status === "resolved") return "success";
+  if (status === "in_progress") return "info";
+  if (status === "cancelled") return "neutral";
+  return "warning";
+}
+
+function payoutStatusVariant(status: string): "success" | "warning" | "error" | "neutral" {
+  if (status === "paid") return "success";
+  if (status === "failed") return "error";
+  return "warning";
+}
+
+function disputeStatusVariant(status: string): "success" | "warning" | "error" | "info" | "neutral" {
+  if (status === "resolved") return "success";
+  if (status === "rejected") return "neutral";
+  if (status === "under_review") return "info";
+  return "warning";
+}
+
+function proposalStatusVariant(status: string): "success" | "warning" | "error" | "neutral" {
+  if (status === "accepted") return "success";
+  if (status === "rejected") return "error";
+  if (status === "countered") return "neutral";
+  return "warning";
+}
 
 const SERVICE_CATEGORIES = [
   "renovation",
@@ -173,7 +222,7 @@ export default function VendorDashboardPage() {
       )}
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {vendor === undefined && !error && <p className="potg-muted">Loading…</p>}
+      {vendor === undefined && !error && <Skeleton lines={4} />}
 
       {vendor === null && auth.hasPermission("vendor:write") && (
         <CreateVendorProfileForm
@@ -193,7 +242,9 @@ export default function VendorDashboardPage() {
                 </p>
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
-                <span className="potg-badge">{vendor.verificationStatus.replace(/_/g, " ")}</span>
+                <StatusBadge variant={verificationVariant(vendor.verificationStatus)}>
+                  {vendor.verificationStatus.replace(/_/g, " ")}
+                </StatusBadge>
                 <Link href={`/go/${vendor.accountId}`} target="_blank" className="potg-muted" style={{ fontSize: 11 }}>
                   View my public page ↗
                 </Link>
@@ -251,7 +302,7 @@ export default function VendorDashboardPage() {
                         {p.property && <div className="potg-muted" style={{ fontSize: 11 }}>{p.property.name}</div>}
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
-                        <span className="potg-badge">{p.status.replace(/_/g, " ")}</span>
+                        <StatusBadge variant={projectStatusVariant(p.status)}>{p.status.replace(/_/g, " ")}</StatusBadge>
                         {p.stages.length > 0 && (
                           <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
                             {completedStages}/{p.stages.length} stages complete
@@ -310,10 +361,14 @@ export default function VendorDashboardPage() {
             <h3 style={{ fontSize: 14, marginBottom: 10 }}>
               Quote requests & submissions
               {!forbidden.quotes && newJobRequests.length > 0 && (
-                <span className="potg-badge" style={{ marginLeft: 8, fontWeight: 500 }}>{newJobRequests.length} new</span>
+                <span style={{ marginLeft: 8 }}>
+                  <StatusBadge variant="info">{newJobRequests.length} new</StatusBadge>
+                </span>
               )}
               {!forbidden.quotes && pendingQuotes.length > 0 && (
-                <span className="potg-badge" style={{ marginLeft: 6, fontWeight: 500 }}>{pendingQuotes.length} pending</span>
+                <span style={{ marginLeft: 6 }}>
+                  <StatusBadge variant="warning">{pendingQuotes.length} pending</StatusBadge>
+                </span>
               )}
             </h3>
             {forbidden.quotes && <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view quote requests here.</p>}
@@ -333,7 +388,9 @@ export default function VendorDashboardPage() {
             <h3 style={{ fontSize: 14, marginBottom: 10 }}>
               Payouts
               {!forbidden.payouts && pendingPayouts.length > 0 && (
-                <span className="potg-badge" style={{ marginLeft: 8, fontWeight: 500 }}>{pendingPayouts.length} pending</span>
+                <span style={{ marginLeft: 8 }}>
+                  <StatusBadge variant="warning">{pendingPayouts.length} pending</StatusBadge>
+                </span>
               )}
             </h3>
             {forbidden.payouts && <p className="potg-muted" style={{ fontSize: 12 }}>You don't have permission to view payouts here.</p>}
@@ -364,7 +421,7 @@ export default function VendorDashboardPage() {
                         milestone {formatMoney(p.grossAmount, p.currency)} − {formatMoney(p.platformFeeAmount, p.currency)} platform fee
                       </div>
                     )}
-                    <span className="potg-badge">{p.status}</span>
+                    <StatusBadge variant={payoutStatusVariant(p.status)}>{p.status}</StatusBadge>
                   </div>
                 </div>
               ))}
@@ -478,7 +535,7 @@ function QuoteRow({ quote, onSubmitted }: { quote: VendorQuote; onSubmitted: () 
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {quote.status !== "requested" && quote.amount && <span style={{ fontWeight: 700 }}>{formatMoney(quote.amount, quote.currency ?? undefined)}</span>}
-          <span className="potg-badge">{quote.status}</span>
+          <StatusBadge variant={quoteStatusVariant(quote.status)}>{quote.status}</StatusBadge>
         </div>
       </div>
       {deadline && (
@@ -553,7 +610,7 @@ function MaintenanceQuoteRow({ request, onSubmitted }: { request: MaintenanceReq
           {request.quotedAmount != null && (
             <span style={{ fontWeight: 700 }}>{formatMoney(request.quotedAmount, request.quotedCurrency ?? undefined)}</span>
           )}
-          <span className="potg-badge">{request.status.replace(/_/g, " ")}</span>
+          <StatusBadge variant={maintenanceStatusVariant(request.status)}>{request.status.replace(/_/g, " ")}</StatusBadge>
         </div>
       </div>
       {canQuote && (
@@ -636,8 +693,8 @@ function VendorReviewReplyRow({ review, onReplied }: { review: VendorReview; onR
           {"★".repeat(review.rating)}
           {"☆".repeat(5 - review.rating)}
         </div>
-        {review.moderationStatus === "flagged" && <span className="potg-badge">Flagged — awaiting review</span>}
-        {review.moderationStatus === "hidden" && <span className="potg-badge">Hidden by moderator</span>}
+        {review.moderationStatus === "flagged" && <StatusBadge variant="warning">Flagged — awaiting review</StatusBadge>}
+        {review.moderationStatus === "hidden" && <StatusBadge variant="neutral">Hidden by moderator</StatusBadge>}
       </div>
       {review.comment && <div style={{ marginTop: 2 }}>{review.comment}</div>}
       <div className="potg-muted" style={{ fontSize: 11, marginTop: 2 }}>
@@ -967,7 +1024,7 @@ function VendorDisputeRow({ dispute, onResolved }: { dispute: Dispute; onResolve
           {dispute.project?.title ? `${dispute.project.title} — ` : ""}
           {dispute.reason}
         </span>
-        <span className="potg-badge">{dispute.status.replace(/_/g, " ")}</span>
+        <StatusBadge variant={disputeStatusVariant(dispute.status)}>{dispute.status.replace(/_/g, " ")}</StatusBadge>
       </div>
       {dispute.resolutionNotes && <div className="potg-muted" style={{ fontSize: 12, marginTop: 2 }}>{dispute.resolutionNotes}</div>}
       {dispute.status === "resolved" && dispute.resolutionType && (
@@ -1108,7 +1165,7 @@ function VendorDisputeRow({ dispute, onResolved }: { dispute: Dispute; onResolve
                       <span>
                         <b>{mine ? "You" : "They"} proposed:</b> {p.resolutionType.replace(/_/g, " ")}
                       </span>
-                      <span className="potg-badge" style={{ fontSize: 10 }}>{p.status}</span>
+                      <StatusBadge variant={proposalStatusVariant(p.status)}>{p.status}</StatusBadge>
                     </div>
                     {p.resolutionNotes && <div className="potg-muted" style={{ marginTop: 2 }}>{p.resolutionNotes}</div>}
                     <div className="potg-muted" style={{ fontSize: 10, marginTop: 2 }}>{new Date(p.createdAt).toLocaleString()}</div>
@@ -1321,15 +1378,17 @@ function BankDetailsForm({ vendor, onUpdated }: { vendor: Vendor; onUpdated: () 
       {!editing && hasPayoutSetup && vendor.payoutProvider !== "paypal" && (
         <p style={{ fontSize: 13, margin: 0 }}>
           {vendor.bankAccountName} · •••• {vendor.bankAccountNumber?.slice(-4)}
-          <span className="potg-badge" style={{ marginLeft: 6, textTransform: "capitalize" }}>
-            {vendor.payoutProvider}
+          <span style={{ marginLeft: 6 }}>
+            <StatusBadge>{vendor.payoutProvider}</StatusBadge>
           </span>
         </p>
       )}
       {!editing && hasPayoutSetup && vendor.payoutProvider === "paypal" && (
         <p style={{ fontSize: 13, margin: 0 }}>
           {vendor.paypalPayoutEmail}
-          <span className="potg-badge" style={{ marginLeft: 6 }}>PayPal</span>
+          <span style={{ marginLeft: 6 }}>
+            <StatusBadge>PayPal</StatusBadge>
+          </span>
         </p>
       )}
       {editing && (
