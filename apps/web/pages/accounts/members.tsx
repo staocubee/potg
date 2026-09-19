@@ -2,6 +2,14 @@ import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
 import { AccountInviteSummary, AccountMemberSummary, ApiError, IdentityStatus } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import Skeleton from "../../components/Skeleton";
+import StatusBadge from "../../components/StatusBadge";
+
+function identityVariant(status: string): "success" | "error" | "neutral" {
+  if (status === "verified") return "success";
+  if (status === "failed") return "error";
+  return "neutral";
+}
 
 // A role an existing member can invite someone else as — deliberately
 // excludes vendor/supplier (those belong to their own account type, set at
@@ -74,7 +82,7 @@ export default function AccountMembersPage() {
 
       <div className="potg-card" style={{ padding: 18, marginBottom: 16 }}>
         <h3 style={{ fontSize: 14, marginBottom: 10 }}>Members</h3>
-        {!members && !error && <p className="potg-muted" style={{ fontSize: 12 }}>Loading…</p>}
+        {!members && !error && <Skeleton lines={2} />}
         {members && members.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No members yet.</p>}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {members?.map((m) => (
@@ -83,7 +91,9 @@ export default function AccountMembersPage() {
                 <div style={{ fontWeight: 600 }}>{m.user.name}</div>
                 <div className="potg-muted" style={{ fontSize: 12 }}>{m.user.email}</div>
               </div>
-              <span className="potg-badge" style={{ alignSelf: "center" }}>{m.role.name}</span>
+              <span style={{ alignSelf: "center" }}>
+                <StatusBadge>{m.role.name}</StatusBadge>
+              </span>
             </div>
           ))}
         </div>
@@ -161,7 +171,7 @@ function PendingInviteRow({ invite, onChanged }: { invite: AccountInviteSummary;
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span className="potg-badge">{invite.role.name}</span>
+          <StatusBadge>{invite.role.name}</StatusBadge>
           {auth.hasPermission("account:manage_members") && (
             <button className="potg-btn potg-btn-secondary" disabled={busy !== null} onClick={onResend} style={{ fontSize: 12, padding: "4px 8px" }}>
               {busy === "resend" ? "…" : "Resend"}
@@ -309,9 +319,9 @@ function IdentityVerificationCard() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <h3 style={{ fontSize: 14, margin: 0 }}>Identity verification</h3>
         {status && (
-          <span className="potg-badge" style={{ color: verified ? "var(--potg-teal)" : failed ? "var(--potg-danger)" : undefined }}>
+          <StatusBadge variant={identityVariant(status.identityVerificationStatus)}>
             {status.identityVerificationStatus.replace(/_/g, " ")}
-          </span>
+          </StatusBadge>
         )}
       </div>
 

@@ -1,7 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
 import { ApiError, ComplianceItem } from "../../lib/api";
+import { ShieldCheck } from "lucide-react";
 import AppShell from "../../components/AppShell";
+import Skeleton from "../../components/Skeleton";
+import EmptyState from "../../components/EmptyState";
+import StatusBadge from "../../components/StatusBadge";
 
 const STATUSES = ["not_started", "in_progress", "done"] as const;
 
@@ -69,15 +73,13 @@ export default function CompliancePage() {
         data residency. This tracks that the work exists and where it stands; it doesn&rsquo;t perform any of it.
       </p>
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!items && !error && <p className="potg-muted">Loading…</p>}
+      {!items && !error && <Skeleton lines={3} />}
 
       {items && <NewItemForm onCreated={(item) => setItems((prev) => [item, ...(prev ?? [])])} />}
 
       {items && items.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center", marginTop: 16 }}>
-          <p className="potg-muted" style={{ margin: 0 }}>
-            No compliance items tracked yet — add the first one above.
-          </p>
+        <div style={{ marginTop: 16 }}>
+          <EmptyState icon={ShieldCheck} title="No compliance items tracked yet" description="Add the first one above." />
         </div>
       )}
 
@@ -207,8 +209,8 @@ function ComplianceRow({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
         <div>
           <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 2 }}>
-            <span className="potg-badge">{item.jurisdiction}</span>
-            <span className="potg-badge">{item.category.replace(/_/g, " ")}</span>
+            <StatusBadge>{item.jurisdiction}</StatusBadge>
+            <StatusBadge>{item.category.replace(/_/g, " ")}</StatusBadge>
           </div>
           <strong style={{ fontSize: 14 }}>{item.title}</strong>
         </div>

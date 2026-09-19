@@ -4,6 +4,14 @@ import Head from "next/head";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
 import { ApiError, PublicProfile } from "../../lib/api";
+import Skeleton from "../../components/Skeleton";
+import StatusBadge from "../../components/StatusBadge";
+
+function trustBandVariant(band: string): "success" | "warning" | "error" {
+  if (band === "excellent" || band === "good") return "success";
+  if (band === "caution") return "error";
+  return "warning";
+}
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -12,13 +20,6 @@ function formatMoney(value?: string | null, currency?: string) {
   const formatted = n.toLocaleString(undefined, { maximumFractionDigits: 0 });
   return currency ? `${currency} ${formatted}` : formatted;
 }
-
-const TRUST_BAND_COLOR: Record<string, string> = {
-  excellent: "#1a7f37",
-  good: "#1a7f37",
-  fair: "#9a6700",
-  caution: "#cf222e",
-};
 
 // The public "one page website" — a user-requested feature (not from
 // the numbered blueprint), the first page in this app that shows real
@@ -67,7 +68,7 @@ export default function PublicProfilePage() {
 
         <div style={{ maxWidth: 760, margin: "0 auto", padding: "28px 20px 60px" }}>
           {!accountId && <div className="potg-error">Missing account id.</div>}
-          {accountId && profile === undefined && <p className="potg-muted">Loading…</p>}
+          {accountId && profile === undefined && <Skeleton lines={4} />}
           {profile === null && (
             <div className="potg-card" style={{ padding: 28, textAlign: "center" }}>
               <p className="potg-muted" style={{ margin: 0 }}>{error ?? "This page doesn't exist."}</p>
@@ -96,12 +97,9 @@ export default function PublicProfilePage() {
                     </p>
                   </div>
                   {(profile.vendor || profile.supplier) && (
-                    <span
-                      className="potg-badge"
-                      style={{ color: TRUST_BAND_COLOR[(profile.vendor ?? profile.supplier)!.trustScore.band] }}
-                    >
+                    <StatusBadge variant={trustBandVariant((profile.vendor ?? profile.supplier)!.trustScore.band)}>
                       {(profile.vendor ?? profile.supplier)!.trustScore.band} trust
-                    </span>
+                    </StatusBadge>
                   )}
                 </div>
 
@@ -158,7 +156,7 @@ export default function PublicProfilePage() {
                         )}
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                           <span style={{ fontWeight: 600, fontSize: 13 }}>{l.title}</span>
-                          <span className="potg-badge">{l.listingType}</span>
+                          <StatusBadge>{l.listingType}</StatusBadge>
                         </div>
                         <div className="potg-muted" style={{ fontSize: 11, margin: "4px 0" }}>
                           {l.propertyType.replace(/_/g, " ")} · {[l.city, l.country].filter(Boolean).join(", ")}

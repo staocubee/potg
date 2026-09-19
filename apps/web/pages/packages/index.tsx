@@ -3,6 +3,17 @@ import { useRouter } from "next/router";
 import { useAuth } from "../../lib/auth";
 import { ApiError, PackageSubscription, VisibilityPackage } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import Skeleton from "../../components/Skeleton";
+import EmptyState from "../../components/EmptyState";
+import StatusBadge from "../../components/StatusBadge";
+import { Sparkles } from "lucide-react";
+
+function subStatusVariant(status: string): "success" | "warning" | "error" | "neutral" {
+  if (status === "active") return "success";
+  if (status === "expired") return "neutral";
+  if (status === "failed" || status === "cancelled") return "error";
+  return "warning";
+}
 
 function formatMoney(value: string | number, currency: string) {
   return `${currency} ${Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
@@ -96,7 +107,13 @@ export default function PackagesPage() {
         <ActiveBoostCard boost={activeBoost} onChanged={load} />
       )}
 
-      {!catalog && !error && <p className="potg-muted">Loading packages…</p>}
+      {!catalog && !error && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12, marginBottom: 28 }}>
+          <Skeleton height={140} />
+          <Skeleton height={140} />
+          <Skeleton height={140} />
+        </div>
+      )}
 
       {catalog && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12, marginBottom: 28 }}>
@@ -108,9 +125,7 @@ export default function PackagesPage() {
 
       <h2 style={{ fontSize: 14, margin: "0 0 10px" }}>Your subscription history</h2>
       {mine && mine.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>No subscriptions yet — pick a package above to boost your visibility.</p>
-        </div>
+        <EmptyState icon={Sparkles} title="No subscriptions yet" description="Pick a package above to boost your visibility." />
       )}
       {mine && mine.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -125,14 +140,10 @@ export default function PackagesPage() {
                 </p>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                {isCurrentlyActive(sub) && sub.autoRenew && (
-                  <span className="potg-badge" style={{ background: "#e6f7f5", borderColor: "var(--potg-teal-light)", color: "var(--potg-teal)" }}>
-                    auto-renews
-                  </span>
-                )}
-                <span className="potg-badge">
+                {isCurrentlyActive(sub) && sub.autoRenew && <StatusBadge variant="info">auto-renews</StatusBadge>}
+                <StatusBadge variant={subStatusVariant(sub.status === "active" ? (isCurrentlyActive(sub) ? "active" : "expired") : sub.status)}>
                   {sub.status === "active" ? (isCurrentlyActive(sub) ? "active" : "expired") : sub.status}
-                </span>
+                </StatusBadge>
               </div>
             </div>
           ))}
