@@ -5,6 +5,8 @@ import { ApiError, BulkQuoteRequest, MaterialOrder, Product, RentalBooking, Supp
 import AppShell from "../../../components/AppShell";
 import Skeleton from "../../../components/Skeleton";
 import StatusBadge from "../../../components/StatusBadge";
+import ProfilePhotoUpload from "../../../components/ProfilePhotoUpload";
+import PhotoPicker from "../../../components/PhotoPicker";
 
 function verificationVariant(status: string): "success" | "warning" | "neutral" {
   if (status === "verified") return "success";
@@ -88,15 +90,24 @@ export default function SupplierDashboardPage() {
       {supplier && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div className="potg-card" style={{ padding: 18 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div>
-                <h2 style={{ fontSize: 18 }}>{supplier.businessName}</h2>
-                <p className="potg-muted" style={{ margin: "4px 0 0", fontSize: 13, textTransform: "capitalize" }}>
-                  {supplier.category}
-                  {supplier.locationCoverage && ` · ${supplier.locationCoverage}`}
-                </p>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14 }}>
+              <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                <ProfilePhotoUpload
+                  url={supplier.photoUrl}
+                  onUploaded={async (url) => {
+                    await auth.api.setSupplierPhoto(url);
+                    setSupplier((prev) => (prev ? { ...prev, photoUrl: url } : prev));
+                  }}
+                />
+                <div>
+                  <h2 style={{ fontSize: 18 }}>{supplier.businessName}</h2>
+                  <p className="potg-muted" style={{ margin: "4px 0 0", fontSize: 13, textTransform: "capitalize" }}>
+                    {supplier.category}
+                    {supplier.locationCoverage && ` · ${supplier.locationCoverage}`}
+                  </p>
+                </div>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
                 <StatusBadge variant={verificationVariant(supplier.verificationStatus)}>
                   {supplier.verificationStatus.replace(/_/g, " ")}
                 </StatusBadge>
@@ -364,6 +375,7 @@ function AddProductForm({ onCreated }: { onCreated: (p: Product) => void }) {
   const [stockQuantity, setStockQuantity] = useState("");
   const [isRentable, setIsRentable] = useState(false);
   const [rentalPricePerDay, setRentalPricePerDay] = useState("");
+  const [photoUrls, setPhotoUrls] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -380,6 +392,7 @@ function AddProductForm({ onCreated }: { onCreated: (p: Product) => void }) {
         stockQuantity: stockQuantity ? Number(stockQuantity) : undefined,
         isRentable,
         rentalPricePerDay: isRentable && rentalPricePerDay ? Number(rentalPricePerDay) : undefined,
+        photoUrls: photoUrls.length > 0 ? photoUrls : undefined,
       });
       onCreated(product);
       setName("");
@@ -389,6 +402,7 @@ function AddProductForm({ onCreated }: { onCreated: (p: Product) => void }) {
       setStockQuantity("");
       setIsRentable(false);
       setRentalPricePerDay("");
+      setPhotoUrls([]);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Couldn't add that product.");
     } finally {
@@ -427,6 +441,7 @@ function AddProductForm({ onCreated }: { onCreated: (p: Product) => void }) {
           onChange={(e) => setRentalPricePerDay(e.target.value)}
         />
       )}
+      <PhotoPicker urls={photoUrls} onChange={setPhotoUrls} />
       <div>
         <button className="potg-btn potg-btn-primary" type="submit" disabled={busy || !auth.hasPermission("product:write")}>
           {busy ? "Adding…" : "Add product"}
@@ -443,6 +458,7 @@ function ProductRow({ product, onUpdated }: { product: Product; onUpdated: (p: P
   const [stockQuantity, setStockQuantity] = useState(String(product.stockQuantity));
   const [isRentable, setIsRentable] = useState(product.isRentable);
   const [rentalPricePerDay, setRentalPricePerDay] = useState(product.rentalPricePerDay ?? "");
+  const [photoUrls, setPhotoUrls] = useState(product.photoUrls);
   const [busy, setBusy] = useState(false);
 
   async function onSave() {
@@ -453,6 +469,7 @@ function ProductRow({ product, onUpdated }: { product: Product; onUpdated: (p: P
         stockQuantity: Number(stockQuantity),
         isRentable,
         rentalPricePerDay: isRentable && rentalPricePerDay ? Number(rentalPricePerDay) : undefined,
+        photoUrls,
       });
       onUpdated(updated);
       setEditing(false);
@@ -466,16 +483,25 @@ function ProductRow({ product, onUpdated }: { product: Product; onUpdated: (p: P
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-        <div>
-          <div style={{ fontWeight: 700 }}>{product.name}</div>
-          <div className="potg-muted" style={{ fontSize: 12 }}>
-            {product.category} · {product.unit} ·{" "}
-            <StatusBadge variant={product.status === "active" ? "success" : "neutral"}>{product.status.replace(/_/g, " ")}</StatusBadge>
-            {product.isRentable && (
-              <span style={{ marginLeft: 4 }}>
-                <StatusBadge variant="info">rentable</StatusBadge>
-              </span>
-            )}
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          {product.photoUrls[0] && (
+            <img
+              src={product.photoUrls[0]}
+              alt=""
+              style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, border: "1px solid var(--potg-border)", flexShrink: 0 }}
+            />
+          )}
+          <div>
+            <div style={{ fontWeight: 700 }}>{product.name}</div>
+            <div className="potg-muted" style={{ fontSize: 12 }}>
+              {product.category} · {product.unit} ·{" "}
+              <StatusBadge variant={product.status === "active" ? "success" : "neutral"}>{product.status.replace(/_/g, " ")}</StatusBadge>
+              {product.isRentable && (
+                <span style={{ marginLeft: 4 }}>
+                  <StatusBadge variant="info">rentable</StatusBadge>
+                </span>
+              )}
+            </div>
           </div>
         </div>
         {!editing && (
@@ -520,6 +546,7 @@ function ProductRow({ product, onUpdated }: { product: Product; onUpdated: (p: P
               onChange={(e) => setRentalPricePerDay(e.target.value)}
             />
           )}
+          <PhotoPicker urls={photoUrls} onChange={setPhotoUrls} />
         </div>
       )}
     </div>

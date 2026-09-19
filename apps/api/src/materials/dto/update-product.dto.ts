@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, IsUrl, Min } from 'class-validator';
 
 const PRODUCT_STATUSES = ['active', 'out_of_stock', 'discontinued'] as const;
 
@@ -29,4 +29,9 @@ export class UpdateProductDto {
   @IsNumber()
   @IsPositive()
   rentalPricePerDay?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsUrl({ require_tld: false }, { each: true })
+  photoUrls?: string[];
 }

@@ -117,15 +117,26 @@ export default function SupplierDetailPage() {
       {supplier && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div className="potg-card" style={{ padding: 18 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14 }}>
+              <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                {supplier.photoUrl ? (
+                  <img
+                    src={supplier.photoUrl}
+                    alt=""
+                    style={{ width: 64, height: 64, objectFit: "cover", borderRadius: "var(--potg-radius-sm)", border: "1px solid var(--potg-border)", flexShrink: 0 }}
+                  />
+                ) : (
+                  <div style={{ width: 64, height: 64, borderRadius: "var(--potg-radius-sm)", background: "var(--potg-gray-100)", flexShrink: 0 }} />
+                )}
+                <div>
                 <h2 style={{ fontSize: 18 }}>{supplier.businessName}</h2>
                 <p className="potg-muted" style={{ margin: "4px 0 0", fontSize: 13, textTransform: "capitalize" }}>
                   {supplier.category}
                   {supplier.locationCoverage && ` · ${supplier.locationCoverage}`}
                 </p>
+                </div>
               </div>
-              <div style={{ textAlign: "right" }}>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <StatusBadge variant={verificationVariant(supplier.verificationStatus)}>
                   {supplier.verificationStatus.replace(/_/g, " ")}
                 </StatusBadge>
@@ -182,11 +193,20 @@ export default function SupplierDetailPage() {
               {supplier.products?.map((p) => (
                 <div key={p.id} style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                    <div>
-                      <div style={{ fontWeight: 700 }}>{p.name}</div>
-                      <div className="potg-muted" style={{ fontSize: 12 }}>
-                        {formatMoney(p.unitPrice, p.currency)} / {p.unit} · {p.stockQuantity} in stock
-                        {p.isRentable && p.rentalPricePerDay && ` · ${formatMoney(p.rentalPricePerDay, p.currency)}/day to rent`}
+                    <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                      {p.photoUrls[0] && (
+                        <img
+                          src={p.photoUrls[0]}
+                          alt=""
+                          style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, border: "1px solid var(--potg-border)", flexShrink: 0 }}
+                        />
+                      )}
+                      <div>
+                        <div style={{ fontWeight: 700 }}>{p.name}</div>
+                        <div className="potg-muted" style={{ fontSize: 12 }}>
+                          {formatMoney(p.unitPrice, p.currency)} / {p.unit} · {p.stockQuantity} in stock
+                          {p.isRentable && p.rentalPricePerDay && ` · ${formatMoney(p.rentalPricePerDay, p.currency)}/day to rent`}
+                        </div>
                       </div>
                     </div>
                     {!isSupplierAccount && auth.hasPermission("order:write") && (

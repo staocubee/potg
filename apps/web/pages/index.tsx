@@ -222,7 +222,13 @@ export default function LandingPage() {
           {highlights && businesses.length > 0 && (
             <div className="potg-landing-grid">
               {businesses.map((b) => (
-                <Link key={b.accountId} href={`/go/${b.accountId}`} className="potg-card" style={{ display: "block", padding: 16 }}>
+                <Link key={b.accountId} href={`/go/${b.accountId}`} className="potg-card potg-card-hover" style={{ display: "block", overflow: "hidden" }}>
+                  {b.photoUrl ? (
+                    <img src={b.photoUrl} alt="" style={{ width: "100%", height: 100, objectFit: "cover", display: "block" }} />
+                  ) : (
+                    <div style={{ width: "100%", height: 100, background: "var(--potg-gray-100)" }} />
+                  )}
+                  <div style={{ padding: 16 }}>
                   {b.packageBadge && (
                     <span
                       className="potg-badge"
@@ -243,6 +249,7 @@ export default function LandingPage() {
                   {b.ratingAverage && (
                     <div style={{ fontSize: 12.5, color: "#c9962e" }}>{"★".repeat(Math.round(Number(b.ratingAverage)))}{"☆".repeat(5 - Math.round(Number(b.ratingAverage)))}</div>
                   )}
+                  </div>
                 </Link>
               ))}
             </div>

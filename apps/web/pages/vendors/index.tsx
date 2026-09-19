@@ -142,24 +142,31 @@ export default function VendorMarketplacePage() {
       {vendors && vendors.length > 0 && (
         <div className="potg-landing-grid">
           {vendors.map((v) => (
-            <Link key={v.id} href={`/vendors/${v.id}`} className="potg-card potg-card-hover" style={{ display: "block", padding: 16 }}>
-              {v.packageBadge && (
-                <span
-                  className="potg-badge"
-                  style={{ background: "#fff4d6", borderColor: "#e8c46a", color: "#8a6a00", marginBottom: 6, display: "inline-block" }}
-                >
-                  ★ {v.packageBadge.packageTitle}
-                </span>
+            <Link key={v.id} href={`/vendors/${v.id}`} className="potg-card potg-card-hover" style={{ display: "block", overflow: "hidden" }}>
+              {v.photoUrl ? (
+                <img src={v.photoUrl} alt="" style={{ width: "100%", height: 120, objectFit: "cover", display: "block" }} />
+              ) : (
+                <div style={{ width: "100%", height: 120, background: "var(--potg-gray-100)" }} />
               )}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                <h3 style={{ fontSize: 15 }}>{v.businessName}</h3>
-                <StatusBadge variant={verificationVariant(v.verificationStatus)}>{v.verificationStatus.replace(/_/g, " ")}</StatusBadge>
+              <div style={{ padding: 16 }}>
+                {v.packageBadge && (
+                  <span
+                    className="potg-badge"
+                    style={{ background: "#fff4d6", borderColor: "#e8c46a", color: "#8a6a00", marginBottom: 6, display: "inline-block" }}
+                  >
+                    ★ {v.packageBadge.packageTitle}
+                  </span>
+                )}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  <h3 style={{ fontSize: 15 }}>{v.businessName}</h3>
+                  <StatusBadge variant={verificationVariant(v.verificationStatus)}>{v.verificationStatus.replace(/_/g, " ")}</StatusBadge>
+                </div>
+                <p className="potg-muted" style={{ fontSize: 12, margin: "4px 0 10px" }}>
+                  {v.serviceCategory.replace(/_/g, " ")}
+                  {v.locationCoverage && ` · ${v.locationCoverage}`}
+                </p>
+                {v.ratingAverage && <span style={{ fontSize: 13, fontWeight: 700 }}>★ {Number(v.ratingAverage).toFixed(1)}</span>}
               </div>
-              <p className="potg-muted" style={{ fontSize: 12, margin: "4px 0 10px" }}>
-                {v.serviceCategory.replace(/_/g, " ")}
-                {v.locationCoverage && ` · ${v.locationCoverage}`}
-              </p>
-              {v.ratingAverage && <span style={{ fontSize: 13, fontWeight: 700 }}>★ {Number(v.ratingAverage).toFixed(1)}</span>}
             </Link>
           ))}
         </div>

@@ -20,6 +20,7 @@ import {
 import AppShell from "../../components/AppShell";
 import Skeleton from "../../components/Skeleton";
 import StatusBadge from "../../components/StatusBadge";
+import ProfilePhotoUpload from "../../components/ProfilePhotoUpload";
 
 function verificationVariant(status: string): "success" | "warning" | "neutral" {
   if (status === "verified") return "success";
@@ -233,15 +234,24 @@ export default function VendorDashboardPage() {
       {vendor && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div className="potg-card" style={{ padding: 18 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div>
-                <h2 style={{ fontSize: 18 }}>{vendor.businessName}</h2>
-                <p className="potg-muted" style={{ margin: "4px 0 0", fontSize: 13, textTransform: "capitalize" }}>
-                  {vendor.serviceCategory.replace(/_/g, " ")}
-                  {vendor.locationCoverage && ` · ${vendor.locationCoverage}`}
-                </p>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14 }}>
+              <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                <ProfilePhotoUpload
+                  url={vendor.photoUrl}
+                  onUploaded={async (url) => {
+                    await auth.api.setVendorPhoto(url);
+                    setVendor((prev) => (prev ? { ...prev, photoUrl: url } : prev));
+                  }}
+                />
+                <div>
+                  <h2 style={{ fontSize: 18 }}>{vendor.businessName}</h2>
+                  <p className="potg-muted" style={{ margin: "4px 0 0", fontSize: 13, textTransform: "capitalize" }}>
+                    {vendor.serviceCategory.replace(/_/g, " ")}
+                    {vendor.locationCoverage && ` · ${vendor.locationCoverage}`}
+                  </p>
+                </div>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6 }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 6, flexShrink: 0 }}>
                 <StatusBadge variant={verificationVariant(vendor.verificationStatus)}>
                   {vendor.verificationStatus.replace(/_/g, " ")}
                 </StatusBadge>

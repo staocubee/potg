@@ -96,31 +96,38 @@ export default function MaterialsMarketplacePage() {
       {products && products.length > 0 && (
         <div className="potg-landing-grid">
           {products.map((p) => (
-            <div key={p.id} className="potg-card potg-card-hover" style={{ padding: 16 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                <h3 style={{ fontSize: 15 }}>{p.name}</h3>
-                <StatusBadge>{p.category}</StatusBadge>
-              </div>
-              {p.supplier && "businessName" in p.supplier && (
-                <Link href={`/marketplace/materials/${p.supplier.id}`} className="potg-muted" style={{ fontSize: 12, display: "block", margin: "4px 0 10px" }}>
-                  {p.supplier.businessName}
-                </Link>
+            <div key={p.id} className="potg-card potg-card-hover" style={{ overflow: "hidden" }}>
+              {p.photoUrls[0] ? (
+                <img src={p.photoUrls[0]} alt="" style={{ width: "100%", height: 120, objectFit: "cover", display: "block" }} />
+              ) : (
+                <div style={{ width: "100%", height: 120, background: "var(--potg-gray-100)" }} />
               )}
-              <div style={{ fontWeight: 700, fontSize: 15 }}>
-                {formatMoney(p.unitPrice, p.currency)} <span className="potg-muted" style={{ fontWeight: 400, fontSize: 12 }}>/ {p.unit}</span>
+              <div style={{ padding: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  <h3 style={{ fontSize: 15 }}>{p.name}</h3>
+                  <StatusBadge>{p.category}</StatusBadge>
+                </div>
+                {p.supplier && "businessName" in p.supplier && (
+                  <Link href={`/marketplace/materials/${p.supplier.id}`} className="potg-muted" style={{ fontSize: 12, display: "block", margin: "4px 0 10px" }}>
+                    {p.supplier.businessName}
+                  </Link>
+                )}
+                <div style={{ fontWeight: 700, fontSize: 15 }}>
+                  {formatMoney(p.unitPrice, p.currency)} <span className="potg-muted" style={{ fontWeight: 400, fontSize: 12 }}>/ {p.unit}</span>
+                </div>
+                <div className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
+                  {p.stockQuantity > 0 ? `${p.stockQuantity} in stock` : "Out of stock"}
+                </div>
+                <label className="potg-muted" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, marginTop: 10 }}>
+                  <input
+                    type="checkbox"
+                    checked={compareIds.includes(p.id)}
+                    disabled={!compareIds.includes(p.id) && compareIds.length >= 4}
+                    onChange={() => toggleCompare(p.id)}
+                  />
+                  Compare
+                </label>
               </div>
-              <div className="potg-muted" style={{ fontSize: 12, marginTop: 4 }}>
-                {p.stockQuantity > 0 ? `${p.stockQuantity} in stock` : "Out of stock"}
-              </div>
-              <label className="potg-muted" style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, marginTop: 10 }}>
-                <input
-                  type="checkbox"
-                  checked={compareIds.includes(p.id)}
-                  disabled={!compareIds.includes(p.id) && compareIds.length >= 4}
-                  onChange={() => toggleCompare(p.id)}
-                />
-                Compare
-              </label>
             </div>
           ))}
         </div>

@@ -79,7 +79,21 @@ export default function PublicProfilePage() {
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
               <div className="potg-card" style={{ padding: 24 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
-                  <div>
+                  <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+                    {(profile.vendor || profile.supplier) &&
+                      (() => {
+                        const photoUrl = profile.vendor?.photoUrl ?? profile.supplier?.photoUrl;
+                        return photoUrl ? (
+                          <img
+                            src={photoUrl}
+                            alt=""
+                            style={{ width: 72, height: 72, objectFit: "cover", borderRadius: "var(--potg-radius-sm)", border: "1px solid var(--potg-border)", flexShrink: 0 }}
+                          />
+                        ) : (
+                          <div style={{ width: 72, height: 72, borderRadius: "var(--potg-radius-sm)", background: "var(--potg-gray-100)", flexShrink: 0 }} />
+                        );
+                      })()}
+                    <div>
                     {profile.packageBadge && (
                       <span
                         className="potg-badge"
@@ -95,6 +109,7 @@ export default function PublicProfilePage() {
                       {profile.accountType.charAt(0) + profile.accountType.slice(1).toLowerCase()} on PropertyOnTheGo
                       since {new Date(profile.memberSince).getFullYear()}
                     </p>
+                    </div>
                   </div>
                   {(profile.vendor || profile.supplier) && (
                     <StatusBadge variant={trustBandVariant((profile.vendor ?? profile.supplier)!.trustScore.band)}>
@@ -125,17 +140,24 @@ export default function PublicProfilePage() {
                   <h2 style={{ fontSize: 15, marginBottom: 10 }}>Products</h2>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
                     {profile.supplier.products.map((p) => (
-                      <div key={p.id} className="potg-card" style={{ padding: 14 }}>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div>
-                        <div className="potg-muted" style={{ fontSize: 11, margin: "2px 0 8px" }}>{p.category.replace(/_/g, " ")}</div>
-                        <div style={{ fontSize: 13 }}>
-                          {formatMoney(p.unitPrice, p.currency)} / {p.unit}
-                        </div>
-                        {p.isRentable && p.rentalPricePerDay && (
-                          <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
-                            Rentable — {formatMoney(p.rentalPricePerDay, p.currency)}/day
-                          </div>
+                      <div key={p.id} className="potg-card" style={{ overflow: "hidden" }}>
+                        {p.photoUrls[0] ? (
+                          <img src={p.photoUrls[0]} alt="" style={{ width: "100%", height: 110, objectFit: "cover", display: "block" }} />
+                        ) : (
+                          <div style={{ width: "100%", height: 110, background: "var(--potg-gray-100)" }} />
                         )}
+                        <div style={{ padding: 14 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div>
+                          <div className="potg-muted" style={{ fontSize: 11, margin: "2px 0 8px" }}>{p.category.replace(/_/g, " ")}</div>
+                          <div style={{ fontSize: 13 }}>
+                            {formatMoney(p.unitPrice, p.currency)} / {p.unit}
+                          </div>
+                          {p.isRentable && p.rentalPricePerDay && (
+                            <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>
+                              Rentable — {formatMoney(p.rentalPricePerDay, p.currency)}/day
+                            </div>
+                          )}
+                        </div>
                       </div>
                     ))}
                   </div>

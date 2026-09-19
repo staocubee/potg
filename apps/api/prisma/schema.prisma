@@ -654,6 +654,11 @@ model Vendor {
   businessName      String
   serviceCategory   String // e.g. "renovation", "plumbing", "electrical", "landscaping"
   locationCoverage  String? // freeform area/region description
+  // A single profile photo/logo shown on the vendor's own card in the
+  // marketplace grid and at the top of its detail page — populated via
+  // POST /uploads (Cloudflare R2), same pipeline Listing.photoUrls and
+  // Property.photoUrls already use.
+  photoUrl          String?
   verificationStatus String  @default("not_verified") // not_verified | pending | verified
   verificationNotes String? // the neutral reviewer's note — what's needed to move off "pending", or why a decision was made
   ratingAverage     Decimal? @db.Decimal(3, 2)
@@ -1369,6 +1374,9 @@ model Supplier {
   businessName        String
   category            String // materials | tools | equipment
   locationCoverage    String?
+  // Same single profile photo/logo Vendor.photoUrl carries — see that
+  // field's own comment.
+  photoUrl            String?
   verificationStatus  String   @default("not_verified") // not_verified | pending | verified
   verificationNotes   String? // the neutral reviewer's note — what's needed to move off "pending", or why a decision was made
   ratingAverage       Decimal? @db.Decimal(3, 2)
@@ -1428,6 +1436,9 @@ model Product {
   currency          String
   stockQuantity     Int      @default(0)
   description       String?
+  // Product photos for the catalog grid and detail page — same pipeline
+  // and array shape as Listing.photoUrls.
+  photoUrls         String[] @default([])
   status            String   @default("active") // active | out_of_stock | discontinued
   // Module 10's rental calendar — a product is either sold (the existing
   // Order path) or rentable by the day, never both at once in this

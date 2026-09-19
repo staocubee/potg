@@ -13,6 +13,7 @@ import { SubmitVendorTrustAuditDto } from './dto/submit-vendor-trust-audit.dto';
 import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
 import { SetPaypalPayoutEmailDto } from './dto/set-paypal-payout-email.dto';
 import { SetVendorLicenseDto } from './dto/set-vendor-license.dto';
+import { SetVendorPhotoDto } from './dto/set-vendor-photo.dto';
 import { SubmitVendorVerificationEvidenceDto } from './dto/submit-vendor-verification-evidence.dto';
 import { rankingBoost } from '../common/search-ranking.util';
 import { getActiveBoostMap, applyVisibilityBoost } from '../packages/boost.util';
@@ -78,6 +79,18 @@ export class VendorsService {
         paystackRecipientCode: null,
       },
     });
+  }
+
+  // The vendor's own profile photo — shown on its marketplace card and
+  // detail page, same "vendor's own account, vendor:write" gate every
+  // other self-service field on this profile (license, bank details)
+  // already uses.
+  async setPhoto(accountId: string, dto: SetVendorPhotoDto) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { accountId } });
+    if (!vendor) {
+      throw new BadRequestException('This account has no vendor profile yet — create one with POST /vendors first');
+    }
+    return this.prisma.vendor.update({ where: { id: vendor.id }, data: { photoUrl: dto.photoUrl } });
   }
 
   listBanks(provider?: string) {

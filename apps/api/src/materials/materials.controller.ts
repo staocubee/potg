@@ -12,6 +12,7 @@ import { SubmitDisputeEvidenceDto } from '../payments/dto/submit-dispute-evidenc
 import { ProposeResolutionDto } from '../payments/dto/propose-resolution.dto';
 import { RespondToResolutionProposalDto } from '../payments/dto/respond-to-resolution-proposal.dto';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
+import { SetSupplierPhotoDto } from './dto/set-supplier-photo.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -64,6 +65,13 @@ export class MaterialsController {
   @Get('suppliers/me')
   findMySupplier(@CurrentAccountMember() member: AccountMemberCtx) {
     return this.materials.findMySupplier(member.accountId);
+  }
+
+  // The supplier's own profile photo — see MaterialsService.setSupplierPhoto.
+  @RequirePermissions('supplier:write')
+  @Patch('suppliers/me/photo')
+  setSupplierPhoto(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: SetSupplierPhotoDto) {
+    return this.materials.setSupplierPhoto(member.accountId, dto);
   }
 
   // The structured "submit more evidence" channel — see

@@ -3,6 +3,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
+import { SetSupplierPhotoDto } from './dto/set-supplier-photo.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -106,6 +107,14 @@ export class MaterialsService {
       throw new ConflictException('This account already has a supplier profile — use PATCH to update it');
     }
     return this.prisma.supplier.create({ data: { accountId, ...dto } });
+  }
+
+  // The supplier's own profile photo — shown on its marketplace card and
+  // detail page, same self-service, supplier:write-gated shape as the
+  // vendor side's VendorsService.setPhoto.
+  async setSupplierPhoto(accountId: string, dto: SetSupplierPhotoDto) {
+    const supplier = await this.requireOwnSupplier(accountId);
+    return this.prisma.supplier.update({ where: { id: supplier.id }, data: { photoUrl: dto.photoUrl } });
   }
 
   // Visibility-package boost — see ListingsService.findAll's own comment;
@@ -212,6 +221,7 @@ export class MaterialsService {
         description: dto.description,
         isRentable: dto.isRentable ?? false,
         rentalPricePerDay: dto.rentalPricePerDay,
+        photoUrls: dto.photoUrls ?? [],
       },
     });
   }

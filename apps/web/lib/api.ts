@@ -253,6 +253,7 @@ export type PublicProfile = {
     businessName: string;
     serviceCategory: string;
     locationCoverage?: string | null;
+    photoUrl?: string | null;
     verificationStatus: string;
     ratingAverage?: string | null;
     trustScore: { score: number; band: string };
@@ -262,6 +263,7 @@ export type PublicProfile = {
     businessName: string;
     category: string;
     locationCoverage?: string | null;
+    photoUrl?: string | null;
     verificationStatus: string;
     ratingAverage?: string | null;
     trustScore: { score: number; band: string };
@@ -276,6 +278,7 @@ export type PublicProfile = {
       description?: string | null;
       isRentable: boolean;
       rentalPricePerDay?: string | null;
+      photoUrls: string[];
     }[];
   } | null;
   listings?: {
@@ -313,6 +316,7 @@ export type MarketplaceHighlights = {
     businessName: string;
     serviceCategory: string;
     locationCoverage?: string | null;
+    photoUrl?: string | null;
     ratingAverage?: string | null;
     trustScore: { score: number; band: string };
     packageBadge: PackageBadge;
@@ -322,6 +326,7 @@ export type MarketplaceHighlights = {
     businessName: string;
     category: string;
     locationCoverage?: string | null;
+    photoUrl?: string | null;
     ratingAverage?: string | null;
     trustScore: { score: number; band: string };
     packageBadge: PackageBadge;
@@ -1022,6 +1027,9 @@ export type Vendor = {
   businessName: string;
   serviceCategory: string;
   locationCoverage?: string | null;
+  // A single profile photo/logo shown on the vendor's card and detail
+  // page — set via PATCH /vendors/me/photo.
+  photoUrl?: string | null;
   verificationStatus: string;
   verificationNotes?: string | null;
   ratingAverage?: string | null;
@@ -1645,6 +1653,9 @@ export type Supplier = {
   businessName: string;
   category: "materials" | "tools" | "equipment" | string;
   locationCoverage?: string | null;
+  // Same single profile photo/logo Vendor.photoUrl carries — set via
+  // PATCH /materials/suppliers/me/photo.
+  photoUrl?: string | null;
   verificationStatus: "not_verified" | "pending" | "verified" | string;
   verificationNotes?: string | null;
   ratingAverage?: string | null;
@@ -1688,6 +1699,9 @@ export type Product = {
   currency: string;
   stockQuantity: number;
   description?: string | null;
+  // Product photos for the catalog grid and detail page — set via
+  // createProduct/updateProduct's own photoUrls field.
+  photoUrls: string[];
   status: "active" | "out_of_stock" | "discontinued" | string;
   isRentable: boolean;
   rentalPricePerDay?: string | null;
@@ -2804,6 +2818,14 @@ export class ApiClient {
       accountId: this.accountId,
     });
   }
+  setVendorPhoto(photoUrl: string) {
+    return request<Vendor>("/vendors/me/photo", {
+      method: "PATCH",
+      body: { photoUrl },
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   submitVendorQuote(input: { projectId: string; amount: number; currency?: string; notes?: string }) {
     return request<VendorQuote>("/vendors/me/quotes", {
       method: "POST",
@@ -3517,6 +3539,14 @@ export class ApiClient {
   mySupplierProfile() {
     return request<Supplier | null>("/suppliers/me", { token: this.token, accountId: this.accountId });
   }
+  setSupplierPhoto(photoUrl: string) {
+    return request<Supplier>("/suppliers/me/photo", {
+      method: "PATCH",
+      body: { photoUrl },
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
   findOrdersForSupplier() {
     return request<MaterialOrder[]>("/suppliers/me/orders", { token: this.token, accountId: this.accountId });
   }
@@ -3530,6 +3560,7 @@ export class ApiClient {
     description?: string;
     isRentable?: boolean;
     rentalPricePerDay?: number;
+    photoUrls?: string[];
   }) {
     return request<Product>("/suppliers/me/products", { method: "POST", body: input, token: this.token, accountId: this.accountId });
   }
@@ -3542,6 +3573,7 @@ export class ApiClient {
       description?: string;
       isRentable?: boolean;
       rentalPricePerDay?: number;
+      photoUrls?: string[];
     },
   ) {
     return request<Product>(`/suppliers/me/products/${productId}`, {

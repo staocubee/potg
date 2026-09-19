@@ -20,6 +20,7 @@ import { SubmitVendorTrustAuditDto } from './dto/submit-vendor-trust-audit.dto';
 import { SetVendorBankDetailsDto } from './dto/set-vendor-bank-details.dto';
 import { SetPaypalPayoutEmailDto } from './dto/set-paypal-payout-email.dto';
 import { SetVendorLicenseDto } from './dto/set-vendor-license.dto';
+import { SetVendorPhotoDto } from './dto/set-vendor-photo.dto';
 import { SubmitVendorVerificationEvidenceDto } from './dto/submit-vendor-verification-evidence.dto';
 import { FlagReviewDto } from './dto/flag-review.dto';
 import { ModerateReviewDto } from './dto/moderate-review.dto';
@@ -64,6 +65,13 @@ export class VendorsController {
   @Patch('me/license')
   setLicense(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: SetVendorLicenseDto) {
     return this.vendors.setLicense(member.accountId, dto);
+  }
+
+  // The vendor's own profile photo — see VendorsService.setPhoto.
+  @RequirePermissions('vendor:write')
+  @Patch('me/photo')
+  setPhoto(@CurrentAccountMember() member: AccountMemberCtx, @Body() dto: SetVendorPhotoDto) {
+    return this.vendors.setPhoto(member.accountId, dto);
   }
 
   // The structured "submit more evidence" channel — see

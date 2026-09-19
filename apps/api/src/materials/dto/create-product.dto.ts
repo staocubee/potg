@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsNumber, IsOptional, IsPositive, IsString, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsInt, IsNumber, IsOptional, IsPositive, IsString, IsUrl, Min } from 'class-validator';
 
 export class CreateProductDto {
   @IsString()
@@ -37,4 +37,9 @@ export class CreateProductDto {
   @IsNumber()
   @IsPositive()
   rentalPricePerDay?: number;
+
+  @IsOptional()
+  @IsArray()
+  @IsUrl({ require_tld: false }, { each: true })
+  photoUrls?: string[];
 }
