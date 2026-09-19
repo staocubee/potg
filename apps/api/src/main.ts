@@ -88,8 +88,13 @@ async function bootstrap() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Cookie','x-csrf-token', // Add your CSRF header key here
-  'X-CSRF-Token'],
+    // X-Account-Id was missing here -- every authenticated request the
+    // frontend sends carries it (see apps/web/lib/api.ts's own comment:
+    // "a separate X-Account-Id header says which account the user is
+    // acting as"), so its absence made the browser's CORS preflight
+    // reject the actual header on every request that used it -- in
+    // practice, almost every account-scoped call the app makes.
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Cookie', 'X-CSRF-Token', 'X-Account-Id'],
   });
 
   const port = process.env.PORT || 3001;
