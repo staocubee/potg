@@ -44,17 +44,18 @@ export default function VendorMarketplacePage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!auth.currentAccountId) return;
+    if (!auth.hydrated) return;
+    if (auth.token && !auth.currentAccountId) return;
     setError(null);
     const timer = setTimeout(() => {
-      auth.api
-        .listVendors(category || undefined, q || undefined, location || undefined, minRating || undefined, verifiedOnly ? "verified" : undefined)
+      const fetcher = auth.token ? auth.api.listVendors.bind(auth.api) : auth.api.getPublicVendors.bind(auth.api);
+      fetcher(category || undefined, q || undefined, location || undefined, minRating || undefined, verifiedOnly ? "verified" : undefined)
         .then(setVendors)
         .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load the vendor marketplace."));
     }, 250);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.currentAccountId, category, location, minRating, verifiedOnly, q]);
+  }, [auth.hydrated, auth.token, auth.currentAccountId, category, location, minRating, verifiedOnly, q]);
 
   const hasActiveFilters = !!(category || location || minRating || verifiedOnly || q);
 
@@ -64,10 +65,15 @@ export default function VendorMarketplacePage() {
   return (
     <AppShell
       title="Vendors"
+      guestOk
       actions={
         isVendorAccount ? (
           <Link href="/vendors/me" className="potg-btn potg-btn-secondary">
             Your vendor dashboard
+          </Link>
+        ) : !auth.token ? (
+          <Link href="/register" className="potg-btn potg-btn-primary">
+            Sign up to hire a vendor
           </Link>
         ) : undefined
       }

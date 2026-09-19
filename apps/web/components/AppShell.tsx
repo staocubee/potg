@@ -26,7 +26,7 @@ import {
   X,
   LogOut,
 } from "lucide-react";
-import { useRequireAuth } from "../lib/auth";
+import { useAuth } from "../lib/auth";
 import AccountSwitcher from "./AccountSwitcher";
 import NotificationBell from "./NotificationBell";
 import EmailVerificationBanner from "./EmailVerificationBanner";
@@ -122,12 +122,24 @@ const COMPLIANCE_NAV_ITEM: NavItem = { href: "/compliance", label: "Compliance",
 // schema comment), so it gets its own item shown only to this one role.
 const ADMIN_NAV_ITEM: NavItem = { href: "/admin", label: "Admin", icon: Shield, enabled: true };
 
+// The three sections a guest can actually browse without an account —
+// see PublicMarketplaceController. Everything else in NAV_ITEMS needs a
+// real account behind it (a portfolio, projects, payments, ...), so
+// showing the full authenticated nav to a signed-out visitor would just
+// be a wall of links that bounce them to /login on click.
+const GUEST_NAV_ITEMS: NavItem[] = [
+  { href: "/marketplace", label: "Marketplace", icon: Store, enabled: true },
+  { href: "/vendors", label: "Vendors", icon: HardHat, enabled: true },
+  { href: "/marketplace/materials", label: "Materials & Tools", icon: Package, enabled: true },
+];
+
 export default function AppShell({
   title,
   actions,
   aiPanel,
   aiPanelDefaultOpen,
   children,
+  guestOk,
 }: {
   title: string;
   actions?: React.ReactNode;
@@ -138,8 +150,15 @@ export default function AppShell({
   aiPanel?: React.ReactNode;
   aiPanelDefaultOpen?: boolean;
   children: React.ReactNode;
+  // Lets a page render for a signed-out visitor instead of the default
+  // useRequireAuth() bounce to /login — only the guest-safe marketplace/
+  // vendors/materials browse and detail pages pass this. Everything
+  // account-scoped (Ask AI, notifications, the account switcher, the
+  // full nav) still needs a real session, so those get swapped for a
+  // sign-in/sign-up prompt instead of quietly rendering broken.
+  guestOk?: boolean;
 }) {
-  const auth = useRequireAuth();
+  const auth = useAuth();
   const router = useRouter();
   const [aiOpen, setAiOpen] = useState(!!aiPanelDefaultOpen);
   const [navOpen, setNavOpen] = useState(false);
@@ -150,14 +169,27 @@ export default function AppShell({
     setNavOpen(false);
   }, [router.pathname]);
 
-  if (!auth.hydrated || !auth.token) return null;
+  // Same redirect useRequireAuth() already did, just skipped entirely
+  // when this page opted into guestOk.
+  useEffect(() => {
+    if (!guestOk && auth.hydrated && !auth.token) {
+      router.replace("/login");
+    }
+  }, [guestOk, auth.hydrated, auth.token, router]);
 
-  const navItems = [
-    ...(auth.currentAccount?.accountType === "TENANT" ? [TENANT_NAV_ITEM] : []),
-    ...(auth.currentAccount?.role === "platform_reviewer" ? [COMPLIANCE_NAV_ITEM] : []),
-    ...(auth.currentAccount?.role === "platform_admin" ? [ADMIN_NAV_ITEM] : []),
-    ...NAV_ITEMS,
-  ];
+  if (!auth.hydrated) return null;
+  if (!guestOk && !auth.token) return null;
+
+  const isGuest = !auth.token;
+
+  const navItems = isGuest
+    ? GUEST_NAV_ITEMS
+    : [
+        ...(auth.currentAccount?.accountType === "TENANT" ? [TENANT_NAV_ITEM] : []),
+        ...(auth.currentAccount?.role === "platform_reviewer" ? [COMPLIANCE_NAV_ITEM] : []),
+        ...(auth.currentAccount?.role === "platform_admin" ? [ADMIN_NAV_ITEM] : []),
+        ...NAV_ITEMS,
+      ];
 
   return (
     <>
@@ -203,15 +235,30 @@ export default function AppShell({
               );
             })}
           </nav>
-          <div style={{ marginTop: "auto", paddingTop: 16 }}>
-            <button
-              onClick={auth.logout}
-              className="potg-btn"
-              style={{ width: "100%", background: "transparent", border: "1px solid rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.75)" }}
-            >
-              <LogOut size={14} />
-              Sign out
-            </button>
+          <div style={{ marginTop: "auto", paddingTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+            {isGuest ? (
+              <>
+                <Link href="/register" className="potg-btn potg-btn-primary" style={{ width: "100%" }}>
+                  Create account
+                </Link>
+                <Link
+                  href="/login"
+                  className="potg-btn"
+                  style={{ width: "100%", background: "transparent", border: "1px solid rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.75)" }}
+                >
+                  Sign in
+                </Link>
+              </>
+            ) : (
+              <button
+                onClick={auth.logout}
+                className="potg-btn"
+                style={{ width: "100%", background: "transparent", border: "1px solid rgba(255,255,255,0.18)", color: "rgba(255,255,255,0.75)" }}
+              >
+                <LogOut size={14} />
+                Sign out
+              </button>
+            )}
           </div>
         </aside>
 
@@ -230,7 +277,11 @@ export default function AppShell({
             </div>
             <div className="potg-shell-header-actions">
               {actions}
-              {aiPanel && (
+              {/* Ask AI needs a real account to attach its moduleContext to
+                  (see AskAiPanel) — never shown to a guest, same as the
+                  panel prop itself only ever gets passed on authenticated
+                  pages. */}
+              {aiPanel && !isGuest && (
                 <button
                   className="potg-btn potg-btn-ai"
                   onClick={() => setAiOpen((v) => !v)}
@@ -240,8 +291,21 @@ export default function AppShell({
                   {aiOpen ? "Hide Ask AI" : "Ask AI"}
                 </button>
               )}
-              <NotificationBell />
-              <AccountSwitcher />
+              {isGuest ? (
+                <>
+                  <Link href="/login" className="potg-btn potg-btn-secondary">
+                    Sign in
+                  </Link>
+                  <Link href="/register" className="potg-btn potg-btn-primary">
+                    Sign up
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <NotificationBell />
+                  <AccountSwitcher />
+                </>
+              )}
             </div>
           </header>
 

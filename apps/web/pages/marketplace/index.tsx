@@ -55,43 +55,57 @@ export default function PropertyMarketplacePage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!auth.currentAccountId) return;
+    // A guest (no token yet, hydration still pending) briefly has
+    // neither a token nor an account — wait for hydration before
+    // deciding which of the two fetch paths below to take, so a guest
+    // isn't misread as "still signing in, don't fetch yet" forever.
+    if (!auth.hydrated) return;
+    if (auth.token && !auth.currentAccountId) return;
     setError(null);
+    const filters = {
+      listingType: listingType || undefined,
+      propertyType: propertyType || undefined,
+      city: city || undefined,
+      minPrice: minPrice || undefined,
+      maxPrice: maxPrice || undefined,
+      currency: currency || undefined,
+      verificationStatus: verifiedOnly ? "verified" : undefined,
+      q: q || undefined,
+    };
     const timer = setTimeout(() => {
-      auth.api
-        .searchListings({
-          listingType: listingType || undefined,
-          propertyType: propertyType || undefined,
-          city: city || undefined,
-          minPrice: minPrice || undefined,
-          maxPrice: maxPrice || undefined,
-          currency: currency || undefined,
-          verificationStatus: verifiedOnly ? "verified" : undefined,
-          q: q || undefined,
-        })
+      (auth.token ? auth.api.searchListings(filters) : auth.api.getPublicListings(filters))
         .then(setListings)
         .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load the marketplace."));
     }, 250);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.currentAccountId, listingType, propertyType, city, minPrice, maxPrice, currency, verifiedOnly, q]);
+  }, [auth.hydrated, auth.token, auth.currentAccountId, listingType, propertyType, city, minPrice, maxPrice, currency, verifiedOnly, q]);
 
   const hasActiveFilters = !!(city || listingType || propertyType || minPrice || maxPrice || currency || verifiedOnly || q);
 
   return (
     <AppShell
       title="Property marketplace"
+      guestOk
       actions={
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           <Link href="/marketplace/materials" className="potg-btn potg-btn-secondary">
             Materials & tools →
           </Link>
-          <Link href="/marketplace/me" className="potg-btn potg-btn-secondary">
-            My listings & offers
-          </Link>
-          {auth.hasPermission("listing:write") && (
-            <Link href="/marketplace/new" className="potg-btn potg-btn-primary">
-              + List a property
+          {auth.token ? (
+            <>
+              <Link href="/marketplace/me" className="potg-btn potg-btn-secondary">
+                My listings & offers
+              </Link>
+              {auth.hasPermission("listing:write") && (
+                <Link href="/marketplace/new" className="potg-btn potg-btn-primary">
+                  + List a property
+                </Link>
+              )}
+            </>
+          ) : (
+            <Link href="/register" className="potg-btn potg-btn-primary">
+              Sign up to list or make an offer
             </Link>
           )}
         </div>

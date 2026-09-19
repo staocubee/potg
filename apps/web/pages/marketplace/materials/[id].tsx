@@ -59,12 +59,13 @@ export default function SupplierDetailPage() {
   const [auditRefresh, setAuditRefresh] = useState(0);
 
   function load() {
-    if (!id || !auth.currentAccountId) return;
+    if (!id || !auth.hydrated) return;
+    if (auth.token && !auth.currentAccountId) return;
     setError(null);
-    auth.api
-      .getSupplier(id)
+    (auth.token ? auth.api.getSupplier(id) : auth.api.getPublicSupplier(id))
       .then(setSupplier)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this supplier."));
+    if (!auth.token) return;
     auth.api
       .getCart()
       .then((items) => {
@@ -80,7 +81,7 @@ export default function SupplierDetailPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, auth.currentAccountId]);
+  }, [id, auth.hydrated, auth.token, auth.currentAccountId]);
 
   function setQuantity(productId: string, quantity: number) {
     setCart((prev) => {
@@ -105,7 +106,8 @@ export default function SupplierDetailPage() {
   return (
     <AppShell
       title={supplier?.businessName ?? "Supplier"}
-      aiPanel={id ? <AskAiPanel moduleContext={`supplier:${id}`} heading={`Ask AI — ${supplier?.businessName ?? "this supplier"}`} /> : undefined}
+      guestOk
+      aiPanel={id && auth.token ? <AskAiPanel moduleContext={`supplier:${id}`} heading={`Ask AI — ${supplier?.businessName ?? "this supplier"}`} /> : undefined}
     >
       <Link href="/marketplace/materials" className="potg-muted" style={{ fontSize: 13, display: "inline-block", marginBottom: 14 }}>
         ← Back to materials & tools

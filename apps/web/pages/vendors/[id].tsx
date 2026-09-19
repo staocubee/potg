@@ -39,10 +39,10 @@ export default function VendorDetailPage() {
   const [auditRefresh, setAuditRefresh] = useState(0);
 
   function load() {
-    if (!id || !auth.currentAccountId) return;
+    if (!id || !auth.hydrated) return;
+    if (auth.token && !auth.currentAccountId) return;
     setError(null);
-    auth.api
-      .getVendor(id)
+    (auth.token ? auth.api.getVendor(id) : auth.api.getPublicVendor(id))
       .then(setVendor)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load this vendor."));
   }
@@ -50,7 +50,7 @@ export default function VendorDetailPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, auth.currentAccountId]);
+  }, [id, auth.hydrated, auth.token, auth.currentAccountId]);
 
   const isVendorAccount = auth.currentAccount?.accountType === "VENDOR";
   const canVerifyVendors = auth.hasPermission("vendor:verify");
@@ -58,7 +58,8 @@ export default function VendorDetailPage() {
   return (
     <AppShell
       title={vendor?.businessName ?? "Vendor"}
-      aiPanel={id ? <AskAiPanel moduleContext={`vendor:${id}`} heading={`Ask AI — ${vendor?.businessName ?? "this vendor"}`} /> : undefined}
+      guestOk
+      aiPanel={id && auth.token ? <AskAiPanel moduleContext={`vendor:${id}`} heading={`Ask AI — ${vendor?.businessName ?? "this vendor"}`} /> : undefined}
     >
       <Link href="/vendors" className="potg-muted" style={{ fontSize: 13, display: "inline-block", marginBottom: 14 }}>
         ← Back to marketplace
@@ -153,6 +154,17 @@ export default function VendorDetailPage() {
 
           {!isVendorAccount && auth.hasPermission("quote:write") && id && (
             <RequestQuoteForProject vendorId={id} vendorName={vendor.businessName} />
+          )}
+
+          {!auth.token && (
+            <div className="potg-card" style={{ padding: 18, textAlign: "center" }}>
+              <p className="potg-muted" style={{ margin: 0, fontSize: 13 }}>
+                <Link href="/register" style={{ color: "var(--potg-teal)", fontWeight: 600 }}>
+                  Sign in or create an account
+                </Link>{" "}
+                to request a quote from {vendor.businessName}.
+              </p>
+            </div>
           )}
 
           {id && <TrustAuditHistory vendorId={id} refreshToken={auditRefresh} />}

@@ -1,6 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListingsService } from '../listings/listings.service';
+import { VendorsService } from '../vendors/vendors.service';
+import { MaterialsService } from '../materials/materials.service';
+import { SearchListingsQuery } from '../listings/dto/search-listings.dto';
 import { getVendorTrustScore } from '../vendors/trust-score';
 import { getSupplierTrustScore } from '../materials/trust-score';
 import { getActiveBoostMap, applyVisibilityBoost, getActiveBoostForAccount } from '../packages/boost.util';
@@ -26,7 +29,50 @@ export class PublicProfilesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly listings: ListingsService,
+    private readonly vendors: VendorsService,
+    private readonly materials: MaterialsService,
   ) {}
+
+  // The real, filterable public browse (as opposed to getMarketplaceHighlights'
+  // own capped 6-per-kind landing-page teaser) — a guest can now search
+  // and page through the same active listings, vendors, and active
+  // products an authenticated buyer sees, before ever signing up.
+  // Each of these three delegates straight into the same service the
+  // authenticated route already uses (ListingsService.findAll was
+  // already written "no tenant isolation on purpose"; VendorsService/
+  // MaterialsService's own browse queries now select only the same
+  // public-safe fields this module's own getProfile already draws the
+  // line at — see VENDOR_SAFE_SELECT/SUPPLIER_SAFE_SELECT's own
+  // comments) — no query logic duplicated here, only exposed with no
+  // guard.
+  getPublicListings(query: SearchListingsQuery) {
+    return this.listings.findAll(query);
+  }
+
+  getPublicListing(listingId: string) {
+    return this.listings.findOnePublic(listingId);
+  }
+
+  // Same default as the authenticated browse (GET /vendors): every
+  // vendor, not just verified ones — verificationStatus is an opt-in
+  // filter there (the frontend's own "Verified only" checkbox defaults
+  // off), not a hard gate, and a guest deserves the same real picture,
+  // not a narrower one.
+  getPublicVendors(serviceCategory?: string, q?: string, location?: string, minRating?: string, verificationStatus?: string) {
+    return this.vendors.findAll(serviceCategory, q, location, minRating, verificationStatus);
+  }
+
+  getPublicVendor(vendorId: string) {
+    return this.vendors.findOnePublic(vendorId);
+  }
+
+  getPublicProducts(category?: string, q?: string) {
+    return this.materials.findProducts(category, undefined, q);
+  }
+
+  getPublicSupplier(supplierId: string) {
+    return this.materials.findSupplierPublic(supplierId);
+  }
 
   async getProfile(accountId: string) {
     const account = await this.prisma.account.findUnique({

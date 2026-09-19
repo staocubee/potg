@@ -32,40 +32,49 @@ export default function MaterialsMarketplacePage() {
   }
 
   useEffect(() => {
-    if (!auth.currentAccountId) return;
+    if (!auth.hydrated) return;
+    if (auth.token && !auth.currentAccountId) return;
     setError(null);
     const timer = setTimeout(() => {
-      auth.api
-        .findProducts(category || undefined, undefined, q || undefined)
+      (auth.token ? auth.api.findProducts(category || undefined, undefined, q || undefined) : auth.api.getPublicProducts(category || undefined, q || undefined))
         .then(setProducts)
         .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load the materials catalog."));
     }, 250);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [auth.currentAccountId, category, q]);
+  }, [auth.hydrated, auth.token, auth.currentAccountId, category, q]);
 
   const isSupplierAccount = auth.currentAccount?.accountType === "SUPPLIER";
 
   return (
     <AppShell
       title="Materials & tools"
+      guestOk
       actions={
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           <Link href="/marketplace" className="potg-btn potg-btn-secondary">
             ← Property marketplace
           </Link>
-          <Link href="/marketplace/materials/orders" className="potg-btn potg-btn-secondary">
-            My orders
-          </Link>
-          <Link href="/marketplace/materials/rentals" className="potg-btn potg-btn-secondary">
-            My rentals
-          </Link>
-          <Link href="/marketplace/materials/bulk-quotes" className="potg-btn potg-btn-secondary">
-            My bulk quotes
-          </Link>
-          <Link href="/marketplace/materials/me" className="potg-btn potg-btn-primary">
-            {isSupplierAccount ? "Your supplier dashboard" : "Become a supplier"}
-          </Link>
+          {auth.token ? (
+            <>
+              <Link href="/marketplace/materials/orders" className="potg-btn potg-btn-secondary">
+                My orders
+              </Link>
+              <Link href="/marketplace/materials/rentals" className="potg-btn potg-btn-secondary">
+                My rentals
+              </Link>
+              <Link href="/marketplace/materials/bulk-quotes" className="potg-btn potg-btn-secondary">
+                My bulk quotes
+              </Link>
+              <Link href="/marketplace/materials/me" className="potg-btn potg-btn-primary">
+                {isSupplierAccount ? "Your supplier dashboard" : "Become a supplier"}
+              </Link>
+            </>
+          ) : (
+            <Link href="/register" className="potg-btn potg-btn-primary">
+              Sign up to order or request a quote
+            </Link>
+          )}
         </div>
       }
     >

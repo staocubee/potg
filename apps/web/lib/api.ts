@@ -1961,6 +1961,55 @@ export class ApiClient {
     return request<MarketplaceHighlights>("/public/marketplace/highlights");
   }
 
+  // --- Public marketplace browse (no auth — see PublicMarketplaceController).
+  // Same query shape and response fields as their authenticated
+  // counterparts below (searchListings/getListing, listVendors/getVendor,
+  // findProducts/getSupplier), just hand-picked safe fields server-side
+  // and reachable with no session at all — the guest-browsing half of
+  // every marketplace/vendors/materials page, called instead of the
+  // authenticated method whenever auth.token is null. ---
+  getPublicListings(query: {
+    listingType?: string;
+    city?: string;
+    propertyType?: string;
+    minPrice?: string;
+    maxPrice?: string;
+    currency?: string;
+    verificationStatus?: string;
+    q?: string;
+  }) {
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) if (value) params.set(key, value);
+    const qs = params.toString();
+    return request<Listing[]>(`/public/marketplace/listings${qs ? `?${qs}` : ""}`);
+  }
+  getPublicListing(listingId: string) {
+    return request<Listing>(`/public/marketplace/listings/${listingId}`);
+  }
+  getPublicVendors(serviceCategory?: string, q?: string, location?: string, minRating?: string, verificationStatus?: string) {
+    const params = new URLSearchParams();
+    if (serviceCategory) params.set("serviceCategory", serviceCategory);
+    if (q) params.set("q", q);
+    if (location) params.set("location", location);
+    if (minRating) params.set("minRating", minRating);
+    if (verificationStatus) params.set("verificationStatus", verificationStatus);
+    const qs = params.toString();
+    return request<Vendor[]>(`/public/marketplace/vendors${qs ? `?${qs}` : ""}`);
+  }
+  getPublicVendor(vendorId: string) {
+    return request<Vendor>(`/public/marketplace/vendors/${vendorId}`);
+  }
+  getPublicProducts(category?: string, q?: string) {
+    const params = new URLSearchParams();
+    if (category) params.set("category", category);
+    if (q) params.set("q", q);
+    const qs = params.toString();
+    return request<Product[]>(`/public/marketplace/products${qs ? `?${qs}` : ""}`);
+  }
+  getPublicSupplier(supplierId: string) {
+    return request<Supplier>(`/public/marketplace/suppliers/${supplierId}`);
+  }
+
   // --- Invites (no account context — the recipient isn't a member yet) ---
   getInvite(token: string) {
     return request<InvitePreview>(`/invites/${token}`);

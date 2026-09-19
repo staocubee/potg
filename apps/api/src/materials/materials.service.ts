@@ -68,6 +68,46 @@ function payableEmail(email: string): string {
   return email;
 }
 
+// Every field safe to hand to anyone authenticated and viewing a single
+// supplier that isn't their own. verificationNotes is deliberately
+// still included: findSupplier (a single supplier's own page) is what
+// PlatformReviewPanel's note field pre-fills from when a platform
+// reviewer is actually looking at this supplier to verify it —
+// stripping it here would break that. findSupplierPublic's own extra
+// redaction (below) is what keeps it away from a genuinely public,
+// no-login caller. Supplier carries no payout-credential fields the
+// way Vendor does, so there's nothing else to exclude here the way
+// VendorsService's own VENDOR_SAFE_SELECT needs to.
+const SUPPLIER_SAFE_SELECT = {
+  id: true,
+  accountId: true,
+  businessName: true,
+  category: true,
+  locationCoverage: true,
+  photoUrl: true,
+  verificationStatus: true,
+  verificationNotes: true,
+  ratingAverage: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+// findSuppliers's own narrower browse-grid select — same as
+// SUPPLIER_SAFE_SELECT minus verificationNotes, since no browse card
+// (authenticated or public) ever renders a per-row reviewer note.
+const SUPPLIER_BROWSE_SELECT = {
+  id: true,
+  accountId: true,
+  businessName: true,
+  category: true,
+  locationCoverage: true,
+  photoUrl: true,
+  verificationStatus: true,
+  ratingAverage: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 @Injectable()
 export class MaterialsService {
   private readonly orderPaymentGateways: Record<string, OrderPaymentGateway>;
@@ -124,6 +164,7 @@ export class MaterialsService {
   async findSuppliers(category?: string) {
     const suppliers = await this.prisma.supplier.findMany({
       where: category ? { category } : undefined,
+      select: SUPPLIER_BROWSE_SELECT,
       orderBy: [{ ratingAverage: 'desc' }, { createdAt: 'desc' }],
     });
     const boostMap = await getActiveBoostMap(this.prisma);
@@ -146,13 +187,38 @@ export class MaterialsService {
   async findSupplier(id: string) {
     const supplier = await this.prisma.supplier.findUnique({
       where: { id },
-      include: {
+      select: {
+        ...SUPPLIER_SAFE_SELECT,
         products: { where: { status: 'active' } },
         reviews: { where: { moderationStatus: { not: 'hidden' } }, orderBy: { createdAt: 'desc' } },
       },
     });
     if (!supplier) return supplier;
     return { ...supplier, trustScore: await getSupplierTrustScore(this.prisma, supplier) };
+  }
+
+  // The genuinely public (no-login) counterpart — same fields
+  // findSupplier already returns, plus the same two redactions
+  // VendorsService.findOnePublic applies, for the same reason:
+  // verificationNotes and a filed trust audit's own notes are both a
+  // platform reviewer's internal reasoning, fine for an authenticated
+  // viewer to fetch today but never for an anonymous one.
+  async findSupplierPublic(id: string) {
+    const supplier = await this.findSupplier(id);
+    if (!supplier) return supplier;
+    return {
+      ...supplier,
+      verificationNotes: null,
+      trustScore: {
+        ...supplier.trustScore,
+        factors: {
+          ...supplier.trustScore.factors,
+          latestAudit: supplier.trustScore.factors.latestAudit
+            ? { ...supplier.trustScore.factors.latestAudit, notes: '' }
+            : null,
+        },
+      },
+    };
   }
 
   // Module 6's actual neutral-reviewer action, the materials-marketplace
@@ -261,7 +327,7 @@ export class MaterialsService {
 
     const products = await this.prisma.product.findMany({
       where: { status: 'active', category, supplierId, id: relevanceOrder ? { in: relevanceOrder } : undefined },
-      include: { supplier: { select: { id: true, businessName: true, ratingAverage: true, verificationStatus: true } } },
+      include: { supplier: { select: { id: true, businessName: true, ratingAverage: true, verificationStatus: true, photoUrl: true } } },
       orderBy: relevanceOrder ? undefined : { createdAt: 'desc' },
     });
 

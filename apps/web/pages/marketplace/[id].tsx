@@ -61,10 +61,10 @@ export default function ListingDetailPage() {
   const canVerifyListings = auth.hasPermission("listing:verify");
 
   function load() {
-    if (!id || !auth.currentAccountId) return;
+    if (!id || !auth.hydrated) return;
+    if (auth.token && !auth.currentAccountId) return;
     setError(null);
-    auth.api
-      .getListing(id)
+    (auth.token ? auth.api.getListing(id) : auth.api.getPublicListing(id))
       .then((l) => {
         setListing(l);
         setFavorited(!!l.isFavorited);
@@ -75,7 +75,7 @@ export default function ListingDetailPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, auth.currentAccountId]);
+  }, [id, auth.hydrated, auth.token, auth.currentAccountId]);
 
   useEffect(() => {
     if (!id || !listing || !isOwner) return;
@@ -193,7 +193,8 @@ export default function ListingDetailPage() {
   return (
     <AppShell
       title={listing?.title ?? "Listing"}
-      aiPanel={id ? <AskAiPanel moduleContext={`listing:${id}`} heading={`Ask AI — ${listing?.title ?? "this listing"}`} /> : undefined}
+      guestOk
+      aiPanel={id && auth.token ? <AskAiPanel moduleContext={`listing:${id}`} heading={`Ask AI — ${listing?.title ?? "this listing"}`} /> : undefined}
     >
       <Link href="/marketplace" className="potg-muted" style={{ fontSize: 13, display: "inline-block", marginBottom: 14 }}>
         ← Back to marketplace
@@ -245,10 +246,15 @@ export default function ListingDetailPage() {
                   {publishing ? "…" : "Publish listing"}
                 </button>
               )}
-              {!isOwner && (
+              {!isOwner && auth.token && (
                 <button className="potg-btn potg-btn-secondary" onClick={onToggleFavorite}>
                   {favorited ? "★ Favorited" : "☆ Favorite"}
                 </button>
+              )}
+              {!isOwner && !auth.token && (
+                <Link href="/register" className="potg-btn potg-btn-secondary">
+                  Sign in to favorite
+                </Link>
               )}
             </div>
           </div>
@@ -316,7 +322,18 @@ export default function ListingDetailPage() {
             </div>
           )}
 
-          {!isOwner && listing.status === "active" && (
+          {!isOwner && listing.status === "active" && !auth.token && (
+            <div className="potg-card" style={{ padding: 18, textAlign: "center" }}>
+              <p className="potg-muted" style={{ margin: 0, fontSize: 13 }}>
+                <Link href="/register" style={{ color: "var(--potg-teal)", fontWeight: 600 }}>
+                  Sign in or create an account
+                </Link>{" "}
+                to make an offer, ask a question, or request an inspection.
+              </p>
+            </div>
+          )}
+
+          {!isOwner && listing.status === "active" && auth.token && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 16 }}>
               {auth.hasPermission("offer:write") && <MakeOfferForm listingId={listing.id} currency={listing.currency} />}
               <InquiryForm listingId={listing.id} />

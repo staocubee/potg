@@ -13,6 +13,32 @@ import { getActiveBoostMap, applyVisibilityBoost } from '../packages/boost.util'
 import { InAppNotificationsService } from '../notifications/in-app-notifications.service';
 import { DEFAULT_DOCUMENT_CHECKLIST, labelDocumentType } from '../ai/skills/document-checklists';
 
+// Every field safe to hand to anyone browsing — everything on
+// PropertyListing except verificationNotes (a platform reviewer's
+// internal note, same reasoning VendorsService's own VENDOR_SAFE_SELECT
+// excludes Vendor.verificationNotes). findAll is shared by the
+// authenticated browse (GET /listings) and, since this pass, the public
+// one (GET /public/marketplace/listings) — this fix applies to both,
+// and neither one's own frontend card ever reads verificationNotes
+// (only the single-listing detail view's PlatformReviewPanel does, via
+// findOne, which is unaffected).
+const LISTING_SAFE_SELECT = {
+  id: true,
+  propertyId: true,
+  accountId: true,
+  listingType: true,
+  askingPrice: true,
+  currency: true,
+  title: true,
+  description: true,
+  photoUrls: true,
+  status: true,
+  verificationStatus: true,
+  viewCount: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 @Injectable()
 export class ListingsService {
   constructor(
@@ -128,7 +154,7 @@ export class ListingsService {
             ? { gte: minPrice, lte: maxPrice }
             : undefined,
       },
-      include: { property: { select: { propertyType: true, city: true, country: true } } },
+      select: { ...LISTING_SAFE_SELECT, property: { select: { propertyType: true, city: true, country: true } } },
       orderBy: relevanceOrder ? undefined : { createdAt: 'desc' },
     });
 
@@ -179,6 +205,44 @@ export class ListingsService {
       include: { property: { select: { propertyType: true, city: true, country: true } } },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  // The single-listing counterpart to findPublishedForAccount/findAll's
+  // own "no tenant isolation, safe for anyone" browse — same
+  // active/under_offer-only gate and same safe property subset (never
+  // addressLine, never estimatedValue or anything else Property carries
+  // beyond what a marketplace card/detail page already shows a buyer).
+  // No isFavorited (a guest has no account to favorite with) and no
+  // inquiries/offers (those stay behind GET /listings/:id, the
+  // authenticated owner-facing route).
+  async findOnePublic(listingId: string) {
+    const listing = await this.prisma.propertyListing.findUnique({
+      where: { id: listingId },
+      select: {
+        id: true,
+        accountId: true,
+        listingType: true,
+        askingPrice: true,
+        currency: true,
+        title: true,
+        description: true,
+        photoUrls: true,
+        status: true,
+        verificationStatus: true,
+        viewCount: true,
+        createdAt: true,
+        property: { select: { propertyType: true, city: true, country: true } },
+      },
+    });
+    if (!listing || !['active', 'under_offer'].includes(listing.status)) {
+      throw new NotFoundException('Listing not found');
+    }
+    // Best-effort — same "a view counter, not an analytics pipeline"
+    // reasoning findOne's own comment gives; never worth failing the
+    // page load over.
+    this.prisma.propertyListing.update({ where: { id: listingId }, data: { viewCount: { increment: 1 } } }).catch(() => undefined);
+    const boostMap = await getActiveBoostMap(this.prisma);
+    return { ...listing, packageBadge: boostMap.get(listing.accountId) ?? null };
   }
 
   // accountId is who's asking, not who owns the listing — used only to

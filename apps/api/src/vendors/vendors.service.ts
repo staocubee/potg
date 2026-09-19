@@ -21,6 +21,60 @@ import { getVendorTrustScore } from './trust-score';
 import { PaystackService } from '../payments/paystack.service';
 import { FlutterwaveService } from '../payments/flutterwave.service';
 
+// Every field safe to hand to anyone browsing or viewing a vendor that
+// isn't their own — deliberately excludes bankAccountNumber/bankCode/
+// bankAccountName/paystackRecipientCode/payoutProvider/
+// paypalPayoutEmail (payout credentials), which no non-owner viewer —
+// not even a platform reviewer verifying this vendor — ever needs.
+// findForAccount (the vendor's own "me" view) is the one place those
+// still belong, and stays a raw query with no select.
+// licenseNumber/licenseIssuingBody/licenseExpiresAt are self-reported
+// and already shown to any buyer today, not new exposure.
+//
+// verificationNotes is deliberately still included here: findOne (a
+// single vendor's own page) is what PlatformReviewPanel's note field
+// pre-fills from when a platform reviewer is actually looking at this
+// vendor to verify it — stripping it there would break that, not just
+// tighten it. It's still excluded from findAll's own narrower select
+// below (a browse grid never renders a per-row note anyway) and from
+// findOnePublic's own extra redaction (a genuinely public, no-login
+// caller must never see it, reviewer-only or not).
+const VENDOR_SAFE_SELECT = {
+  id: true,
+  accountId: true,
+  businessName: true,
+  serviceCategory: true,
+  locationCoverage: true,
+  photoUrl: true,
+  verificationStatus: true,
+  verificationNotes: true,
+  ratingAverage: true,
+  licenseNumber: true,
+  licenseIssuingBody: true,
+  licenseExpiresAt: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
+// findAll's own narrower browse-grid select — same exclusions as
+// VENDOR_SAFE_SELECT plus verificationNotes, since no browse card
+// (authenticated or public) ever renders a per-row reviewer note.
+const VENDOR_BROWSE_SELECT = {
+  id: true,
+  accountId: true,
+  businessName: true,
+  serviceCategory: true,
+  locationCoverage: true,
+  photoUrl: true,
+  verificationStatus: true,
+  ratingAverage: true,
+  licenseNumber: true,
+  licenseIssuingBody: true,
+  licenseExpiresAt: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 @Injectable()
 export class VendorsService {
   constructor(
@@ -181,6 +235,7 @@ export class VendorsService {
         ratingAverage: minRating ? { gte: Number(minRating) } : undefined,
         verificationStatus: verificationStatus || undefined,
       },
+      select: VENDOR_BROWSE_SELECT,
       orderBy: relevanceOrder ? undefined : [{ ratingAverage: 'desc' }, { createdAt: 'desc' }],
     });
 
@@ -227,10 +282,37 @@ export class VendorsService {
   async findOne(id: string) {
     const vendor = await this.prisma.vendor.findUnique({
       where: { id },
-      include: { reviews: { where: { moderationStatus: { not: 'hidden' } }, orderBy: { createdAt: 'desc' } } },
+      select: { ...VENDOR_SAFE_SELECT, reviews: { where: { moderationStatus: { not: 'hidden' } }, orderBy: { createdAt: 'desc' } } },
     });
     if (!vendor) return vendor;
     return { ...vendor, trustScore: await getVendorTrustScore(this.prisma, vendor) };
+  }
+
+  // The genuinely public (no-login) counterpart — same safe fields
+  // findOne already returns, plus two more redactions findOne itself
+  // deliberately keeps (for PlatformReviewPanel's own authenticated
+  // reviewer-only prefill, see VENDOR_SAFE_SELECT's own comment):
+  // Vendor.verificationNotes and a filed trust audit's own notes are
+  // both a platform reviewer's internal reasoning, fine for an
+  // authenticated viewer to fetch today but never for an anonymous one.
+  // The audit notes are blanked rather than omitted so the shape stays
+  // the same either way.
+  async findOnePublic(id: string) {
+    const vendor = await this.findOne(id);
+    if (!vendor) return vendor;
+    return {
+      ...vendor,
+      verificationNotes: null,
+      trustScore: {
+        ...vendor.trustScore,
+        factors: {
+          ...vendor.trustScore.factors,
+          latestAudit: vendor.trustScore.factors.latestAudit
+            ? { ...vendor.trustScore.factors.latestAudit, notes: '' }
+            : null,
+        },
+      },
+    };
   }
 
   // Module 6's actual neutral-reviewer action — gated on vendor:verify,
