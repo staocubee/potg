@@ -2,7 +2,11 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Branch } from "../../lib/api";
+import { MapPin } from "lucide-react";
 import AppShell from "../../components/AppShell";
+import Skeleton from "../../components/Skeleton";
+import EmptyState from "../../components/EmptyState";
+import StatusBadge from "../../components/StatusBadge";
 
 // Module 24's "Branch property report"/"Facility cost report" — the
 // structural gap a code-level audit of Module 24 found: nowhere to group
@@ -55,21 +59,19 @@ export default function BranchesPage() {
         />
       )}
 
-      {!branches && !error && <p className="potg-muted">Loading your branches…</p>}
+      {!branches && !error && <Skeleton lines={3} />}
 
       {branches && branches.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>No branches yet. Add your first one above.</p>
-        </div>
+        <EmptyState icon={MapPin} title="No branches yet" description="Add your first one above." />
       )}
 
       {branches && branches.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
+        <div className="potg-landing-grid">
           {branches.map((b) => (
-            <Link key={b.id} href={`/branches/${b.id}`} className="potg-card" style={{ display: "block", padding: 16 }}>
+            <Link key={b.id} href={`/branches/${b.id}`} className="potg-card potg-card-hover" style={{ display: "block", padding: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                 <h3 style={{ fontSize: 15 }}>{b.name}</h3>
-                <span className="potg-badge">{b._count?.properties ?? 0} propert{(b._count?.properties ?? 0) === 1 ? "y" : "ies"}</span>
+                <StatusBadge>{b._count?.properties ?? 0} propert{(b._count?.properties ?? 0) === 1 ? "y" : "ies"}</StatusBadge>
               </div>
               <p className="potg-muted" style={{ fontSize: 12, margin: "4px 0 0" }}>
                 {[b.city, b.state, b.country].filter(Boolean).join(", ") || "No location set"}

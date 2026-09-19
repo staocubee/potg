@@ -2,7 +2,11 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Community } from "../../lib/api";
+import { Building2 } from "lucide-react";
 import AppShell from "../../components/AppShell";
+import Skeleton from "../../components/Skeleton";
+import EmptyState from "../../components/EmptyState";
+import StatusBadge from "../../components/StatusBadge";
 
 const COMMUNITY_TYPES = ["estate", "apartment_building", "gated_community"];
 
@@ -58,23 +62,23 @@ export default function CommunitiesPage() {
         />
       )}
 
-      {!communities && !error && <p className="potg-muted">Loading your communities…</p>}
+      {!communities && !error && <Skeleton lines={3} />}
 
       {communities && communities.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>
-            No communities yet. Add your first estate, apartment building, or gated community above.
-          </p>
-        </div>
+        <EmptyState
+          icon={Building2}
+          title="No communities yet"
+          description="Add your first estate, apartment building, or gated community above."
+        />
       )}
 
       {communities && communities.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 14 }}>
+        <div className="potg-landing-grid">
           {communities.map((c) => (
-            <Link key={c.id} href={`/communities/${c.id}`} className="potg-card" style={{ display: "block", padding: 16 }}>
+            <Link key={c.id} href={`/communities/${c.id}`} className="potg-card potg-card-hover" style={{ display: "block", padding: 16 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                 <h3 style={{ fontSize: 15 }}>{c.name}</h3>
-                <span className="potg-badge">{c.communityType.replace(/_/g, " ")}</span>
+                <StatusBadge>{c.communityType.replace(/_/g, " ")}</StatusBadge>
               </div>
               <p className="potg-muted" style={{ fontSize: 12, margin: "4px 0 0" }}>
                 {[c.addressLine, c.city, c.state, c.country].filter(Boolean).join(", ")}

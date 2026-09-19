@@ -4,8 +4,18 @@ import Link from "next/link";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Branch } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import { Building } from "lucide-react";
 import ConfirmDialog from "../../components/ConfirmDialog";
 import { useToast } from "../../components/Toast";
+import Skeleton from "../../components/Skeleton";
+import EmptyState from "../../components/EmptyState";
+import StatusBadge from "../../components/StatusBadge";
+
+function propertyStatusVariant(status: string): "success" | "warning" | "neutral" {
+  if (status === "active") return "success";
+  if (status === "under_maintenance" || status === "listed") return "warning";
+  return "neutral";
+}
 
 function formatMoney(value?: string | null) {
   if (!value) return null;
@@ -62,7 +72,7 @@ export default function BranchDetailPage() {
   if (!branch) {
     return (
       <AppShell title="Branch">
-        <p className="potg-muted">Loading…</p>
+        <Skeleton lines={4} />
       </AppShell>
     );
   }
@@ -114,20 +124,20 @@ export default function BranchDetailPage() {
         Properties ({branch.properties?.length ?? 0})
       </h2>
       {(!branch.properties || branch.properties.length === 0) && (
-        <div className="potg-card" style={{ padding: 24, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>
-            No properties assigned to this branch yet — assign one from its own edit form on{" "}
-            <Link href="/properties" style={{ color: "var(--potg-teal)", fontWeight: 600 }}>
-              Portfolio
+        <EmptyState
+          icon={Building}
+          title="No properties assigned to this branch yet"
+          action={
+            <Link href="/properties" className="potg-btn potg-btn-secondary">
+              Go to Portfolio
             </Link>
-            .
-          </p>
-        </div>
+          }
+        />
       )}
       {branch.properties && branch.properties.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {branch.properties.map((p) => (
-            <Link key={p.id} href={`/properties/${p.id}`} className="potg-card" style={{ display: "flex", justifyContent: "space-between", padding: 14 }}>
+            <Link key={p.id} href={`/properties/${p.id}`} className="potg-card potg-card-hover" style={{ display: "flex", justifyContent: "space-between", padding: 14 }}>
               <div>
                 <div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div>
                 <p className="potg-muted" style={{ fontSize: 11, margin: "2px 0 0", textTransform: "capitalize" }}>
@@ -135,7 +145,7 @@ export default function BranchDetailPage() {
                 </p>
               </div>
               <div style={{ textAlign: "right" }}>
-                <span className="potg-badge">{p.status}</span>
+                <StatusBadge variant={propertyStatusVariant(p.status)}>{p.status}</StatusBadge>
                 {formatMoney(p.estimatedValue) && (
                   <div className="potg-muted" style={{ fontSize: 11, marginTop: 4 }}>{formatMoney(p.estimatedValue)}</div>
                 )}

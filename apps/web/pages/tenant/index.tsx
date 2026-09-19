@@ -3,6 +3,27 @@ import { useAuth } from "../../lib/auth";
 import { ApiError, Announcement, AppDocument, Lease, LeaseRentScheduleEntry, MaintenanceRequest } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
+import Skeleton from "../../components/Skeleton";
+import StatusBadge from "../../components/StatusBadge";
+
+function leaseStatusVariant(status: string): "success" | "warning" | "neutral" {
+  if (status === "active") return "success";
+  if (status === "pending") return "warning";
+  return "neutral";
+}
+
+function maintenanceStatusVariant(status: string): "success" | "warning" | "info" | "neutral" {
+  if (status === "completed" || status === "resolved") return "success";
+  if (status === "in_progress") return "info";
+  if (status === "cancelled") return "neutral";
+  return "warning";
+}
+
+function verificationVariant(status: string): "success" | "warning" | "neutral" {
+  if (status === "verified") return "success";
+  if (status === "pending" || status === "submitted") return "warning";
+  return "neutral";
+}
 
 function formatMoney(value?: string | null, currency?: string) {
   if (!value) return null;
@@ -103,7 +124,7 @@ export default function TenantLeasePage() {
       )}
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {lease === undefined && !error && <p className="potg-muted">Loading…</p>}
+      {lease === undefined && !error && <Skeleton lines={4} />}
 
       {lease === null && isTenantAccount && (
         <div className="potg-card" style={{ padding: 18 }}>
@@ -145,7 +166,7 @@ export default function TenantLeasePage() {
                   </p>
                 )}
               </div>
-              <span className="potg-badge">{lease.status}</span>
+              <StatusBadge variant={leaseStatusVariant(lease.status)}>{lease.status}</StatusBadge>
             </div>
             <div className="potg-muted" style={{ fontSize: 13, marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--potg-border)" }}>
               {formatMoney(lease.rentAmount, lease.currency)}/{lease.rentFrequency} · from{" "}
@@ -180,10 +201,10 @@ export default function TenantLeasePage() {
                             {payingId === entry.id ? "Paying…" : "Pay now"}
                           </button>
                         ) : (
-                          <span className="potg-badge">due</span>
+                          <StatusBadge variant="warning">due</StatusBadge>
                         )
                       ) : (
-                        <span className="potg-badge">{entry.status}</span>
+                        <StatusBadge variant={entry.status === "paid" ? "success" : "neutral"}>{entry.status}</StatusBadge>
                       )}
                     </div>
                   );
@@ -235,7 +256,7 @@ export default function TenantLeasePage() {
                   <a href={d.fileUrl} target="_blank" rel="noreferrer" style={{ fontWeight: 600 }}>
                     {d.documentType.replace(/_/g, " ")}
                   </a>
-                  <span className="potg-badge">{d.verificationStatus.replace(/_/g, " ")}</span>
+                  <StatusBadge variant={verificationVariant(d.verificationStatus)}>{d.verificationStatus.replace(/_/g, " ")}</StatusBadge>
                 </div>
               ))}
             </div>
@@ -302,7 +323,7 @@ export default function TenantLeasePage() {
                       )}
                     </div>
                     <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 10 }}>
-                      <span className="potg-badge">{r.status.replace(/_/g, " ")}</span>
+                      <StatusBadge variant={maintenanceStatusVariant(r.status)}>{r.status.replace(/_/g, " ")}</StatusBadge>
                       <div className="potg-muted" style={{ fontSize: 10, marginTop: 4, textTransform: "capitalize" }}>
                         {r.priority}
                       </div>

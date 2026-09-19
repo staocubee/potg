@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Community, CommunityAnnouncement, Resident } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import Skeleton from "../../components/Skeleton";
+import StatusBadge from "../../components/StatusBadge";
 
 const RESIDENT_TYPES = ["tenant", "owner"];
 
@@ -60,7 +62,7 @@ export default function CommunityDetailPage() {
       </Link>
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!community && !error && <p className="potg-muted">Loading…</p>}
+      {!community && !error && <Skeleton lines={4} />}
 
       {community && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
@@ -72,7 +74,7 @@ export default function CommunityDetailPage() {
                   {[community.addressLine, community.city, community.state, community.country].filter(Boolean).join(", ")}
                 </p>
               </div>
-              <span className="potg-badge">{community.communityType.replace(/_/g, " ")}</span>
+              <StatusBadge>{community.communityType.replace(/_/g, " ")}</StatusBadge>
             </div>
           </div>
 
