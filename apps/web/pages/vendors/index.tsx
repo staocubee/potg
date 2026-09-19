@@ -1,8 +1,19 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { HardHat } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { ApiError, SupplierReview, Vendor, VendorReview } from "../../lib/api";
 import AppShell from "../../components/AppShell";
+import FilterBar from "../../components/FilterBar";
+import Skeleton from "../../components/Skeleton";
+import EmptyState from "../../components/EmptyState";
+import StatusBadge from "../../components/StatusBadge";
+
+function verificationVariant(status: string): "success" | "warning" | "neutral" {
+  if (status === "verified") return "success";
+  if (status === "pending") return "warning";
+  return "neutral";
+}
 
 // Mirrors CreateVendorDto's SERVICE_CATEGORIES (apps/api/src/vendors/dto) —
 // freeform on the backend, kept as a fixed list here purely for a usable
@@ -69,10 +80,7 @@ export default function VendorMarketplacePage() {
           of) the vendor list this role already browses to verify vendors. */}
       {canModerateReviews && <ReviewModerationQueue />}
 
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
-        <label className="potg-label" style={{ margin: 0 }}>
-          Category
-        </label>
+      <FilterBar>
         <select className="potg-input" style={{ width: 220 }} value={category} onChange={(e) => setCategory(e.target.value)}>
           <option value="">All categories</option>
           {SERVICE_CATEGORIES.map((c) => (
@@ -105,33 +113,36 @@ export default function VendorMarketplacePage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-      </div>
+      </FilterBar>
 
       {error && <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>}
-      {!vendors && !error && <p className="potg-muted">Loading vendors…</p>}
-
-      {vendors && vendors.length === 0 && (
-        <div className="potg-card" style={{ padding: 32, textAlign: "center" }}>
-          <p className="potg-muted" style={{ margin: 0 }}>
-            No vendors {hasActiveFilters ? "match those filters" : "yet"}.
-            {!isVendorAccount && (
-              <>
-                {" "}
-                Running a contracting business?{" "}
-                <Link href="/vendors/me" style={{ color: "var(--potg-teal)", fontWeight: 600 }}>
-                  List yourself here
-                </Link>
-                .
-              </>
-            )}
-          </p>
+      {!vendors && !error && (
+        <div className="potg-landing-grid" style={{ marginBottom: 16 }}>
+          <Skeleton height={140} />
+          <Skeleton height={140} />
+          <Skeleton height={140} />
         </div>
       )}
 
+      {vendors && vendors.length === 0 && (
+        <EmptyState
+          icon={HardHat}
+          title={`No vendors ${hasActiveFilters ? "match those filters" : "yet"}`}
+          description={!isVendorAccount ? "Running a contracting business? List yourself here." : undefined}
+          action={
+            !isVendorAccount ? (
+              <Link href="/vendors/me" className="potg-btn potg-btn-secondary">
+                List yourself here
+              </Link>
+            ) : undefined
+          }
+        />
+      )}
+
       {vendors && vendors.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 14 }}>
+        <div className="potg-landing-grid">
           {vendors.map((v) => (
-            <Link key={v.id} href={`/vendors/${v.id}`} className="potg-card" style={{ display: "block", padding: 16 }}>
+            <Link key={v.id} href={`/vendors/${v.id}`} className="potg-card potg-card-hover" style={{ display: "block", padding: 16 }}>
               {v.packageBadge && (
                 <span
                   className="potg-badge"
@@ -142,7 +153,7 @@ export default function VendorMarketplacePage() {
               )}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                 <h3 style={{ fontSize: 15 }}>{v.businessName}</h3>
-                <span className="potg-badge">{v.verificationStatus.replace(/_/g, " ")}</span>
+                <StatusBadge variant={verificationVariant(v.verificationStatus)}>{v.verificationStatus.replace(/_/g, " ")}</StatusBadge>
               </div>
               <p className="potg-muted" style={{ fontSize: 12, margin: "4px 0 10px" }}>
                 {v.serviceCategory.replace(/_/g, " ")}
@@ -199,7 +210,12 @@ function ReviewModerationQueue() {
         Every review flagged by the vendor or supplier it's about, platform-wide.
       </p>
       {error && <div className="potg-error" style={{ marginBottom: 12 }}>{error}</div>}
-      {!items && !error && <p className="potg-muted" style={{ fontSize: 12 }}>Loading…</p>}
+      {!items && !error && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <Skeleton height={60} />
+          <Skeleton height={60} />
+        </div>
+      )}
       {items && items.length === 0 && <p className="potg-muted" style={{ fontSize: 12 }}>No flagged reviews right now.</p>}
       {items && items.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
