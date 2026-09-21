@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Listing, ListingInquiry, ListingOffer, ListingSale } from "../../lib/api";
+import { useDefaultThumbnails, listingThumbnailCategory } from "../../lib/defaultThumbnails";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import Skeleton from "../../components/Skeleton";
@@ -32,6 +33,7 @@ function formatMoney(value?: string | null, currency?: string) {
 
 export default function ListingDetailPage() {
   const auth = useAuth();
+  const defaultThumbnails = useDefaultThumbnails();
   const router = useRouter();
   const id = typeof router.query.id === "string" ? router.query.id : undefined;
 
@@ -231,13 +233,23 @@ export default function ListingDetailPage() {
               </div>
             </div>
 
-            {listing.photoUrls.length > 0 && (
+            {listing.photoUrls.length > 0 ? (
               <div style={{ display: "flex", gap: 8, marginTop: 14, overflowX: "auto" }}>
                 {listing.photoUrls.map((url) => (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img key={url} src={url} alt={listing.title} style={{ width: 140, height: 100, objectFit: "cover", borderRadius: 8, flexShrink: 0 }} />
                 ))}
               </div>
+            ) : (
+              defaultThumbnails[listingThumbnailCategory(listing.listingType)] && (
+                <div style={{ marginTop: 14 }}>
+                  <img
+                    src={defaultThumbnails[listingThumbnailCategory(listing.listingType)]}
+                    alt=""
+                    style={{ width: 140, height: 100, objectFit: "cover", borderRadius: 8 }}
+                  />
+                </div>
+              )
             )}
 
             <div style={{ display: "flex", gap: 8, marginTop: 14 }}>

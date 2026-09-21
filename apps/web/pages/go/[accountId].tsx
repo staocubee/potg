@@ -4,6 +4,7 @@ import Head from "next/head";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
 import { ApiError, PublicProfile } from "../../lib/api";
+import { useDefaultThumbnails, listingThumbnailCategory } from "../../lib/defaultThumbnails";
 import Skeleton from "../../components/Skeleton";
 import StatusBadge from "../../components/StatusBadge";
 
@@ -31,6 +32,7 @@ function formatMoney(value?: string | null, currency?: string) {
 // token/accountId, same as the existing accept-invite token preview.
 export default function PublicProfilePage() {
   const auth = useAuth();
+  const defaultThumbnails = useDefaultThumbnails();
   const router = useRouter();
   const accountId = typeof router.query.accountId === "string" ? router.query.accountId : undefined;
 
@@ -86,7 +88,7 @@ export default function PublicProfilePage() {
                   <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
                     {(profile.vendor || profile.supplier) &&
                       (() => {
-                        const photoUrl = profile.vendor?.photoUrl ?? profile.supplier?.photoUrl;
+                        const photoUrl = profile.vendor?.photoUrl ?? profile.supplier?.photoUrl ?? defaultThumbnails.vendor;
                         return photoUrl ? (
                           <img
                             src={photoUrl}
@@ -145,8 +147,8 @@ export default function PublicProfilePage() {
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
                     {profile.supplier.products.map((p) => (
                       <div key={p.id} className="potg-card" style={{ overflow: "hidden" }}>
-                        {p.photoUrls[0] ? (
-                          <img src={p.photoUrls[0]} alt="" style={{ width: "100%", height: 110, objectFit: "cover", display: "block" }} />
+                        {p.photoUrls[0] || defaultThumbnails.material ? (
+                          <img src={p.photoUrls[0] ?? defaultThumbnails.material} alt="" style={{ width: "100%", height: 110, objectFit: "cover", display: "block" }} />
                         ) : (
                           <div style={{ width: "100%", height: 110, background: "var(--potg-gray-100)" }} />
                         )}
@@ -177,8 +179,12 @@ export default function PublicProfilePage() {
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 }}>
                     {profile.listings.map((l) => (
                       <div key={l.id} className="potg-card" style={{ padding: 14 }}>
-                        {l.photoUrls[0] && (
-                          <img src={l.photoUrls[0]} alt={l.title} style={{ width: "100%", height: 130, objectFit: "cover", borderRadius: 6, marginBottom: 8 }} />
+                        {(l.photoUrls[0] || defaultThumbnails[listingThumbnailCategory(l.listingType)]) && (
+                          <img
+                            src={l.photoUrls[0] ?? defaultThumbnails[listingThumbnailCategory(l.listingType)]}
+                            alt={l.title}
+                            style={{ width: "100%", height: 130, objectFit: "cover", borderRadius: 6, marginBottom: 8 }}
+                          />
                         )}
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                           <span style={{ fontWeight: 600, fontSize: 13 }}>{l.title}</span>

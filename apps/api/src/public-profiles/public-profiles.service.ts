@@ -45,6 +45,20 @@ export class PublicProfilesService {
   // line at — see VENDOR_SAFE_SELECT/SUPPLIER_SAFE_SELECT's own
   // comments) — no query logic duplicated here, only exposed with no
   // guard.
+  // The one map every fallback-thumbnail consumer (guest or logged-in)
+  // fetches once — same PlatformDefaultThumbnail table
+  // PlatformAdminController's own admin-only routes write, exposed here
+  // read-only with no guard at all, since a guest browsing the
+  // marketplace needs these fallbacks exactly as much as a logged-in
+  // buyer does. Returned as {category: imageUrl}, skipping categories
+  // with nothing configured yet, so a page can do
+  // `defaults["listing_sale"] ?? placeholder` without a null check per
+  // category.
+  async getDefaultThumbnails() {
+    const rows = await this.prisma.platformDefaultThumbnail.findMany({ select: { category: true, imageUrl: true } });
+    return Object.fromEntries(rows.map((r) => [r.category, r.imageUrl]));
+  }
+
   getPublicListings(query: SearchListingsQuery) {
     return this.listings.findAll(query);
   }

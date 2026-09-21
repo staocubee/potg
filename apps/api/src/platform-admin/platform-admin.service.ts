@@ -432,6 +432,33 @@ export class PlatformAdminService {
     };
   }
 
+  // The five categories a default thumbnail can cover today — see
+  // PlatformDefaultThumbnail's own schema comment for why each exists.
+  // Always returns all five (imageUrl null where nothing's configured
+  // yet) so the admin UI can render one row per category without first
+  // knowing which ones already have a row in the table.
+  static readonly DEFAULT_THUMBNAIL_CATEGORIES = ['listing_sale', 'listing_rent', 'listing_short_let', 'vendor', 'material'] as const;
+
+  async getDefaultThumbnails() {
+    const rows = await this.prisma.platformDefaultThumbnail.findMany();
+    const byCategory = new Map(rows.map((r) => [r.category, r]));
+    return PlatformAdminService.DEFAULT_THUMBNAIL_CATEGORIES.map((category) => {
+      const row = byCategory.get(category);
+      return { category, imageUrl: row?.imageUrl ?? null, updatedAt: row?.updatedAt ?? null };
+    });
+  }
+
+  async setDefaultThumbnail(category: string, imageUrl: string, actorUserId: string) {
+    if (!PlatformAdminService.DEFAULT_THUMBNAIL_CATEGORIES.includes(category as any)) {
+      throw new BadRequestException(`Unknown thumbnail category "${category}"`);
+    }
+    return this.prisma.platformDefaultThumbnail.upsert({
+      where: { category },
+      update: { imageUrl, updatedByUserId: actorUserId },
+      create: { category, imageUrl, updatedByUserId: actorUserId },
+    });
+  }
+
   // The audit-log half — every suspend/reinstate action, most recent
   // first, with the target account's own current name resolved so this
   // reads as a real log rather than a table of raw ids. Capped at 200:

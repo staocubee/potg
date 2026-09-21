@@ -4,6 +4,7 @@ import Head from "next/head";
 import Link from "next/link";
 import { useAuth } from "../lib/auth";
 import { MarketplaceHighlights } from "../lib/api";
+import { useDefaultThumbnails } from "../lib/defaultThumbnails";
 import Skeleton from "../components/Skeleton";
 
 function formatMoney(value: string, currency: string) {
@@ -76,6 +77,7 @@ export default function LandingPage() {
   }, [auth.hydrated, auth.token, auth.accountsLoaded, auth.accounts.length, router]);
 
   const [highlights, setHighlights] = useState<MarketplaceHighlights | null>(null);
+  const defaultThumbnails = useDefaultThumbnails();
 
   useEffect(() => {
     if (!auth.hydrated || auth.token) return;
@@ -225,8 +227,8 @@ export default function LandingPage() {
             <div className="potg-landing-grid">
               {businesses.map((b) => (
                 <Link key={b.accountId} href={`/go/${b.accountId}`} className="potg-card potg-card-hover" style={{ display: "block", overflow: "hidden" }}>
-                  {b.photoUrl ? (
-                    <img src={b.photoUrl} alt="" style={{ width: "100%", height: 100, objectFit: "cover", display: "block" }} />
+                  {b.photoUrl || defaultThumbnails.vendor ? (
+                    <img src={b.photoUrl ?? defaultThumbnails.vendor} alt="" style={{ width: "100%", height: 100, objectFit: "cover", display: "block" }} />
                   ) : (
                     <div style={{ width: "100%", height: 100, background: "var(--potg-gray-100)" }} />
                   )}

@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../../lib/auth";
 import { ApiError, Product, Project, Supplier, SupplierTrustAudit, SupplierVerificationEvidence } from "../../../lib/api";
+import { useDefaultThumbnails } from "../../../lib/defaultThumbnails";
 import AppShell from "../../../components/AppShell";
 import AskAiPanel from "../../../components/AskAiPanel";
 import Skeleton from "../../../components/Skeleton";
@@ -42,6 +43,7 @@ const TRUST_BAND_COLOR: Record<string, string | undefined> = {
 
 export default function SupplierDetailPage() {
   const auth = useAuth();
+  const defaultThumbnails = useDefaultThumbnails();
   const router = useRouter();
   const id = typeof router.query.id === "string" ? router.query.id : undefined;
 
@@ -121,9 +123,9 @@ export default function SupplierDetailPage() {
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14 }}>
               <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-                {supplier.photoUrl ? (
+                {supplier.photoUrl || defaultThumbnails.vendor ? (
                   <img
-                    src={supplier.photoUrl}
+                    src={supplier.photoUrl ?? defaultThumbnails.vendor}
                     alt=""
                     style={{ width: 64, height: 64, objectFit: "cover", borderRadius: "var(--potg-radius-sm)", border: "1px solid var(--potg-border)", flexShrink: 0 }}
                   />
@@ -196,9 +198,9 @@ export default function SupplierDetailPage() {
                 <div key={p.id} style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 13 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                     <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                      {p.photoUrls[0] && (
+                      {(p.photoUrls[0] || defaultThumbnails.material) && (
                         <img
-                          src={p.photoUrls[0]}
+                          src={p.photoUrls[0] ?? defaultThumbnails.material}
                           alt=""
                           style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6, border: "1px solid var(--potg-border)", flexShrink: 0 }}
                         />

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { HardHat } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { ApiError, SupplierReview, Vendor, VendorReview } from "../../lib/api";
+import { useDefaultThumbnails } from "../../lib/defaultThumbnails";
 import AppShell from "../../components/AppShell";
 import FilterBar from "../../components/FilterBar";
 import Skeleton from "../../components/Skeleton";
@@ -35,6 +36,7 @@ const SERVICE_CATEGORIES = [
 
 export default function VendorMarketplacePage() {
   const auth = useAuth();
+  const defaultThumbnails = useDefaultThumbnails();
   const [vendors, setVendors] = useState<Vendor[] | null>(null);
   const [category, setCategory] = useState("");
   const [location, setLocation] = useState("");
@@ -149,8 +151,8 @@ export default function VendorMarketplacePage() {
         <div className="potg-landing-grid">
           {vendors.map((v) => (
             <Link key={v.id} href={`/vendors/${v.id}`} className="potg-card potg-card-hover" style={{ display: "block", overflow: "hidden" }}>
-              {v.photoUrl ? (
-                <img src={v.photoUrl} alt="" style={{ width: "100%", height: 120, objectFit: "cover", display: "block" }} />
+              {v.photoUrl || defaultThumbnails.vendor ? (
+                <img src={v.photoUrl ?? defaultThumbnails.vendor} alt="" style={{ width: "100%", height: 120, objectFit: "cover", display: "block" }} />
               ) : (
                 <div style={{ width: "100%", height: 120, background: "var(--potg-gray-100)" }} />
               )}

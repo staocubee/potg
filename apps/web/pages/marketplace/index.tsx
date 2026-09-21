@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Store, Check } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Listing } from "../../lib/api";
+import { useDefaultThumbnails, listingThumbnailCategory } from "../../lib/defaultThumbnails";
 import AppShell from "../../components/AppShell";
 import FilterBar from "../../components/FilterBar";
 import Skeleton from "../../components/Skeleton";
@@ -43,6 +44,7 @@ function formatMoney(value?: string | null, currency?: string) {
 // separate sub-trees rather than forced into shared tabs.
 export default function PropertyMarketplacePage() {
   const auth = useAuth();
+  const defaultThumbnails = useDefaultThumbnails();
   const [listings, setListings] = useState<Listing[] | null>(null);
   const [listingType, setListingType] = useState("");
   const [propertyType, setPropertyType] = useState("");
@@ -209,8 +211,16 @@ export default function PropertyMarketplacePage() {
 
       {listings && listings.length > 0 && (
         <div className="potg-landing-grid">
-          {listings.map((l) => (
-            <Link key={l.id} href={`/marketplace/${l.id}`} className="potg-card potg-card-hover" style={{ display: "block", padding: 16 }}>
+          {listings.map((l) => {
+            const thumbnail = l.photoUrls[0] ?? defaultThumbnails[listingThumbnailCategory(l.listingType)];
+            return (
+            <Link key={l.id} href={`/marketplace/${l.id}`} className="potg-card potg-card-hover" style={{ display: "block", padding: 0, overflow: "hidden" }}>
+              {thumbnail ? (
+                <img src={thumbnail} alt="" style={{ width: "100%", height: 120, objectFit: "cover", display: "block" }} />
+              ) : (
+                <div style={{ width: "100%", height: 120, background: "var(--potg-gray-100)" }} />
+              )}
+              <div style={{ padding: 16 }}>
               {l.packageBadge && (
                 <span
                   className="potg-badge"
@@ -236,8 +246,10 @@ export default function PropertyMarketplacePage() {
                 </p>
               )}
               <div style={{ fontWeight: 700, fontSize: 15 }}>{formatMoney(l.askingPrice, l.currency)}</div>
+              </div>
             </Link>
-          ))}
+            );
+          })}
         </div>
       )}
     </AppShell>

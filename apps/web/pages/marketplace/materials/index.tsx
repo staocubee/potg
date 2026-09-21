@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Package } from "lucide-react";
 import { useAuth } from "../../../lib/auth";
 import { ApiError, Product } from "../../../lib/api";
+import { useDefaultThumbnails } from "../../../lib/defaultThumbnails";
 import AppShell from "../../../components/AppShell";
 import FilterBar from "../../../components/FilterBar";
 import Skeleton from "../../../components/Skeleton";
@@ -19,6 +20,7 @@ function formatMoney(value?: string | null, currency?: string) {
 
 export default function MaterialsMarketplacePage() {
   const auth = useAuth();
+  const defaultThumbnails = useDefaultThumbnails();
   const [products, setProducts] = useState<Product[] | null>(null);
   const [category, setCategory] = useState("");
   const [q, setQ] = useState("");
@@ -106,8 +108,8 @@ export default function MaterialsMarketplacePage() {
         <div className="potg-landing-grid">
           {products.map((p) => (
             <div key={p.id} className="potg-card potg-card-hover" style={{ overflow: "hidden" }}>
-              {p.photoUrls[0] ? (
-                <img src={p.photoUrls[0]} alt="" style={{ width: "100%", height: 120, objectFit: "cover", display: "block" }} />
+              {p.photoUrls[0] || defaultThumbnails.material ? (
+                <img src={p.photoUrls[0] ?? defaultThumbnails.material} alt="" style={{ width: "100%", height: 120, objectFit: "cover", display: "block" }} />
               ) : (
                 <div style={{ width: "100%", height: 120, background: "var(--potg-gray-100)" }} />
               )}

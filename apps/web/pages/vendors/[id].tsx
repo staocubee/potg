@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import Link from "next/link";
 import { useAuth } from "../../lib/auth";
 import { ApiError, Project, Vendor, VendorTrustAudit, VendorVerificationEvidence } from "../../lib/api";
+import { useDefaultThumbnails } from "../../lib/defaultThumbnails";
 import AppShell from "../../components/AppShell";
 import AskAiPanel from "../../components/AskAiPanel";
 import Skeleton from "../../components/Skeleton";
@@ -27,6 +28,7 @@ const TRUST_BAND_COLOR: Record<string, string | undefined> = {
 
 export default function VendorDetailPage() {
   const auth = useAuth();
+  const defaultThumbnails = useDefaultThumbnails();
   const router = useRouter();
   const id = typeof router.query.id === "string" ? router.query.id : undefined;
 
@@ -73,9 +75,9 @@ export default function VendorDetailPage() {
           <div className="potg-card" style={{ padding: 18 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 14 }}>
               <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-                {vendor.photoUrl ? (
+                {vendor.photoUrl || defaultThumbnails.vendor ? (
                   <img
-                    src={vendor.photoUrl}
+                    src={vendor.photoUrl ?? defaultThumbnails.vendor}
                     alt=""
                     style={{ width: 64, height: 64, objectFit: "cover", borderRadius: "var(--potg-radius-sm)", border: "1px solid var(--potg-border)", flexShrink: 0 }}
                   />

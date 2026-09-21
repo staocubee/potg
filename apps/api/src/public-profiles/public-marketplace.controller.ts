@@ -16,6 +16,11 @@ export class PublicMarketplaceController {
     return this.publicProfiles.getMarketplaceHighlights();
   }
 
+  @Get('default-thumbnails')
+  getDefaultThumbnails() {
+    return this.publicProfiles.getDefaultThumbnails();
+  }
+
   @Get('listings')
   getListings(@Query() query: SearchListingsQuery) {
     return this.publicProfiles.getPublicListings(query);

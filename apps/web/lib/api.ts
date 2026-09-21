@@ -1485,6 +1485,16 @@ export type PlatformAdminActionEntry = {
   createdAt: string;
 };
 
+// The five categories a fallback thumbnail can cover — see
+// PlatformDefaultThumbnail's own schema comment. imageUrl is null when
+// no admin has configured one yet for that category.
+export type DefaultThumbnailCategory = "listing_sale" | "listing_rent" | "listing_short_let" | "vendor" | "material";
+export type PlatformDefaultThumbnail = {
+  category: DefaultThumbnailCategory;
+  imageUrl: string | null;
+  updatedAt: string | null;
+};
+
 // Module 24's "Platform Admin Reports" — see
 // PlatformAdminService.getPlatformReports's own comment for what each
 // figure does and doesn't count.
@@ -3385,6 +3395,24 @@ export class ApiClient {
   }
   getPlatformReports() {
     return request<PlatformReports>("/platform-admin/reports", { token: this.token, accountId: this.accountId });
+  }
+  getPlatformDefaultThumbnails() {
+    return request<PlatformDefaultThumbnail[]>("/platform-admin/default-thumbnails", { token: this.token, accountId: this.accountId });
+  }
+  setPlatformDefaultThumbnail(category: DefaultThumbnailCategory, imageUrl: string) {
+    return request<PlatformDefaultThumbnail>(`/platform-admin/default-thumbnails/${category}`, {
+      method: "POST",
+      body: { imageUrl },
+      token: this.token,
+      accountId: this.accountId,
+    });
+  }
+  // The public, no-auth read of the same table — a guest browsing the
+  // marketplace needs the same fallback thumbnails a logged-in buyer
+  // sees. {category: imageUrl}, only for categories an admin has
+  // actually configured.
+  getDefaultThumbnails() {
+    return request<Partial<Record<DefaultThumbnailCategory, string>>>("/public/marketplace/default-thumbnails");
   }
   findOpenDisputesForArbitration() {
     return request<Dispute[]>("/payments/disputes/open", { token: this.token, accountId: this.accountId });

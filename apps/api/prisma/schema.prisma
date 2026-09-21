@@ -344,6 +344,31 @@ model PlatformAdminAction {
   @@map("platform_admin_actions")
 }
 
+// The platform-wide fallback thumbnail a listing/vendor/supplier/product
+// falls back to when its own owner hasn't uploaded a photo yet — a
+// user-requested feature, not from the numbered blueprint. Genuinely
+// platform-wide like ComplianceItem/PlatformAdminAction above (no
+// accountId), one row per category, category itself free text (not an
+// enum) for the same "this schema can't know every category the platform
+// might grow into" reason ComplianceItem.category already documents —
+// today's real values are listing_sale/listing_rent/listing_short_let
+// (PropertyListing.listingType's own three values), vendor (Vendor.
+// photoUrl), and material (Product.photoUrls). Read by anyone, including
+// guests (see PublicMarketplaceController) — written only by
+// platform_admin/platform_super_admin, same account:read_all/
+// account:suspend gating PlatformAdminController already uses elsewhere,
+// so this doesn't need its own new permission key.
+model PlatformDefaultThumbnail {
+  id              String   @id @default(uuid())
+  category        String   @unique
+  imageUrl        String
+  updatedByUserId String
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@map("platform_default_thumbnails")
+}
+
 // A user may belong to several accounts at once (personal, family, company,
 // vendor) — this is the multi-tenancy join the blueprint calls out as
 // something to get right on day one.

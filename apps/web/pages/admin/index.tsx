@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../../lib/auth";
-import { ApiError, PlatformAccountSummary, PlatformAdminActionEntry, PlatformEscrowAccountSummary, PlatformListingSummary, PlatformPropertySummary, PlatformReports, PlatformTransaction } from "../../lib/api";
+import { ApiError, DefaultThumbnailCategory, PlatformAccountSummary, PlatformAdminActionEntry, PlatformDefaultThumbnail, PlatformEscrowAccountSummary, PlatformListingSummary, PlatformPropertySummary, PlatformReports, PlatformTransaction } from "../../lib/api";
 import AppShell from "../../components/AppShell";
 import Skeleton from "../../components/Skeleton";
 import StatusBadge from "../../components/StatusBadge";
+import ProfilePhotoUpload from "../../components/ProfilePhotoUpload";
 
 function accountStatusVariant(status: string): "success" | "error" {
   return status === "suspended" ? "error" : "success";
@@ -365,6 +366,67 @@ function PlatformEscrowSection() {
   );
 }
 
+const THUMBNAIL_CATEGORY_LABEL: Record<DefaultThumbnailCategory, string> = {
+  listing_sale: "Properties for sale",
+  listing_rent: "Properties for rent",
+  listing_short_let: "Short-let properties",
+  vendor: "Vendors & suppliers",
+  material: "Materials & tools",
+};
+
+// The user-requested "default thumbnail uploadable across the platform"
+// feature — one image per category, shown wherever that category's own
+// entity (a listing, a vendor/supplier profile, a product) has no photo
+// of its own yet. See PlatformDefaultThumbnail's own schema comment for
+// why these five categories specifically. Read by every page via
+// lib/defaultThumbnails.ts's useDefaultThumbnails() (guests included —
+// GET /public/marketplace/default-thumbnails has no guard).
+function PlatformDefaultThumbnailsSection() {
+  const auth = useAuth();
+  const [thumbnails, setThumbnails] = useState<PlatformDefaultThumbnail[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  function load() {
+    if (!auth.currentAccountId) return;
+    auth.api
+      .getPlatformDefaultThumbnails()
+      .then(setThumbnails)
+      .catch((err) => setError(err instanceof ApiError ? err.message : "Couldn't load default thumbnails."));
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth.currentAccountId]);
+
+  async function onUploaded(category: DefaultThumbnailCategory, url: string) {
+    const updated = await auth.api.setPlatformDefaultThumbnail(category, url);
+    setThumbnails((prev) => (prev ? prev.map((t) => (t.category === category ? updated : t)) : prev));
+  }
+
+  if (error) return <div className="potg-error" style={{ marginBottom: 16 }}>{error}</div>;
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      <h3 style={{ fontSize: 14, margin: "0 0 4px" }}>Default thumbnails</h3>
+      <p className="potg-muted" style={{ fontSize: 11, margin: "0 0 10px" }}>
+        Shown platform-wide wherever a listing, vendor, supplier, or product hasn't uploaded its own photo yet.
+      </p>
+      {!thumbnails && <Skeleton lines={2} />}
+      {thumbnails && (
+        <div className="potg-card" style={{ padding: 14, display: "flex", flexDirection: "column", gap: 12 }}>
+          {thumbnails.map((t) => (
+            <div key={t.category} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 600 }}>{THUMBNAIL_CATEGORY_LABEL[t.category]}</div>
+              <ProfilePhotoUpload url={t.imageUrl} size={48} onUploaded={(url) => onUploaded(t.category, url)} />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Module 16-24's "admin operations" bucket, scoped to its one genuinely
 // buildable slice — see PlatformAdminAction's own schema comment for the
 // full reasoning. Gated entirely server-side (account:read_all/
@@ -420,6 +482,7 @@ export default function AdminPage() {
         unaffected.
       </p>
       <PlatformReportsSection />
+      <PlatformDefaultThumbnailsSection />
       <PlatformPropertiesAndListingsSection />
       <PlatformTransactionsSection />
       <PlatformEscrowSection />

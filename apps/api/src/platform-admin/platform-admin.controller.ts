@@ -6,6 +6,7 @@ import { RequirePermissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser, CurrentAccountMember } from '../common/decorators/current-user.decorator';
 import { PlatformAdminService } from './platform-admin.service';
 import { SuspendAccountDto } from './dto/suspend-account.dto';
+import { SetDefaultThumbnailDto } from './dto/set-default-thumbnail.dto';
 
 type UserCtx = { id: string };
 type AccountMemberCtx = { accountId: string };
@@ -93,5 +94,21 @@ export class PlatformAdminController {
   @Get('reports')
   getPlatformReports() {
     return this.admin.getPlatformReports();
+  }
+
+  @RequirePermissions('account:read_all')
+  @Get('default-thumbnails')
+  getDefaultThumbnails() {
+    return this.admin.getDefaultThumbnails();
+  }
+
+  @RequirePermissions('account:suspend')
+  @Post('default-thumbnails/:category')
+  setDefaultThumbnail(
+    @Param('category') category: string,
+    @Body() dto: SetDefaultThumbnailDto,
+    @CurrentUser() user: UserCtx,
+  ) {
+    return this.admin.setDefaultThumbnail(category, dto.imageUrl, user.id);
   }
 }
