@@ -61,7 +61,8 @@ export default function PublicProfilePage() {
             padding: "18px 20px",
           }}
         >
-          <Link href="/" style={{ color: "#fff", fontWeight: 700, fontSize: 16, textDecoration: "none" }}>
+          <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: 8, color: "#fff", fontWeight: 700, fontSize: 16, textDecoration: "none" }}>
+            <img src="/logo-mark.png" alt="" width={22} height={22} style={{ display: "block" }} />
             PropertyOnTheGo
           </Link>
         </div>

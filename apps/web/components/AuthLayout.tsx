@@ -1,4 +1,5 @@
 import Head from "next/head";
+import Link from "next/link";
 
 // Shared shell for /login and /register — deliberately not the app shell
 // (no nav, no account switcher, no Ask AI panel: there's no account
@@ -30,8 +31,11 @@ export default function AuthLayout({
       >
         <div style={{ width: "100%", maxWidth: 400 }}>
           <div style={{ textAlign: "center", marginBottom: "var(--potg-space-6)", color: "#fff" }}>
-            <div style={{ fontSize: "var(--potg-text-xl)", fontWeight: 700, letterSpacing: -0.3 }}>PropertyOnTheGo</div>
-            <div style={{ fontSize: "var(--potg-text-sm)", color: "#9fb3c4", marginTop: 2 }}>Own, build, and manage — with AI alongside you</div>
+            <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: 10, color: "#fff", textDecoration: "none" }}>
+              <img src="/logo-mark.png" alt="" width={32} height={32} style={{ display: "block" }} />
+              <span style={{ fontSize: "var(--potg-text-xl)", fontWeight: 700, letterSpacing: -0.3 }}>PropertyOnTheGo</span>
+            </Link>
+            <div style={{ fontSize: "var(--potg-text-sm)", color: "#9fb3c4", marginTop: 6 }}>Own, build, and manage — with AI alongside you</div>
           </div>
           <div className="potg-card" style={{ padding: "var(--potg-space-6)", boxShadow: "var(--potg-shadow-lg)" }}>
             <h1 style={{ fontSize: "var(--potg-text-xl)", marginBottom: 4 }}>{title}</h1>

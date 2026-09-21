@@ -200,7 +200,10 @@ export default function AppShell({
         {navOpen && <div className="potg-shell-backdrop-open" onClick={() => setNavOpen(false)} />}
         <aside className={`potg-shell-sidebar ${navOpen ? "potg-shell-sidebar-open" : ""}`}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 8px 20px" }}>
-            <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: -0.3 }}>PropertyOnTheGo</span>
+            <Link href="/" style={{ display: "flex", alignItems: "center", gap: 8, color: "#fff", textDecoration: "none" }}>
+              <img src="/logo-mark.png" alt="" width={22} height={22} style={{ display: "block", flexShrink: 0 }} />
+              <span style={{ fontWeight: 700, fontSize: 16, letterSpacing: -0.3 }}>PropertyOnTheGo</span>
+            </Link>
             <button
               type="button"
               onClick={() => setNavOpen(false)}

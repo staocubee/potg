@@ -104,7 +104,10 @@ export default function LandingPage() {
       <div style={{ minHeight: "100vh", background: "var(--potg-bg)" }}>
         {/* --- Nav --- */}
         <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "18px var(--potg-space-6)", maxWidth: 1180, margin: "0 auto" }}>
-          <span style={{ fontWeight: 700, fontSize: 16, color: "var(--potg-navy)" }}>PropertyOnTheGo</span>
+          <Link href="/" style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--potg-navy)", textDecoration: "none" }}>
+            <img src="/logo-mark.png" alt="" width={26} height={26} style={{ display: "block" }} />
+            <span style={{ fontWeight: 700, fontSize: 16 }}>PropertyOnTheGo</span>
+          </Link>
           <div style={{ display: "flex", gap: 8 }}>
             <Link href="/login" className="potg-btn potg-btn-secondary">Sign in</Link>
             <Link href="/register" className="potg-btn potg-btn-primary">Get started</Link>
