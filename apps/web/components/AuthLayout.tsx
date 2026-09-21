@@ -31,11 +31,14 @@ export default function AuthLayout({
       >
         <div style={{ width: "100%", maxWidth: 400 }}>
           <div style={{ textAlign: "center", marginBottom: "var(--potg-space-6)", color: "#fff" }}>
-            <Link href="/" style={{ display: "inline-flex", alignItems: "center", gap: 10, color: "#fff", textDecoration: "none" }}>
-              <img src="/logo-mark.png" alt="" width={32} height={32} style={{ display: "block" }} />
-              <span style={{ fontSize: "var(--potg-text-xl)", fontWeight: 700, letterSpacing: -0.3 }}>PropertyOnTheGo</span>
+            <Link
+              href="/"
+              aria-label="PropertyOnTheGo home"
+              style={{ display: "inline-flex", background: "#fff", borderRadius: "var(--potg-radius-sm)", padding: "8px 14px" }}
+            >
+              <img src="/logo-full.png" alt="PropertyOnTheGo" style={{ display: "block", height: 32, width: "auto" }} />
             </Link>
-            <div style={{ fontSize: "var(--potg-text-sm)", color: "#9fb3c4", marginTop: 6 }}>Own, build, and manage — with AI alongside you</div>
+            <div style={{ fontSize: "var(--potg-text-sm)", color: "#9fb3c4", marginTop: 10 }}>Own, build, and manage — with AI alongside you</div>
           </div>
           <div className="potg-card" style={{ padding: "var(--potg-space-6)", boxShadow: "var(--potg-shadow-lg)" }}>
             <h1 style={{ fontSize: "var(--potg-text-xl)", marginBottom: 4 }}>{title}</h1>
